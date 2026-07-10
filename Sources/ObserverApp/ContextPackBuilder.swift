@@ -210,7 +210,12 @@ struct ContextPackBuilder {
         let zone = latest.payload["attention_zone"] ?? "unknown"
         let position = latest.payload["face_position"] ?? "unknown"
         let count = latest.payload["face_count"] ?? "0"
-        return "- Face: \(face), zone: \(zone), position: \(position), detected faces: \(count)."
+        let eye = latest.payload["eye_contact_candidate"].map { candidate in
+            let score = latest.payload["eye_contact_score"].map { ", score \($0)" } ?? ""
+            let source = latest.payload["eye_signal_source"].map { ", source \($0)" } ?? ""
+            return " Eye contact candidate: \(candidate)\(score)\(source)."
+        } ?? ""
+        return "- Face: \(face), zone: \(zone), position: \(position), detected faces: \(count).\(eye)"
     }
 
     private func describeBehaviorCues(_ behaviorCueEvents: [ObserverEvent]) -> String {

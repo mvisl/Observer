@@ -165,6 +165,13 @@ struct AttentionSnapshot: Sendable {
     let yaw: Double?
     let pitch: Double?
     let roll: Double?
+    let eyeContactScore: Double?
+    let eyeContactCandidate: Bool?
+    let eyeSignalSource: String?
+    let leftPupilX: Double?
+    let leftPupilY: Double?
+    let rightPupilX: Double?
+    let rightPupilY: Double?
     let isTemporarilyLostFace: Bool
 
     init(
@@ -179,6 +186,13 @@ struct AttentionSnapshot: Sendable {
         yaw: Double?,
         pitch: Double?,
         roll: Double?,
+        eyeContactScore: Double? = nil,
+        eyeContactCandidate: Bool? = nil,
+        eyeSignalSource: String? = nil,
+        leftPupilX: Double? = nil,
+        leftPupilY: Double? = nil,
+        rightPupilX: Double? = nil,
+        rightPupilY: Double? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
         self.facePresent = facePresent
@@ -192,6 +206,13 @@ struct AttentionSnapshot: Sendable {
         self.yaw = yaw
         self.pitch = pitch
         self.roll = roll
+        self.eyeContactScore = eyeContactScore
+        self.eyeContactCandidate = eyeContactCandidate
+        self.eyeSignalSource = eyeSignalSource
+        self.leftPupilX = leftPupilX
+        self.leftPupilY = leftPupilY
+        self.rightPupilX = rightPupilX
+        self.rightPupilY = rightPupilY
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
@@ -218,6 +239,15 @@ struct AttentionSnapshot: Sendable {
         let centerX = Double(box.midX)
         let centerY = Double(box.midY)
         let area = Double(box.width * box.height)
+        let yaw = largestFace.yaw?.doubleValue
+        let pitch = largestFace.pitch?.doubleValue
+        let roll = largestFace.roll?.doubleValue
+        let eyeContact = EyeContactEstimator().estimate(
+            landmarks: largestFace.landmarks,
+            yaw: yaw,
+            pitch: pitch,
+            roll: roll
+        )
         let facePosition: FacePosition
         if centerX < 0.38 {
             facePosition = .left
@@ -238,9 +268,16 @@ struct AttentionSnapshot: Sendable {
             faceCenterX: centerX,
             faceCenterY: centerY,
             faceArea: area,
-            yaw: largestFace.yaw?.doubleValue,
-            pitch: largestFace.pitch?.doubleValue,
-            roll: largestFace.roll?.doubleValue
+            yaw: yaw,
+            pitch: pitch,
+            roll: roll,
+            eyeContactScore: eyeContact.score,
+            eyeContactCandidate: eyeContact.isCandidate,
+            eyeSignalSource: eyeContact.source,
+            leftPupilX: eyeContact.leftPupilX,
+            leftPupilY: eyeContact.leftPupilY,
+            rightPupilX: eyeContact.rightPupilX,
+            rightPupilY: eyeContact.rightPupilY
         )
     }
 
@@ -257,6 +294,13 @@ struct AttentionSnapshot: Sendable {
             yaw: yaw,
             pitch: pitch,
             roll: roll,
+            eyeContactScore: eyeContactScore,
+            eyeContactCandidate: eyeContactCandidate,
+            eyeSignalSource: eyeSignalSource,
+            leftPupilX: leftPupilX,
+            leftPupilY: leftPupilY,
+            rightPupilX: rightPupilX,
+            rightPupilY: rightPupilY,
             isTemporarilyLostFace: true
         )
     }
@@ -294,10 +338,127 @@ struct AttentionSnapshot: Sendable {
         if let roll {
             payload["head_roll"] = String(format: "%.4f", roll)
         }
+        if let eyeContactScore {
+            payload["eye_contact_score"] = String(format: "%.3f", eyeContactScore)
+        }
+        if let eyeContactCandidate {
+            payload["eye_contact_candidate"] = eyeContactCandidate ? "true" : "false"
+        }
+        if let eyeSignalSource {
+            payload["eye_signal_source"] = eyeSignalSource
+        }
+        if let leftPupilX {
+            payload["left_pupil_x"] = String(format: "%.3f", leftPupilX)
+        }
+        if let leftPupilY {
+            payload["left_pupil_y"] = String(format: "%.3f", leftPupilY)
+        }
+        if let rightPupilX {
+            payload["right_pupil_x"] = String(format: "%.3f", rightPupilX)
+        }
+        if let rightPupilY {
+            payload["right_pupil_y"] = String(format: "%.3f", rightPupilY)
+        }
         if isTemporarilyLostFace {
             payload["temporarily_lost_face"] = "true"
         }
 
         return payload
+    }
+}
+
+private struct EyeContactEstimate {
+    let score: Double?
+    let isCandidate: Bool?
+    let source: String?
+    let leftPupilX: Double?
+    let leftPupilY: Double?
+    let rightPupilX: Double?
+    let rightPupilY: Double?
+}
+
+private struct EyeContactEstimator {
+    func estimate(
+        landmarks: VNFaceLandmarks2D?,
+        yaw: Double?,
+        pitch: Double?,
+        roll: Double?
+    ) -> EyeContactEstimate {
+        let headScore = frontalHeadScore(yaw: yaw, pitch: pitch, roll: roll)
+        let left = pupilPosition(eye: landmarks?.leftEye, pupil: landmarks?.leftPupil)
+        let right = pupilPosition(eye: landmarks?.rightEye, pupil: landmarks?.rightPupil)
+
+        if let left, let right {
+            let leftScore = centeredPupilScore(left)
+            let rightScore = centeredPupilScore(right)
+            let pupilScore = (leftScore + rightScore) / 2
+            let score = min(1, max(0, pupilScore * 0.65 + headScore * 0.35))
+            return EyeContactEstimate(
+                score: score,
+                isCandidate: score >= 0.58,
+                source: "pupil_landmarks",
+                leftPupilX: left.x,
+                leftPupilY: left.y,
+                rightPupilX: right.x,
+                rightPupilY: right.y
+            )
+        }
+
+        return EyeContactEstimate(
+            score: headScore,
+            isCandidate: headScore >= 0.72,
+            source: "head_pose_only",
+            leftPupilX: nil,
+            leftPupilY: nil,
+            rightPupilX: nil,
+            rightPupilY: nil
+        )
+    }
+
+    private func pupilPosition(
+        eye: VNFaceLandmarkRegion2D?,
+        pupil: VNFaceLandmarkRegion2D?
+    ) -> CGPoint? {
+        guard
+            let eye,
+            let pupil,
+            !eye.normalizedPoints.isEmpty,
+            !pupil.normalizedPoints.isEmpty
+        else {
+            return nil
+        }
+
+        let eyePoints = eye.normalizedPoints
+        let minX = eyePoints.map(\.x).min() ?? 0
+        let maxX = eyePoints.map(\.x).max() ?? 0
+        let minY = eyePoints.map(\.y).min() ?? 0
+        let maxY = eyePoints.map(\.y).max() ?? 0
+        let width = maxX - minX
+        let height = maxY - minY
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        let pupilPoints = pupil.normalizedPoints
+        let pupilX = pupilPoints.map(\.x).reduce(0, +) / CGFloat(pupilPoints.count)
+        let pupilY = pupilPoints.map(\.y).reduce(0, +) / CGFloat(pupilPoints.count)
+        return CGPoint(
+            x: min(1, max(0, (pupilX - minX) / width)),
+            y: min(1, max(0, (pupilY - minY) / height))
+        )
+    }
+
+    private func centeredPupilScore(_ point: CGPoint) -> Double {
+        let dx = Double(point.x - 0.5)
+        let dy = Double(point.y - 0.5)
+        let distance = sqrt(dx * dx + dy * dy)
+        return min(1, max(0, 1 - distance / 0.35))
+    }
+
+    private func frontalHeadScore(yaw: Double?, pitch: Double?, roll: Double?) -> Double {
+        let yawPenalty = min(abs(yaw ?? 0) / 0.42, 1)
+        let pitchPenalty = min(abs(pitch ?? 0) / 0.35, 1)
+        let rollPenalty = min(abs(roll ?? 0) / 0.45, 1)
+        return min(1, max(0, 1 - (yawPenalty * 0.5 + pitchPenalty * 0.3 + rollPenalty * 0.2)))
     }
 }

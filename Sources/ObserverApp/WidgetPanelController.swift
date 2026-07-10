@@ -7,7 +7,7 @@ final class WidgetPanelController {
     private let widgetView: ObserverWidgetView
 
     init() {
-        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 312, height: 78))
+        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 312, height: 58))
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -148,10 +148,11 @@ final class ObserverWidgetView: NSView {
     func update(_ state: ObserverViewState) {
         self.state = state
         statusLabel.stringValue = state.mode.displayText
-        contextLabel.stringValue = state.contextText
-        metaLabel.stringValue = state.attentionText
-        hintLabel.stringValue = state.hintText ?? ""
-        hintLabel.isHidden = state.hintText == nil
+        contextLabel.stringValue = summaryLine(for: state)
+        metaLabel.stringValue = ""
+        hintLabel.stringValue = ""
+        metaLabel.isHidden = true
+        hintLabel.isHidden = true
         statusDot.layer?.backgroundColor = dotColor(for: state.mode).cgColor
         refreshSessionDuration()
     }
@@ -210,9 +211,10 @@ final class ObserverWidgetView: NSView {
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.lineBreakMode = .byTruncatingTail
         metaLabel.maximumNumberOfLines = 1
+        metaLabel.isHidden = true
 
         hintLabel.font = .systemFont(ofSize: 10, weight: .medium)
-        hintLabel.textColor = .controlAccentColor
+        hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byTruncatingTail
         hintLabel.maximumNumberOfLines = 1
         hintLabel.isHidden = true
@@ -239,6 +241,26 @@ final class ObserverWidgetView: NSView {
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             hintLabel.topAnchor.constraint(equalTo: metaLabel.bottomAnchor, constant: 3)
         ])
+    }
+
+    private func summaryLine(for state: ObserverViewState) -> String {
+        let context = state.contextText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attention = state.attentionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hint = state.hintText?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if context.hasPrefix("Пишет:") || context.hasPrefix("Контекст:") {
+            return context
+        }
+
+        if let hint, !hint.isEmpty {
+            return "\(context): \(hint)"
+        }
+
+        if !attention.isEmpty, attention != context {
+            return "\(context): \(attention)"
+        }
+
+        return context.isEmpty ? "Наблюдаю контекст" : context
     }
 
     private func refreshSessionDuration() {

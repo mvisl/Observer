@@ -41,6 +41,13 @@ Media reaction payloads:
 - context metadata: `activity_insight`, `app_name`, optional `confounder`
 - `preference_recorded`: `true` only when the user appears present enough to treat the action as feedback
 
+Attention payloads:
+
+- face/head: `face_present`, `face_position`, `face_center_x`, `face_center_y`, `head_yaw`, `head_pitch`, `head_roll`
+- eye contact: `eye_contact_score`, `eye_contact_candidate`, `eye_signal_source`
+- pupil landmarks when available: `left_pupil_x`, `left_pupil_y`, `right_pupil_x`, `right_pupil_y`
+- `eye_signal_source=pupil_landmarks` means Vision exposed pupil landmarks; `head_pose_only` is a weaker fallback
+
 Behavior cue payloads:
 
 - `cue`: `steady_focus`, `friction_candidate`, `strong_reaction_candidate`, or future weak cues

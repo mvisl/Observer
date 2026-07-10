@@ -147,4 +147,31 @@ struct AttentionStateBuilderTests {
         #expect(text.contains("Активно работает"))
         #expect(text.contains("у экрана"))
     }
+
+    @Test func includesEyeContactPayloadWhenAvailable() {
+        let attention = AttentionSnapshot(
+            facePresent: true,
+            attentionZone: .nearCamera,
+            facePosition: .center,
+            confidence: 0.8,
+            faceCount: 1,
+            faceCenterX: 0.5,
+            faceCenterY: 0.4,
+            faceArea: 0.05,
+            yaw: 0,
+            pitch: 0,
+            roll: 0,
+            eyeContactScore: 0.82,
+            eyeContactCandidate: true,
+            eyeSignalSource: "pupil_landmarks",
+            leftPupilX: 0.51,
+            leftPupilY: 0.48,
+            rightPupilX: 0.49,
+            rightPupilY: 0.47
+        )
+
+        #expect(attention.eventPayload["eye_contact_candidate"] == "true")
+        #expect(attention.eventPayload["eye_signal_source"] == "pupil_landmarks")
+        #expect(attention.eventPayload["left_pupil_x"] == "0.510")
+    }
 }
