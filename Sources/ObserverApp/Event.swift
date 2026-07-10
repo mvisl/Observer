@@ -9,6 +9,7 @@ enum ObserverEventType: String, Codable {
     case appFocusInterval
     case awayPresenceIncident
     case behaviorCue
+    case boundReaction
     case breakpoint
     case cameraAttentionStarted
     case cameraAttentionStopped
@@ -39,6 +40,7 @@ enum ObserverEventType: String, Codable {
     case observingStarted
     case observingPaused
     case contextPackGenerated
+    case contentContext
     case privacyAllowlistAdded
     case privacyExclusionAdded
     case userNote

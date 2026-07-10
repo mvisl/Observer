@@ -22,8 +22,12 @@ struct ReviewSampler {
             .filter { $0.confidence > 0.75 }
             .suffix(1)
             .map { sample(from: $0, reason: "precision_control") }
+        let reactionBinding = events
+            .filter { $0.type == .boundReaction }
+            .suffix(1)
+            .map { sample(from: $0, reason: "reaction_binding_check") }
 
-        return Array(activeLearning + precisionControl)
+        return Array(activeLearning + precisionControl + reactionBinding)
     }
 
     private func sample(from event: ObserverEvent, reason: String) -> ReviewSample {

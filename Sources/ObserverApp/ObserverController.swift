@@ -66,6 +66,9 @@ final class ObserverController {
                 guard let appID else {
                     return false
                 }
+                if environment.settings.fullContextMode {
+                    return !environment.privacyStore.isExcluded(appID)
+                }
                 return environment.privacyStore.isContentAllowed(appID)
             }
         )
@@ -310,7 +313,11 @@ final class ObserverController {
 
     func collectContextPack() -> String {
         let events = (try? environment.eventStore.recentEvents(limit: 80)) ?? []
-        let pack = ContextPackBuilder(topology: environment.topology).build(events: events, mode: mode)
+        let pack = ContextPackBuilder(
+            topology: environment.topology,
+            pseudonymizeEntities: environment.settings.pseudonymizeEntities,
+            entityAggregates: (try? environment.entityStore.aggregates()) ?? [:]
+        ).build(events: events, mode: mode)
         append(
             .init(
                 type: .contextPackGenerated,
@@ -390,7 +397,11 @@ final class ObserverController {
 
     func generateLocalLLMInsight() {
         let events = (try? environment.eventStore.recentEvents(limit: 250)) ?? []
-        let context = ContextPackBuilder(topology: environment.topology).build(events: events, mode: mode)
+        let context = ContextPackBuilder(
+            topology: environment.topology,
+            pseudonymizeEntities: environment.settings.pseudonymizeEntities,
+            entityAggregates: (try? environment.entityStore.aggregates()) ?? [:]
+        ).build(events: events, mode: mode)
 
         Task {
             do {
@@ -513,6 +524,8 @@ final class ObserverController {
                     "request_kind": "work_insight",
                     "status": "started",
                     "prompt_chars": "\(prompt.count)",
+                    "request_body": prompt,
+                    "pseudonymize_entities": environment.settings.pseudonymizeEntities ? "true" : "false",
                     "estimated_cost_eur": String(format: "%.4f", environment.settings.geminiEstimatedCostPerRequestEUR),
                     "spent_today_eur": String(format: "%.4f", budgetDecision.spentTodayEUR),
                     "daily_budget_eur": String(format: "%.2f", budgetDecision.budgetEUR)
@@ -914,37 +927,118 @@ final class ObserverController {
             notifyStateChanged()
 
         case .screenContext(let context):
-            setLatestContextLine(context.shortDisplayLine(prefix: "Контекст"))
-            append(
-                .init(
-                    type: .screenContext,
-                    displayRole: context.displayRole,
-                    appID: context.appID,
-                    confidence: context.confidence,
-                    payload: context.eventPayload,
-                    workspaceTopologyVersion: environment.topology.version
-                )
+            recordContentContext(
+                context,
+                legacyType: .screenContext,
+                contextKind: "screen",
+                displayPrefix: "Контекст"
             )
 
         case .writingContext(let context):
-            var payload = context.eventPayload
-            payload["context_kind"] = "active_writing"
             lastWritingContextAt = Date()
-            setLatestContextLine(context.shortDisplayLine(prefix: "Пишет"))
+            recordContentContext(
+                context,
+                legacyType: .writingContext,
+                contextKind: "active_writing",
+                displayPrefix: "Пишет"
+            )
             recordTextAffectCueIfNeeded(
                 text: context.focusedElementValue ?? context.selectedText,
                 appName: context.appName
             )
-            append(
-                .init(
-                    type: .writingContext,
-                    displayRole: context.displayRole,
-                    appID: context.appID,
-                    confidence: context.confidence,
-                    payload: payload,
-                    workspaceTopologyVersion: environment.topology.version
-                )
+        }
+    }
+
+    private func recordContentContext(
+        _ context: ScreenContextSnapshot,
+        legacyType: ObserverEventType,
+        contextKind: String,
+        displayPrefix: String
+    ) {
+        let allowRawKinds = Set(environment.settings.rawContextStorageKinds)
+        guard let annotation = ContentContextAnnotator().annotate(
+            context: context,
+            allowRawKinds: allowRawKinds
+        ) else {
+            return
+        }
+
+        setLatestContextLine(
+            widgetContextLine(
+                prefix: displayPrefix,
+                annotation: annotation,
+                context: context
             )
+        )
+
+        var payload = annotation.payload
+        payload["app_name"] = context.appName
+        payload["context_kind"] = contextKind
+        payload["content_source"] = "accessibility"
+        if let appID = context.appID {
+            payload["app_id"] = appID
+        }
+        if let displayRole = context.displayRole {
+            payload["display_role"] = displayRole.rawValue
+        }
+        if let screenIndex = context.screenIndex {
+            payload["screen_index"] = "\(screenIndex)"
+        }
+        if let entityName = annotation.sourceEntityDisplayName,
+           let entity = try? environment.entityStore.upsertEntity(
+            kind: annotation.contentKind == "email" ? "person" : "channel",
+            displayName: entityName
+        ) {
+            payload["source_entity_id"] = entity.id
+            payload.removeValue(forKey: "source_entity_display_name")
+            try? environment.entityStore.recordInteraction(
+                entityID: entity.id,
+                sentiment: annotation.sentiment,
+                reaction: nil
+            )
+        }
+
+        append(
+            .init(
+                type: .contentContext,
+                displayRole: context.displayRole,
+                appID: context.appID,
+                confidence: context.confidence,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+
+        guard !environment.settings.fullContextMode else {
+            return
+        }
+
+        var legacyPayload = context.eventPayload
+        legacyPayload["context_kind"] = contextKind
+        append(
+            .init(
+                type: legacyType,
+                displayRole: context.displayRole,
+                appID: context.appID,
+                confidence: context.confidence,
+                payload: legacyPayload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func widgetContextLine(
+        prefix: String,
+        annotation: ContentContextAnnotation,
+        context: ScreenContextSnapshot
+    ) -> String? {
+        switch environment.settings.pillVerbosity {
+        case "full":
+            return context.shortDisplayLine(prefix: prefix)
+        case "status_only":
+            return nil
+        default:
+            return "\(prefix): \(annotation.contentKind)"
         }
     }
 
@@ -955,7 +1049,10 @@ final class ObserverController {
         guard let currentFocus, let appID = currentFocus.appID else {
             return
         }
-        guard environment.privacyStore.isContentAllowed(appID) else {
+        let contentEnabled = environment.settings.fullContextMode
+            ? !environment.privacyStore.isExcluded(appID)
+            : environment.privacyStore.isContentAllowed(appID)
+        guard contentEnabled else {
             return
         }
 
@@ -981,10 +1078,33 @@ final class ObserverController {
 
             lastOCRWritingFallbackAt = now
             lastOCRWritingFallbackKey = key
+            recordTextAffectCueIfNeeded(text: result.text, appName: result.appName)
+            let context = ScreenContextSnapshot(
+                appID: result.appID,
+                appName: result.appName,
+                windowTitle: result.windowTitle,
+                windowRole: nil,
+                document: nil,
+                focusedElementRole: nil,
+                focusedElementTitle: nil,
+                focusedElementValue: result.text,
+                selectedText: nil,
+                screenIndex: currentFocus.screenIndex,
+                displayRole: currentFocus.displayRole,
+                confidence: min(result.confidence, 0.55)
+            )
+            recordContentContext(
+                context,
+                legacyType: .ocrContext,
+                contextKind: "writing_fallback",
+                displayPrefix: "Контекст"
+            )
+            guard !environment.settings.fullContextMode else {
+                return
+            }
             var payload = result.eventPayload
             payload["context_kind"] = "writing_fallback"
             payload["fallback_reason"] = "accessibility_text_unavailable"
-            recordTextAffectCueIfNeeded(text: result.text, appName: result.appName)
             append(
                 .init(
                     type: .ocrContext,
@@ -1285,6 +1405,7 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        recordBoundReactionIfNeeded(cueEvent: event)
 
         guard displayEligible, decision.surfaceAllowed else {
             return
@@ -1296,6 +1417,35 @@ final class ObserverController {
             latestHint = displayText
             lastHintAt = now
         }
+    }
+
+    private func recordBoundReactionIfNeeded(cueEvent: ObserverEvent) {
+        let recentEvents = (try? environment.eventStore.recentEvents(limit: 80)) ?? []
+        guard let payload = BoundReactionBuilder().build(
+            cueEvent: cueEvent,
+            recentEvents: recentEvents
+        ) else {
+            return
+        }
+
+        if let entityID = payload["entity_id"] {
+            try? environment.entityStore.recordInteraction(
+                entityID: entityID,
+                sentiment: payload["sentiment"] ?? "neutral",
+                reaction: payload["cue"]
+            )
+        }
+
+        append(
+            .init(
+                type: .boundReaction,
+                displayRole: cueEvent.displayRole,
+                appID: cueEvent.appID,
+                confidence: min(0.9, cueEvent.confidence + 0.2),
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func closeCurrentFocusInterval(reason: String) {

@@ -79,8 +79,8 @@ struct FusionEngine {
             return event.payload["face_present"] == "true" ? "camera" : nil
         case .behaviorCue:
             return behaviorCueChannel(event.payload)
-        case .writingContext, .ocrContext, .screenContext:
-            return "text"
+        case .contentContext, .writingContext, .ocrContext, .screenContext:
+            return "content"
         case .inputActivity, .typingRhythm, .mouseDynamics:
             return "input"
         case .scrollProfile:
@@ -102,7 +102,7 @@ struct FusionEngine {
             return "camera"
         }
         if cue.contains("writing") || cue.contains("text") || cue.contains("tone") {
-            return "text"
+            return "content"
         }
         if cue.contains("media") || cue.contains("music") {
             return "media"

@@ -373,14 +373,19 @@ enum ActiveWindowReader {
         let app = AXUIElementCreateApplication(processID)
         let focusedElement = axElement(app, attribute: kAXFocusedUIElementAttribute)
         let windowTitle = stringAttribute(window, kAXTitleAttribute)
-        let focusedElementValue = sanitizeText(
-            PrivacyRedactor.redact(stringAttribute(focusedElement, kAXValueAttribute)),
-            maxLength: 500
-        )
-        let selectedText = sanitizeText(
-            PrivacyRedactor.redact(stringAttribute(focusedElement, kAXSelectedTextAttribute)),
-            maxLength: 500
-        )
+        let secureElement = isSecureElement(focusedElement)
+        let focusedElementValue = secureElement
+            ? nil
+            : sanitizeText(
+                PrivacyRedactor.redact(stringAttribute(focusedElement, kAXValueAttribute)),
+                maxLength: 500
+            )
+        let selectedText = secureElement
+            ? nil
+            : sanitizeText(
+                PrivacyRedactor.redact(stringAttribute(focusedElement, kAXSelectedTextAttribute)),
+                maxLength: 500
+            )
 
         let context = ScreenContextSnapshot(
             appID: appID,
@@ -454,6 +459,22 @@ enum ActiveWindowReader {
         }
 
         return nil
+    }
+
+    private static func isSecureElement(_ element: AXUIElement?) -> Bool {
+        let haystack = [
+            stringAttribute(element, kAXRoleAttribute),
+            stringAttribute(element, kAXSubroleAttribute),
+            stringAttribute(element, kAXDescriptionAttribute),
+            stringAttribute(element, kAXTitleAttribute)
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .lowercased()
+
+        return haystack.contains("secure")
+            || haystack.contains("password")
+            || haystack.contains("passcode")
     }
 
     private static func sanitizeText(_ value: String?, maxLength: Int) -> String? {

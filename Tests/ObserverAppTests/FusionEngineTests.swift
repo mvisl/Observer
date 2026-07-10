@@ -44,7 +44,7 @@ struct FusionEngineTests {
         #expect(decision.publicationState == "publishable")
         #expect(decision.surfaceAllowed == true)
         #expect(decision.channels.contains("camera"))
-        #expect(decision.channels.contains("text"))
+        #expect(decision.channels.contains("content"))
         #expect(decision.payload["surface_allowed"] == "true")
     }
 

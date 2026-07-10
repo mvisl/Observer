@@ -30,5 +30,9 @@ struct ObserverSettingsTests {
         #expect(settings.geminiModel == "gemini-3.5-flash")
         #expect(settings.autoPauseMediaWhenAway == true)
         #expect(settings.autoResumeMediaWhenBack == true)
+        #expect(settings.fullContextMode == true)
+        #expect(settings.rawContextStorageKinds == ["prompt", "code", "doc"])
+        #expect(settings.pillVerbosity == "task_only")
+        #expect(settings.pseudonymizeEntities == true)
     }
 }

@@ -18,9 +18,9 @@ Syncable schema knowledge may live in GitHub. Real event rows should stay local 
 Core event families:
 
 - focus: `appFocus`, `appFocusInterval`
-- context: `screenContext`, `ocrContext`, `writingContext`
+- context: `contentContext`, plus legacy `screenContext`, `ocrContext`, `writingContext` when full-context mode is off
 - attention: `attention`
-- interpretation: `activityInsight`, `behaviorCue`, `gazeCalibrationSample`
+- interpretation: `activityInsight`, `behaviorCue`, `boundReaction`, `fusionHypothesis`, `gazeCalibrationSample`
 - protection: `awayPresenceIncident`
 - camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
 - memory: `localSummary`, `researchDigest`, `userNote`
@@ -30,6 +30,31 @@ Core event families:
 - privacy: `privacyAllowlistAdded`, `privacyExclusionAdded`
 - product: `detectorFired`, `hintCandidate`
 - lifecycle: `appLaunch`, `appShutdown`, `observingStarted`, `observingPaused`, `sessionBoundary`
+
+Full context rules:
+
+- `fullContextMode=true` changes content capture from allowlist to opt-out exclusions.
+- Raw app text is scrubbed before annotation and is not stored in `contentContext` by default.
+- Persistent semantic fields: `content_kind`, `topic`, `sentiment`, `language`, `is_incoming`, optional `source_entity_id`.
+- Raw fragments are only allowed for configured work artifact kinds (`prompt`, `code`, `doc` by default) and remain local.
+- External LLM context packs use content annotations and entity aggregates; raw fragments are excluded from safe summaries.
+- Entity names may be pseudonymized before external calls.
+
+Content context payloads:
+
+- `content_kind`: `message`, `email`, `article`, `doc`, `code`, `prompt`, `feed`, or `video`
+- `topic`: short local semantic phrase
+- `sentiment`: `pos`, `neg`, `neutral`, or `mixed`
+- `language`: short language code such as `ru` or `en`
+- `is_incoming`: boolean string
+- `source_entity_id`: optional local entity id from structured app/window context
+
+Bound reaction payloads:
+
+- `cue`: behavior cue linked to nearby content
+- `entity_id`: optional local entity id
+- `topic`: content topic
+- `evidence_event_ids`: behavior/content event ids
 
 Media reaction payloads:
 

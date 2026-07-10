@@ -11,6 +11,8 @@ struct LocalSummaryBuilder {
         let screenContexts = events.filter { $0.type == .screenContext }
         let writingContexts = events.filter { $0.type == .writingContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
+        let contentContexts = events.filter { $0.type == .contentContext }
+        let boundReactions = events.filter { $0.type == .boundReaction }
         let inputEvents = events.filter { $0.type == .inputActivity }
         let startedAt = events.first?.timestamp
         let endedAt = events.last?.timestamp
@@ -18,10 +20,11 @@ struct LocalSummaryBuilder {
 
         let contentAllowedCount = appFocusEvents.filter { $0.payload["content_allowed"] == "true" }.count
         let contentBlockedCount = appFocusEvents.filter { $0.payload["content_allowed"] == "false" }.count
-        let latestContext = writingContexts.last.map(describeScreenContext)
+        let latestContext = contentContexts.last.map(describeContentContext)
+            ?? writingContexts.last.map(describeScreenContext)
             ?? screenContexts.last.map(describeScreenContext)
             ?? ocrContexts.last.map(describeOCRContext)
-            ?? "- No allowlisted screen context captured."
+            ?? "- No semantic screen context captured."
         let inputLine = inputEvents.last.map(describeInput) ?? "- No input activity sample yet."
 
         return """
@@ -34,7 +37,7 @@ struct LocalSummaryBuilder {
 
         \(topApps)
 
-        ## Latest Allowlisted Context
+        ## Latest Content Context
 
         \(latestContext)
 
@@ -54,6 +57,10 @@ struct LocalSummaryBuilder {
 
         \(describeDetectors(detectorEvents))
 
+        ## Emotional Timeline
+
+        \(describeEmotionalTimeline(boundReactions: boundReactions, inputEvents: inputEvents))
+
         ## Privacy
 
         - Content allowed focus events: \(contentAllowedCount)
@@ -61,7 +68,7 @@ struct LocalSummaryBuilder {
 
         ## Early Read
 
-        \(earlyRead(appFocusEvents: appFocusEvents, screenContexts: screenContexts + writingContexts, inputEvents: inputEvents))
+        \(earlyRead(appFocusEvents: appFocusEvents, screenContexts: contentContexts + screenContexts + writingContexts, inputEvents: inputEvents))
         """
     }
 
@@ -106,8 +113,16 @@ struct LocalSummaryBuilder {
 
     private func describeOCRContext(_ event: ObserverEvent) -> String {
         let app = event.payload["app_name"] ?? event.appID ?? "unknown"
-        let text = event.payload["text"] ?? ""
-        return "- App: \(app)\n- OCR: \(text)"
+        return "- App: \(app)\n- OCR context captured."
+    }
+
+    private func describeContentContext(_ event: ObserverEvent) -> String {
+        let app = event.payload["app_name"] ?? event.appID ?? "unknown"
+        let kind = event.payload["content_kind"] ?? "unknown"
+        let topic = event.payload["topic"] ?? "unknown"
+        let sentiment = event.payload["sentiment"] ?? "neutral"
+        let entity = event.payload["source_entity_id"].map { "\n- Entity: \($0)" } ?? ""
+        return "- App: \(app)\n- Kind: \(kind)\n- Topic: \(topic)\n- Sentiment: \(sentiment)\(entity)"
     }
 
     private func describeInput(_ event: ObserverEvent) -> String {
@@ -149,6 +164,25 @@ struct LocalSummaryBuilder {
             let detector = event.payload["detector"] ?? "unknown"
             let interpretation = event.payload["interpretation"] ?? "no interpretation"
             return "- \(detector): \(interpretation)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeEmotionalTimeline(
+        boundReactions: [ObserverEvent],
+        inputEvents: [ObserverEvent]
+    ) -> String {
+        let reactions = boundReactions.suffix(8)
+        guard !reactions.isEmpty else {
+            return "- No content-bound reactions yet."
+        }
+
+        return reactions.map { reaction in
+            let hour = Calendar.current.component(.hour, from: reaction.timestamp)
+            let cue = reaction.payload["cue"] ?? "reaction"
+            let topic = reaction.payload["topic"] ?? "unknown topic"
+            let nearestInput = inputEvents.last { $0.timestamp <= reaction.timestamp }
+            let idle = nearestInput?.payload["seconds_since_any_input"].map { ", input idle \($0)s" } ?? ""
+            return "- \(hour):00 · \(cue) after \(topic)\(idle)"
         }.joined(separator: "\n")
     }
 

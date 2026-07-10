@@ -4,6 +4,7 @@ struct AppEnvironment {
     let dataDirectory: URL
     let configStore: ConfigStore
     let eventStore: EventStore
+    let entityStore: EntityStore
     let privacyStore: PrivacyStore
     let settings: ObserverSettings
     let topology: WorkspaceTopology
@@ -23,6 +24,7 @@ struct AppEnvironment {
         let topology = try configStore.loadOrCreateTopology()
         let settings = try configStore.loadOrCreateSettings()
         let eventStore = try EventStore(directory: directory)
+        let entityStore = try EntityStore(directory: directory)
         try eventStore.pruneEvents(olderThanDays: settings.retentionDays, keepingTypes: [.localSummary])
         let privacyStore = try PrivacyStore(directory: directory)
 
@@ -30,6 +32,7 @@ struct AppEnvironment {
             dataDirectory: directory,
             configStore: configStore,
             eventStore: eventStore,
+            entityStore: entityStore,
             privacyStore: privacyStore,
             settings: settings,
             topology: topology

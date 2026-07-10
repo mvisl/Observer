@@ -24,6 +24,10 @@ struct ObserverSettings: Codable {
     var geminiEstimatedCostPerRequestEUR: Double
     var autoPauseMediaWhenAway: Bool
     var autoResumeMediaWhenBack: Bool
+    var fullContextMode: Bool
+    var rawContextStorageKinds: [String]
+    var pillVerbosity: String
+    var pseudonymizeEntities: Bool
     var detectorSettings: DetectorSettings
 
     init(
@@ -42,6 +46,10 @@ struct ObserverSettings: Codable {
         geminiEstimatedCostPerRequestEUR: Double,
         autoPauseMediaWhenAway: Bool,
         autoResumeMediaWhenBack: Bool,
+        fullContextMode: Bool,
+        rawContextStorageKinds: [String],
+        pillVerbosity: String,
+        pseudonymizeEntities: Bool,
         detectorSettings: DetectorSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
@@ -59,6 +67,10 @@ struct ObserverSettings: Codable {
         self.geminiEstimatedCostPerRequestEUR = geminiEstimatedCostPerRequestEUR
         self.autoPauseMediaWhenAway = autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = autoResumeMediaWhenBack
+        self.fullContextMode = fullContextMode
+        self.rawContextStorageKinds = rawContextStorageKinds
+        self.pillVerbosity = pillVerbosity
+        self.pseudonymizeEntities = pseudonymizeEntities
         self.detectorSettings = detectorSettings
     }
 
@@ -80,6 +92,10 @@ struct ObserverSettings: Codable {
         self.geminiEstimatedCostPerRequestEUR = try container.decodeIfPresent(Double.self, forKey: .geminiEstimatedCostPerRequestEUR) ?? defaults.geminiEstimatedCostPerRequestEUR
         self.autoPauseMediaWhenAway = try container.decodeIfPresent(Bool.self, forKey: .autoPauseMediaWhenAway) ?? defaults.autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = try container.decodeIfPresent(Bool.self, forKey: .autoResumeMediaWhenBack) ?? defaults.autoResumeMediaWhenBack
+        self.fullContextMode = try container.decodeIfPresent(Bool.self, forKey: .fullContextMode) ?? defaults.fullContextMode
+        self.rawContextStorageKinds = try container.decodeIfPresent([String].self, forKey: .rawContextStorageKinds) ?? defaults.rawContextStorageKinds
+        self.pillVerbosity = try container.decodeIfPresent(String.self, forKey: .pillVerbosity) ?? defaults.pillVerbosity
+        self.pseudonymizeEntities = try container.decodeIfPresent(Bool.self, forKey: .pseudonymizeEntities) ?? defaults.pseudonymizeEntities
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
     }
 
@@ -99,6 +115,10 @@ struct ObserverSettings: Codable {
         geminiEstimatedCostPerRequestEUR: 0.02,
         autoPauseMediaWhenAway: true,
         autoResumeMediaWhenBack: true,
+        fullContextMode: true,
+        rawContextStorageKinds: ["prompt", "code", "doc"],
+        pillVerbosity: "task_only",
+        pseudonymizeEntities: true,
         detectorSettings: DetectorSettings(
             frequentSwitchFocusEvents: 8,
             frequentSwitchUniqueApps: 2,

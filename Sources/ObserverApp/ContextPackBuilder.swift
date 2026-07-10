@@ -2,6 +2,8 @@ import Foundation
 
 struct ContextPackBuilder {
     let topology: WorkspaceTopology
+    var pseudonymizeEntities: Bool = true
+    var entityAggregates: [String: [String: String]] = [:]
 
     func build(events: [ObserverEvent], mode: ObserverController.Mode) -> String {
         let formatter = ISO8601DateFormatter()
@@ -15,13 +17,15 @@ struct ContextPackBuilder {
         let screenContexts = events.filter { $0.type == .screenContext }
         let writingContexts = events.filter { $0.type == .writingContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
+        let contentContexts = events.filter { $0.type == .contentContext }
+        let boundReactions = events.filter { $0.type == .boundReaction }
         let inputEvents = events.filter { $0.type == .inputActivity }
         let activityInsightEvents = events.filter { $0.type == .activityInsight }
         let mediaEvents = events.filter { $0.type == .mediaPlayback }
         let mediaReactionEvents = events.filter { $0.type == .mediaReaction }
         let latestSummary = events.last { $0.type == .localSummary }?.payload["summary"]
         let currentFocus = appFocusEvents.last
-        let currentContext = writingContexts.last ?? screenContexts.last ?? ocrContexts.last ?? currentFocus
+        let currentContext = contentContexts.last ?? writingContexts.last ?? screenContexts.last ?? ocrContexts.last ?? currentFocus
         let transitions = buildTransitions(from: appFocusEvents)
         let observations = buildObservations(
             appFocusEvents: appFocusEvents,
@@ -62,6 +66,18 @@ struct ContextPackBuilder {
         ## Recent OCR Context
 
         \(describeOCRContexts(ocrContexts))
+
+        ## Content Context
+
+        \(describeContentContexts(contentContexts))
+
+        ## Bound Reactions
+
+        \(describeBoundReactions(boundReactions))
+
+        ## Entity Aggregates
+
+        \(describeEntityAggregates(entityAggregates))
 
         ## Attention Signal
 
@@ -105,12 +121,22 @@ struct ContextPackBuilder {
 
         ## Privacy Notes
 
-        This context was generated locally. It does not include raw screenshots, camera frames, video, audio, typed characters, or content from apps that were not explicitly allowed.
+        This context was generated locally. It does not include raw screenshots, camera frames, video, audio, typed characters, or raw app text. Full-context mode sends content annotations and entity aggregates only.
         """
     }
 
     private func describePrimaryContext(_ event: ObserverEvent) -> String {
         switch event.type {
+        case .contentContext:
+            return compactLines([
+                requiredLine("App", event.payload["app_name"] ?? event.appID ?? "unknown"),
+                optionalLine("Kind", event.payload["content_kind"]),
+                optionalLine("Topic", event.payload["topic"]),
+                optionalLine("Sentiment", event.payload["sentiment"]),
+                optionalLine("Entity", pseudonymizedEntity(event.payload["source_entity_id"])),
+                optionalLine("Display", event.payload["display_role"])
+            ])
+
         case .screenContext, .writingContext:
             return compactLines([
                 requiredLine("App", event.payload["app_name"] ?? event.appID ?? "unknown"),
@@ -357,8 +383,68 @@ struct ContextPackBuilder {
         }
 
         return events.map { event in
-            "- \(formatter.string(from: event.timestamp)) | \(event.type.rawValue) | \(event.payloadSummary)"
+            "- \(formatter.string(from: event.timestamp)) | \(event.type.rawValue) | \(event.safePayloadSummary)"
         }.joined(separator: "\n")
+    }
+
+    private func describeContentContexts(_ contentContexts: [ObserverEvent]) -> String {
+        let contexts = contentContexts.suffix(8)
+        guard !contexts.isEmpty else {
+            return "- No semantic content context captured yet."
+        }
+
+        return contexts.map { event in
+            let app = event.payload["app_name"] ?? event.appID ?? "unknown"
+            let kind = event.payload["content_kind"] ?? "unknown"
+            let topic = event.payload["topic"] ?? "unknown"
+            let sentiment = event.payload["sentiment"] ?? "neutral"
+            let entity = pseudonymizedEntity(event.payload["source_entity_id"]).map { " · entity: \($0)" } ?? ""
+            return "- \(app) · \(kind) · \(topic) · sentiment: \(sentiment)\(entity)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeBoundReactions(_ boundReactions: [ObserverEvent]) -> String {
+        let reactions = boundReactions.suffix(8)
+        guard !reactions.isEmpty else {
+            return "- No content-bound reactions recorded yet."
+        }
+
+        return reactions.map { event in
+            let cue = event.payload["cue"] ?? "unknown"
+            let topic = event.payload["topic"] ?? "unknown"
+            let entity = pseudonymizedEntity(event.payload["entity_id"]).map { " · entity: \($0)" } ?? ""
+            return "- \(cue) after \(topic)\(entity)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeEntityAggregates(_ aggregates: [String: [String: String]]) -> String {
+        guard !aggregates.isEmpty else {
+            return "- No entity aggregates yet."
+        }
+
+        return aggregates.sorted { $0.key < $1.key }.prefix(10).map { id, payload in
+            let name = pseudonymizedEntity(id) ?? payload["display_name"] ?? id
+            let kind = payload["kind"] ?? "entity"
+            let count = payload["interaction_count"] ?? "0"
+            let sentiment = payload["sentiment_average"] ?? "0.00"
+            return "- \(name) · \(kind) · interactions: \(count) · sentiment_avg: \(sentiment)"
+        }.joined(separator: "\n")
+    }
+
+    private func pseudonymizedEntity(_ id: String?) -> String? {
+        guard let id, !id.isEmpty else {
+            return nil
+        }
+        guard pseudonymizeEntities else {
+            return entityAggregates[id]?["display_name"] ?? id
+        }
+        if id.hasPrefix("person_") {
+            return "person_\(String(id.suffix(4)))"
+        }
+        if id.hasPrefix("channel_") {
+            return "channel_\(String(id.suffix(4)))"
+        }
+        return "entity_\(String(id.suffix(4)))"
     }
 
     private func requiredLine(_ label: String, _ value: String) -> String {
@@ -395,6 +481,24 @@ extension ObserverEvent {
             return "no payload"
         }
         return payload
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ", ")
+    }
+
+    var safePayloadSummary: String {
+        let blockedKeys: Set<String> = [
+            "raw_fragment",
+            "focused_element_value",
+            "selected_text",
+            "text",
+            "request_body"
+        ]
+        let safePayload = payload.filter { !blockedKeys.contains($0.key) }
+        if safePayload.isEmpty {
+            return "no safe payload"
+        }
+        return safePayload
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: ", ")

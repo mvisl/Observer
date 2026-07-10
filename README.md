@@ -2,10 +2,10 @@
 
 Local macOS work observer prototype.
 
-Observer is a menu bar app that starts with MVP-0: workspace topology, active app/window observation, coarse input timing, local SQLite event logging, privacy allowlists, local summaries, and context pack generation.
+Observer is a menu bar app that starts with MVP-0: workspace topology, active app/window observation, coarse input timing, local SQLite event logging, full-context semantic annotation, local summaries, and context pack generation.
 
 It does not capture screenshots, camera frames, video, audio, or typed characters in MVP-0.
-Text captured through allowlisted Accessibility/OCR paths is redacted before storage for obvious secrets, tokens, card-like numbers, and short verification codes.
+Full-context capture follows `read all / store semantics / send aggregates`: Accessibility/OCR text is scrubbed for secrets first, raw text stays out of persistent events by default, and `contentContext` stores semantic annotations such as content kind, topic, sentiment, language, and local entity ids. Raw fragments are allowed only for configured work artifact kinds such as `prompt`, `code`, and `doc`.
 
 ## Run
 
@@ -65,8 +65,8 @@ GitHub CI is included under `.github/workflows/ci.yml` and runs `swift test` on 
 - Gemini calls are guarded by a local daily budget estimate, defaulting to 2 EUR/day.
 - `Show Timeline`: opens a local event timeline.
 - `Add Note`: stores a local note linked to the current workspace context.
-- `Capture OCR For Current App`: runs local Apple Vision OCR for the current app, only if that app is allowlisted.
-- `Allow Current App Context`: allows Observer to read compact Accessibility context for the current app.
+- `Capture OCR For Current App`: runs local Apple Vision OCR for the current app.
+- `Allow Current App Context`: legacy allowlist action; in full-context mode, privacy is opt-out instead.
 - `Private: Exclude Current App`: records the current app as excluded in privacy config.
 - `Delete Last Hour`: deletes Observer events from the last hour after confirmation.
 - `Reset Local Memory`: deletes all Observer events after confirmation.
