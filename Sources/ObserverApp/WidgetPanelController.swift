@@ -30,10 +30,7 @@ final class WidgetPanelController {
         )
 
         panel.contentView = widgetView
-        panel.minSize = CGSize(width: Self.fixedWidgetWidth, height: 68)
-        panel.maxSize = CGSize(width: Self.fixedWidgetWidth, height: 240)
-        panel.contentMinSize = panel.minSize
-        panel.contentMaxSize = panel.maxSize
+        panel.setLockedWidth(Self.normalWidgetWidth, keepingTopRight: false)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -45,7 +42,7 @@ final class WidgetPanelController {
     }
 
     func show() {
-        normalizePanelSizeIfNeeded()
+        panel.setLockedWidth(Self.normalWidgetWidth, keepingTopRight: true)
         positionPanelIfNeeded()
         panel.orderFrontRegardless()
     }
@@ -64,16 +61,7 @@ final class WidgetPanelController {
     }
 
     func update(_ state: ObserverViewState) {
-        normalizePanelSizeIfNeeded()
         widgetView.update(state)
-    }
-
-    private func normalizePanelSizeIfNeeded() {
-        let clamped = Self.clampedSize(panel.frame.size)
-        guard abs(panel.frame.width - clamped.width) > 0.5 || abs(panel.frame.height - clamped.height) > 0.5 else {
-            return
-        }
-        Self.applyWidgetSize(clamped, to: panel, anchor: .topRight)
     }
 
     private func positionPanelIfNeeded() {
@@ -123,9 +111,9 @@ final class WidgetPanelController {
     }
 
     fileprivate static func saveWidgetSize(_ size: CGSize) {
-        let clamped = clampedSize(size)
+        let clamped = clampedSize(size, lockedWidth: normalWidgetWidth)
         let defaults = UserDefaults.standard
-        defaults.set(fixedWidgetWidth, forKey: "widget.width")
+        defaults.set(normalWidgetWidth, forKey: "widget.width")
         defaults.set(clamped.height, forKey: "widget.height")
     }
 
@@ -140,7 +128,8 @@ final class WidgetPanelController {
         persist: Bool = true,
         anchor: ResizeAnchor = .origin
     ) {
-        let clampedSize = clampedSize(size)
+        let lockedWidth = (window as? FloatingWidgetPanel)?.lockedWidth ?? normalWidgetWidth
+        let clampedSize = clampedSize(size, lockedWidth: lockedWidth)
         let proposedOrigin: CGPoint
         switch anchor {
         case .origin:
@@ -188,8 +177,9 @@ final class WidgetPanelController {
         Self.clampedOrigin(origin, size: size)
     }
 
-    fileprivate static let fixedWidgetWidth: CGFloat = 248
-    fileprivate static let defaultWidgetSize = CGSize(width: fixedWidgetWidth, height: 76)
+    fileprivate static let normalWidgetWidth: CGFloat = 248
+    fileprivate static let calibrationWidgetWidth: CGFloat = 340
+    fileprivate static let defaultWidgetSize = CGSize(width: normalWidgetWidth, height: 76)
     fileprivate static let compactWidgetSize = CGSize(width: 220, height: 70)
     fileprivate static let comfortableWidgetSize = CGSize(width: 280, height: 76)
     fileprivate static let wideWidgetSize = CGSize(width: 340, height: 76)
@@ -204,23 +194,48 @@ final class WidgetPanelController {
 
         return clampedSize(
             CGSize(
-                width: fixedWidgetWidth,
+                width: normalWidgetWidth,
                 height: defaults.double(forKey: "widget.height")
-            )
+            ),
+            lockedWidth: normalWidgetWidth
         )
     }
 
-    private static func clampedSize(_ size: CGSize) -> CGSize {
+    private static func clampedSize(_ size: CGSize, lockedWidth: CGFloat) -> CGSize {
         CGSize(
-            width: fixedWidgetWidth,
+            width: lockedWidth,
             height: min(max(size.height, 68), 240)
         )
     }
 }
 
 final class FloatingWidgetPanel: NSPanel {
+    private(set) var lockedWidth: CGFloat = WidgetPanelController.normalWidgetWidth {
+        didSet {
+            guard oldValue != lockedWidth else {
+                return
+            }
+            let size = CGSize(width: lockedWidth, height: frame.height)
+            minSize = CGSize(width: lockedWidth, height: 68)
+            maxSize = CGSize(width: lockedWidth, height: 240)
+            contentMinSize = minSize
+            contentMaxSize = maxSize
+            setFrame(NSRect(origin: frame.origin, size: size), display: true)
+        }
+    }
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    func setLockedWidth(_ width: CGFloat, keepingTopRight: Bool) {
+        let oldMaxX = frame.maxX
+        let oldMaxY = frame.maxY
+        lockedWidth = width
+        guard keepingTopRight else {
+            return
+        }
+        setFrameOrigin(CGPoint(x: oldMaxX - frame.width, y: oldMaxY - frame.height))
+    }
 
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(constrainedFrame(frameRect), display: flag)
@@ -234,7 +249,7 @@ final class FloatingWidgetPanel: NSPanel {
         NSRect(
             x: frame.origin.x,
             y: frame.origin.y,
-            width: WidgetPanelController.fixedWidgetWidth,
+            width: lockedWidth,
             height: frame.height
         )
     }
@@ -682,6 +697,7 @@ final class ObserverWidgetView: NSView {
         guard let window else {
             return
         }
+        (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.normalWidgetWidth, keepingTopRight: true)
         if !isInsightExpanded {
             previousSizeBeforeInsight = window.frame.size
         }
@@ -708,6 +724,7 @@ final class ObserverWidgetView: NSView {
         guard isInsightExpanded, let window else {
             return
         }
+        (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.normalWidgetWidth, keepingTopRight: true)
         isInsightExpanded = false
         isCalibrationMode = false
         hideInsightControls()
@@ -790,6 +807,7 @@ final class ObserverWidgetView: NSView {
         guard let window else {
             return
         }
+        (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.calibrationWidgetWidth, keepingTopRight: true)
         isCalibrationMode = true
         calibrationStartedAppName = state?.appName
         lastCalibrationSelection = nil
@@ -837,6 +855,7 @@ final class ObserverWidgetView: NSView {
         lastCalibrationSelection = nil
         hideCalibrationControls()
         if isInsightExpanded {
+            (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.normalWidgetWidth, keepingTopRight: true)
             intervalControl.isHidden = false
             descriptionLabel.isHidden = false
             recommendationLabel.isHidden = false
