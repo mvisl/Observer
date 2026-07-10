@@ -60,6 +60,61 @@ struct AttentionStateBuilderTests {
             input: input,
             settings: .defaults
         )
-        #expect(text.contains("думает"))
+        #expect(text.contains("Думает"))
+    }
+
+    @Test func describesSideMountedCameraWithoutCallingItAway() {
+        let attention = AttentionSnapshot(
+            facePresent: true,
+            attentionZone: .nearCamera,
+            facePosition: .right,
+            confidence: 0.8,
+            faceCount: 1,
+            faceCenterX: 0.68,
+            faceCenterY: 0.3,
+            faceArea: 0.04,
+            yaw: 0,
+            pitch: nil,
+            roll: nil
+        )
+
+        let text = AttentionStateBuilder().build(
+            attention: attention,
+            input: nil,
+            settings: .defaults,
+            topology: .defaultTwoDisplaySetup
+        )
+        #expect(text.contains("камера сбоку"))
+    }
+
+    @Test func combinesScreenInputAndCameraPresence() {
+        let attention = AttentionSnapshot(
+            facePresent: true,
+            attentionZone: .nearCamera,
+            facePosition: .right,
+            confidence: 0.8,
+            faceCount: 1,
+            faceCenterX: 0.68,
+            faceCenterY: 0.3,
+            faceArea: 0.04,
+            yaw: 0,
+            pitch: nil,
+            roll: nil
+        )
+        let input = InputActivitySnapshot(
+            secondsSinceKeyboard: 4,
+            secondsSinceMouseMove: 2,
+            secondsSinceClick: 30,
+            secondsSinceAnyInput: 2
+        )
+
+        let text = AttentionStateBuilder().build(
+            attention: attention,
+            input: input,
+            settings: .defaults,
+            topology: .defaultTwoDisplaySetup
+        )
+        #expect(text.contains("Активно работает"))
+        #expect(text.contains("у экрана"))
     }
 }

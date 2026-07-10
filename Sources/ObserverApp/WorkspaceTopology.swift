@@ -74,6 +74,13 @@ struct WorkspaceTopology: Codable, CustomDebugStringConvertible {
         return "Camera: display \(cameraDisplayIndex), \(display.position.rawValue)"
     }
 
+    var cameraMountedDisplay: Display? {
+        guard let cameraDisplayIndex else {
+            return nil
+        }
+        return displays[cameraDisplayIndex]
+    }
+
     private var cameraDisplayIndex: Int? {
         displays.firstIndex { $0.isCameraMounted }
     }

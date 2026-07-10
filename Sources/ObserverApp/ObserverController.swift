@@ -65,7 +65,8 @@ final class ObserverController {
             attentionText: latestCameraStatus ?? AttentionStateBuilder().build(
                 attention: latestAttention,
                 input: latestInputActivity,
-                settings: environment.settings
+                settings: environment.settings,
+                topology: environment.topology
             ),
             hintText: latestHint
         )
@@ -149,20 +150,20 @@ final class ObserverController {
         }
 
         guard status == "not_determined" else {
-            latestCameraStatus = "Контекст: камера запрещена"
+            latestCameraStatus = "Жду активности · камера запрещена"
             notifyStateChanged()
             print("Camera access not granted.")
             return
         }
 
         guard !cameraAccessRequestInFlight else {
-            latestCameraStatus = "Контекст: жду разрешение камеры"
+            latestCameraStatus = "Жду активности · жду разрешение камеры"
             notifyStateChanged()
             return
         }
 
         cameraAccessRequestInFlight = true
-        latestCameraStatus = "Контекст: запрашиваю камеру"
+        latestCameraStatus = "Жду активности · запрашиваю камеру"
         notifyStateChanged()
         PermissionAdvisor.requestCameraAccess { [weak self] granted in
             guard let self else {
@@ -173,7 +174,7 @@ final class ObserverController {
             self.recordCameraPermissionStatus(currentStatus, force: true)
 
             guard granted else {
-                self.latestCameraStatus = "Контекст: камера запрещена"
+                self.latestCameraStatus = "Жду активности · камера запрещена"
                 self.notifyStateChanged()
                 print("Camera access not granted.")
                 return
@@ -206,18 +207,18 @@ final class ObserverController {
                 startCameraCapture()
             }
         case "denied", "restricted":
-            latestCameraStatus = "Контекст: камера запрещена"
+            latestCameraStatus = "Жду активности · камера запрещена"
             notifyStateChanged()
         case "not_determined":
-            if latestCameraStatus == "Контекст: запрашиваю камеру" {
+            if latestCameraStatus == "Жду активности · запрашиваю камеру" {
                 return
             }
             latestCameraStatus = cameraAccessRequestInFlight
-                ? "Контекст: жду разрешение камеры"
-                : "Контекст: камера ждет разрешения"
+                ? "Жду активности · жду разрешение камеры"
+                : "Жду активности · камера ждет разрешения"
             notifyStateChanged()
         default:
-            latestCameraStatus = "Контекст: камера недоступна"
+            latestCameraStatus = "Жду активности · камера недоступна"
             notifyStateChanged()
         }
     }
@@ -616,7 +617,7 @@ final class ObserverController {
         }
 
         do {
-            latestCameraStatus = "Контекст: камера включается"
+            latestCameraStatus = "Жду активности · камера включается"
             try cameraAttentionService.start(
                 minimumEmitInterval: environment.settings.attentionSampleIntervalSeconds
             ) { [weak self] snapshot in
@@ -631,7 +632,7 @@ final class ObserverController {
             )
             notifyStateChanged()
         } catch {
-            latestCameraStatus = "Контекст: камера не запустилась"
+            latestCameraStatus = "Жду активности · камера не запустилась"
             notifyStateChanged()
             print("Camera attention failed to start: \(error)")
         }

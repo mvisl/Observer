@@ -7,7 +7,7 @@ final class WidgetPanelController {
     private let widgetView: ObserverWidgetView
 
     init() {
-        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 330, height: 72))
+        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 390, height: 82))
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -206,7 +206,7 @@ final class ObserverWidgetView: NSView {
         contextLabel.lineBreakMode = .byTruncatingMiddle
         contextLabel.maximumNumberOfLines = 1
 
-        metaLabel.font = .systemFont(ofSize: 10, weight: .regular)
+        metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.lineBreakMode = .byTruncatingTail
         metaLabel.maximumNumberOfLines = 1
@@ -225,7 +225,7 @@ final class ObserverWidgetView: NSView {
 
             statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
             statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
-            statusLabel.widthAnchor.constraint(equalToConstant: 70),
+            statusLabel.widthAnchor.constraint(equalToConstant: 82),
 
             metaLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
