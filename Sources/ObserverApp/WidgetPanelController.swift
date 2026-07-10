@@ -1256,6 +1256,9 @@ private extension String {
         ].contains(normalized) {
             return true
         }
+        if normalized.contains("долгая пауза") {
+            return true
+        }
 
         return [
             "Веб-контекст: переключает вкладки",

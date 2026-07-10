@@ -53,9 +53,7 @@ struct ActivityInsightBuilder {
             if attention?.facePresent == true || attention?.isTemporarilyLostFace == true {
                 return "\(intent.readingPrefix): \(formatDuration(input.secondsSinceAnyInput)) без ввода"
             }
-            return presence == .away
-                ? "Отошёл от компьютера"
-                : "\(intent.prefix): долгая пауза"
+            return "\(intent.prefix): долгая пауза"
         }
 
         if let input, input.secondsSinceAnyInput < 15 {
@@ -125,7 +123,7 @@ struct ActivityInsightBuilder {
         }
 
         guard attention.facePresent else {
-            if let input, input.secondsSinceAnyInput < 60 {
+            if let input, input.secondsSinceAnyInput < 900 {
                 return .uncertain
             }
             return .away

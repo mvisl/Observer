@@ -233,7 +233,7 @@ struct ActivityInsightBuilderTests {
         #expect(text == "Защита: отошёл и прикрыл экран")
     }
 
-    @Test func missingFaceAndLongIdleMeansAwayWithoutHedge() {
+    @Test func missingFaceAndMediumIdleDoesNotMeanAway() {
         let text = ActivityInsightBuilder().build(
             attention: AttentionSnapshot(
                 facePresent: false,
@@ -260,8 +260,39 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Отошёл от компьютера")
-        #expect(!text.contains("Похоже"))
+        #expect(text == "Дизайн: долгая пауза")
+        #expect(!text.contains("Отошёл"))
+    }
+
+    @Test func missingFaceAndVeryLongIdleStaysInternalWithoutLockScreen() {
+        let text = ActivityInsightBuilder().build(
+            attention: AttentionSnapshot(
+                facePresent: false,
+                attentionZone: .offScreen,
+                facePosition: .unknown,
+                confidence: 0.3,
+                faceCount: 0,
+                faceCenterX: nil,
+                faceCenterY: nil,
+                faceArea: nil,
+                yaw: nil,
+                pitch: nil,
+                roll: nil
+            ),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 920,
+                secondsSinceMouseMove: 920,
+                secondsSinceClick: 920,
+                secondsSinceAnyInput: 920
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Figma", appID: "com.figma.Desktop"),
+            currentFocusStartedAt: Date().addingTimeInterval(-1_020),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Дизайн: долгая пауза")
+        #expect(!text.contains("Отошёл"))
     }
 
     @Test func readingScreenIsNotMicroPauseWhenFaceStaysPresent() {

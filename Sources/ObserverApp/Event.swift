@@ -7,6 +7,7 @@ enum ObserverEventType: String, Codable {
     case attention
     case appFocus
     case appFocusInterval
+    case attentionSpan
     case awayPresenceIncident
     case behaviorCue
     case boundReaction
@@ -17,6 +18,7 @@ enum ObserverEventType: String, Codable {
     case cognitiveState
     case detectorFired
     case displayInventory
+    case episode
     case experiment
     case hintCandidate
     case inputActivity

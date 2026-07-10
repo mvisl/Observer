@@ -40,6 +40,7 @@ final class ObserverController {
     private var focusChangeTimestamps: [Date] = []
     private var lastActivityInsight: String?
     private var lastActivityInsightAt: Date?
+    private var lastAttentionSpanSignature: String?
     private var lastBehaviorCueName: String?
     private var lastBehaviorCueAt: Date?
     private var lastTextAffectCueKey: String?
@@ -57,6 +58,7 @@ final class ObserverController {
     private var isIdleBoundaryOpen = false
     private var isFineInputPauseOpen = false
     private var sessionStartedAt: Date?
+    private var currentEpisodeStartedAt: Date?
     private var summaryTimer: Timer?
     private var geminiInsightTimer: Timer?
     private var mediaTimer: Timer?
@@ -292,12 +294,20 @@ final class ObserverController {
             return hypothesis
         }
 
-        return currentFocusFallbackLine() ?? ""
+        return currentFocusFallbackLine(now: now) ?? ""
     }
 
-    private func currentFocusFallbackLine() -> String? {
+    private func currentFocusFallbackLine(now: Date = Date()) -> String? {
+        let events = ((try? environment.eventStore.recentEvents(limit: 120)) ?? [])
+            .filter { now.timeIntervalSince($0.timestamp) <= 10 * 60 }
+        if let spanLine = latestAttentionSpanFallbackLine(events: events) {
+            return spanLine
+        }
+
+        let recentApps = orderedRecentAppNames(events: events)
+        let joinedApps = recentApps.joined(separator: " ").lowercased()
         guard let currentFocus else {
-            return "Observer: нет уверенной гипотезы, санитарку скрываю"
+            return "Observer: собираешь рабочий контекст в эпизод, а не в тики"
         }
 
         let appName = currentFocus.appName.lowercased()
@@ -305,18 +315,80 @@ final class ObserverController {
             || appName.contains("claude")
             || appName.contains("codex")
             || appName.contains("gemini") {
-            return "Observer: жду текстовый контекст для вывода выше статуса"
+            if joinedApps.contains("figma") {
+                return "Связка ИИ + дизайн: проверяешь, держится ли идея в макете"
+            }
+            if joinedApps.contains("chrome") || joinedApps.contains("safari") {
+                return "Связка ИИ + веб: уточняешь тезис через несколько источников"
+            }
+            return "ИИ-итерация: уточняешь критерии результата, а не просто задачу"
         }
         if appName.contains("figma") {
-            return "Дизайн: жду связку макета и реакции, не гадаю по экрану"
+            if joinedApps.contains("chatgpt") || joinedApps.contains("claude") {
+                return "Дизайн + ИИ: сверяешь визуальное решение с формулировкой"
+            }
+            return "Дизайн: проверяешь, превращается ли идея в цельный экран"
         }
         if appName.contains("telegram")
             || appName.contains("whatsapp")
             || appName.contains("viber")
             || appName.contains("mail") {
-            return "Переписка: жду смысл эпизода, не показываю статус"
+            return "Переписка: связываешь разговор с текущим рабочим контекстом"
         }
-        return "Observer: нет уверенной гипотезы, санитарку скрываю"
+        if appName.contains("chrome") || appName.contains("safari") {
+            if joinedApps.contains("chatgpt") || joinedApps.contains("claude") {
+                return "Связка ИИ + веб: проверяешь гипотезу через внешний контекст"
+            }
+            if joinedApps.contains("figma") {
+                return "Связка веб + дизайн: сверяешь экран с материалами задачи"
+            }
+            return "Исследование: отбираешь материал для текущего решения"
+        }
+        return "Рабочий фрагмент: собираешь несколько сигналов в один эпизод"
+    }
+
+    private func latestAttentionSpanFallbackLine(events: [ObserverEvent]) -> String? {
+        guard let span = events.last(where: { $0.type == .attentionSpan }) else {
+            return nil
+        }
+        let apps = span.payload["apps"] ?? ""
+        switch span.payload["span_kind"] {
+        case "ai_assisted_design":
+            return "Связка ИИ + дизайн: сверяешь идею через макет и ответы"
+        case "ai_assisted_work":
+            if apps.lowercased().contains("chrome") {
+                return "Связка ИИ + веб: проверяешь тезис через несколько источников"
+            }
+            return "ИИ-итерация: уточняешь критерии результата через ответы"
+        case "communication":
+            return "Переписка: эпизод влияет на текущий рабочий контекст"
+        case "design_work":
+            return "Дизайн: проверяешь, собирается ли решение в цельный экран"
+        case "mixed":
+            return "Рабочая связка: несколько приложений держат один эпизод"
+        default:
+            return nil
+        }
+    }
+
+    private func orderedRecentAppNames(events: [ObserverEvent]) -> [String] {
+        var seen = Set<String>()
+        return events
+            .filter { $0.type == .appFocus || $0.type == .attentionSpan }
+            .flatMap { event -> [String] in
+                if event.type == .attentionSpan {
+                    return (event.payload["apps"] ?? "").components(separatedBy: " -> ")
+                }
+                return [event.payload["app_name"] ?? event.appID ?? ""]
+            }
+            .filter { !$0.isEmpty }
+            .filter { app in
+                guard !seen.contains(app) else {
+                    return false
+                }
+                seen.insert(app)
+                return true
+            }
     }
 
     private func latestExternalWidgetInsightLine(now: Date = Date()) -> String? {
@@ -480,6 +552,9 @@ final class ObserverController {
         if exact.contains(normalized) {
             return true
         }
+        if normalized.contains("долгая пауза") {
+            return true
+        }
         return [
             "Диалог с ИИ: формулирует",
             "Диалог с ИИ: формирует",
@@ -594,6 +669,7 @@ final class ObserverController {
         let now = Date()
         let scheduleStatus = scheduleGate.status(at: now)
         sessionStartedAt = now
+        currentEpisodeStartedAt = now
         currentObservationIntervalStartedAt = now
         currentObservationOutsideDefaultSchedule = scheduleStatus.outsideDefaultSchedule
         append(.init(type: .observingStarted, workspaceTopologyVersion: environment.topology.version))
@@ -621,6 +697,7 @@ final class ObserverController {
         }
         mode = .paused
         sessionStartedAt = nil
+        closeCurrentEpisode(outcome: "manual_pause")
         closeObservationInterval(reason: "manual_pause")
         append(.init(type: .observingPaused, workspaceTopologyVersion: environment.topology.version))
         closeCurrentFocusInterval(reason: "paused")
@@ -1726,6 +1803,60 @@ final class ObserverController {
         }
     }
 
+    private func recordAttentionSpanIfNeeded(currentFocusEvent: ObserverEvent) {
+        var events = (try? environment.eventStore.recentEvents(limit: 40)) ?? []
+        if events.last?.id != currentFocusEvent.id {
+            events.append(currentFocusEvent)
+        }
+        guard let span = AttentionSpanBuilder().build(from: events, now: Date()),
+              span.signature != lastAttentionSpanSignature
+        else {
+            return
+        }
+
+        lastAttentionSpanSignature = span.signature
+        append(
+            .init(
+                type: .attentionSpan,
+                appID: currentFocusEvent.appID,
+                confidence: span.confidence,
+                payload: span.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func closeCurrentEpisode(outcome: String, now: Date = Date()) {
+        guard let start = currentEpisodeStartedAt else {
+            currentEpisodeStartedAt = now
+            return
+        }
+
+        defer {
+            currentEpisodeStartedAt = now
+        }
+
+        let events = ((try? environment.eventStore.recentEvents(limit: 2_000)) ?? [])
+            .filter { $0.timestamp >= start && $0.timestamp <= now }
+        guard let episode = EpisodeBuilder().build(
+            events: events,
+            start: start,
+            end: now,
+            outcome: outcome
+        ) else {
+            return
+        }
+
+        append(
+            .init(
+                type: .episode,
+                confidence: episode.confidence,
+                payload: episode.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         let previousAttention = latestAttention
         let previousAttentionAt = latestAttentionAt
@@ -1792,16 +1923,16 @@ final class ObserverController {
             currentFocus = focus
             currentFocusStartedAt = Date()
             setLatestContextLine(nil)
-            append(
-                .init(
-                    type: .appFocus,
-                    displayRole: focus.displayRole,
-                    appID: focus.appID,
-                    confidence: focus.windowTitle == nil ? 0.75 : 0.95,
-                    payload: focus.eventPayload,
-                    workspaceTopologyVersion: environment.topology.version
-                )
+            let appFocusEvent = ObserverEvent(
+                type: .appFocus,
+                displayRole: focus.displayRole,
+                appID: focus.appID,
+                confidence: focus.windowTitle == nil ? 0.75 : 0.95,
+                payload: focus.eventPayload,
+                workspaceTopologyVersion: environment.topology.version
             )
+            append(appFocusEvent)
+            recordAttentionSpanIfNeeded(currentFocusEvent: appFocusEvent)
             append(
                 .init(
                     type: .breakpoint,
@@ -1909,6 +2040,7 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+            closeCurrentEpisode(outcome: "flow_exit", now: now)
         }
     }
 
@@ -2699,6 +2831,7 @@ final class ObserverController {
         let summary = generateLocalSummary()
         _ = summary
         requestDailyGeminiInsightIfNeeded(now: now)
+        closeCurrentEpisode(outcome: "schedule_end", now: now)
         closeCurrentFocusInterval(reason: "schedule_end")
         closeObservationInterval(reason: "schedule_end", now: now)
         append(
@@ -2831,6 +2964,7 @@ final class ObserverController {
         let threshold = environment.settings.idleSessionBoundarySeconds
         if activity.secondsSinceAnyInput >= threshold, !isIdleBoundaryOpen {
             isIdleBoundaryOpen = true
+            closeCurrentEpisode(outcome: "idle_started")
             let breakpointPayload = BreakpointBuilder().coarseIdleStart(
                 secondsSinceAnyInput: activity.secondsSinceAnyInput
             )
