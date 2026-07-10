@@ -624,7 +624,8 @@ final class ObserverController {
         predictedCellIndex: Int?
     ) {
         var payload: [String: String] = [
-            "target_source": "manual_pill_calibration",
+            "target_source": "guided_pill_calibration",
+            "sample_mode": "prompted_target_enter",
             "actual_display_index": "\(displayIndex)",
             "actual_cell_index": "\(cellIndex)",
             "prediction_correct": predictedDisplayIndex == displayIndex && predictedCellIndex == cellIndex ? "true" : "false"

@@ -24,7 +24,7 @@ final class WidgetPanelController {
         )
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -224,7 +224,7 @@ final class FloatingWidgetPanel: NSPanel {
         }
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     func setLockedWidth(_ width: CGFloat, keepingTopRight: Bool) {
@@ -295,7 +295,8 @@ final class ObserverWidgetView: NSView {
     private var isCalibrationMode = false
     private var calibrationViews: [NSView] = []
     private var calibrationStartedAppName: String?
-    private var lastCalibrationSelection: CalibrationSelection?
+    private var calibrationTarget: CalibrationTarget?
+    private var calibrationSampleCount = 0
     private var selectedInsightMinutes = UserDefaults.standard.object(forKey: "widget.insight.minutes") as? Int ?? 30
 
     private enum DragMode {
@@ -303,15 +304,9 @@ final class ObserverWidgetView: NSView {
         case resize
     }
 
-    private struct CalibrationSelection {
+    private struct CalibrationTarget {
         let displayIndex: Int
         let cellIndex: Int
-        let predictedDisplayIndex: Int?
-        let predictedCellIndex: Int?
-
-        var isCorrect: Bool {
-            predictedDisplayIndex == displayIndex && predictedCellIndex == cellIndex
-        }
     }
 
     init(
@@ -346,6 +341,18 @@ final class ObserverWidgetView: NSView {
         nil
     }
 
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if isCalibrationMode, event.keyCode == 36 || event.keyCode == 76 {
+            recordCurrentCalibrationTarget()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea {
@@ -377,7 +384,10 @@ final class ObserverWidgetView: NSView {
                 leaveCalibrationMode()
                 return
             }
-            contextLabel.stringValue = state.calibration.predictionText
+            if calibrationTarget == nil {
+                chooseNextCalibrationTarget(from: state.calibration)
+            }
+            updateCalibrationInstruction(state.calibration)
             rebuildCalibrationGrid(state.calibration)
         } else if !isInsightExpanded {
             hideInsightControls()
@@ -447,6 +457,9 @@ final class ObserverWidgetView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if isCalibrationMode {
+            return
+        }
         collapseInsight()
     }
 
@@ -679,6 +692,11 @@ final class ObserverWidgetView: NSView {
     }
 
     @objc private func toggleInsightPanel() {
+        if isCalibrationMode {
+            onCalibrationAction("finished")
+            leaveCalibrationMode()
+            return
+        }
         if isInsightExpanded {
             collapseInsight()
         } else {
@@ -810,21 +828,24 @@ final class ObserverWidgetView: NSView {
         (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.calibrationWidgetWidth, keepingTopRight: true)
         isCalibrationMode = true
         calibrationStartedAppName = state?.appName
-        lastCalibrationSelection = nil
+        calibrationSampleCount = 0
+        chooseNextCalibrationTarget(from: state?.calibration)
         intervalControl.isHidden = true
         descriptionLabel.isHidden = true
         recommendationLabel.isHidden = true
         securityFolderButton.isHidden = true
         calibrationButton.isHidden = true
         calibrationContainer.isHidden = false
-        finishCalibrationButton.isHidden = false
-        resetCalibrationButton.isHidden = false
-        confirmCalibrationButton.isHidden = false
-        contextLabel.stringValue = state?.calibration.predictionText ?? "Калибровка: камера ждёт взгляд"
+        finishCalibrationButton.isHidden = true
+        resetCalibrationButton.isHidden = true
+        confirmCalibrationButton.isHidden = true
+        updateCalibrationInstruction(state?.calibration)
         if let state {
             rebuildCalibrationGrid(state.calibration)
         }
         layoutSubtreeIfNeeded()
+        window.makeKey()
+        window.makeFirstResponder(self)
         onCalibrationAction("started")
         WidgetPanelController.applyWidgetSize(
             CGSize(width: window.frame.width, height: insightExpandedHeight()),
@@ -835,7 +856,7 @@ final class ObserverWidgetView: NSView {
     }
 
     @objc private func finishCalibrationWithoutSaving() {
-        onCalibrationAction("finished_without_commit")
+        onCalibrationAction("finished")
         leaveCalibrationMode()
     }
 
@@ -852,7 +873,8 @@ final class ObserverWidgetView: NSView {
     private func leaveCalibrationMode() {
         isCalibrationMode = false
         calibrationStartedAppName = nil
-        lastCalibrationSelection = nil
+        calibrationTarget = nil
+        calibrationSampleCount = 0
         hideCalibrationControls()
         if isInsightExpanded {
             (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.normalWidgetWidth, keepingTopRight: true)
@@ -916,18 +938,18 @@ final class ObserverWidgetView: NSView {
             for row in 0..<display.rows {
                 for column in 0..<display.columns {
                     let cellIndex = row * display.columns + column
-                    let isPredicted = cellIndex == display.predictedCell
-                    let isSelected = lastCalibrationSelection?.displayIndex == display.index
-                        && lastCalibrationSelection?.cellIndex == cellIndex
+                    let isTarget = calibrationTarget?.displayIndex == display.index
+                        && calibrationTarget?.cellIndex == cellIndex
                     let button = NSButton(title: "", target: self, action: #selector(selectCalibrationCell(_:)))
                     button.tag = display.index * 100 + cellIndex
                     button.bezelStyle = .regularSquare
                     button.isBordered = false
+                    button.isEnabled = false
                     button.wantsLayer = true
                     button.layer?.cornerRadius = 3
                     button.layer?.borderWidth = 1
-                    button.layer?.borderColor = borderColor(isPredicted: isPredicted, isSelected: isSelected).cgColor
-                    button.layer?.backgroundColor = calibrationCellColor(isPredicted: isPredicted, isSelected: isSelected).cgColor
+                    button.layer?.borderColor = calibrationTargetBorderColor(isTarget: isTarget).cgColor
+                    button.layer?.backgroundColor = calibrationTargetCellColor(isTarget: isTarget).cgColor
                     button.frame = CGRect(
                         x: gridX + CGFloat(column) * cellWidth + 1,
                         y: gridY + CGFloat(display.rows - row - 1) * cellHeight + 1,
@@ -941,44 +963,71 @@ final class ObserverWidgetView: NSView {
         }
     }
 
-    private func calibrationCellColor(isPredicted: Bool, isSelected: Bool) -> NSColor {
-        guard let selection = lastCalibrationSelection, isSelected else {
-            return isPredicted
-                ? NSColor.white.withAlphaComponent(0.72)
-                : NSColor.controlBackgroundColor.withAlphaComponent(0.22)
-        }
-        return selection.isCorrect
-            ? NSColor.systemGreen.withAlphaComponent(0.58)
-            : NSColor.systemRed.withAlphaComponent(0.58)
+    private func calibrationTargetCellColor(isTarget: Bool) -> NSColor {
+        isTarget
+            ? NSColor.white.withAlphaComponent(0.78)
+            : NSColor.controlBackgroundColor.withAlphaComponent(0.22)
     }
 
-    private func borderColor(isPredicted: Bool, isSelected: Bool) -> NSColor {
-        if isSelected {
-            return .white.withAlphaComponent(0.9)
-        }
-        if isPredicted {
-            return .white.withAlphaComponent(1)
-        }
-        return .separatorColor.withAlphaComponent(0.65)
+    private func calibrationTargetBorderColor(isTarget: Bool) -> NSColor {
+        isTarget ? .white.withAlphaComponent(1) : .separatorColor.withAlphaComponent(0.65)
     }
 
-    @objc private func selectCalibrationCell(_ sender: NSButton) {
-        let displayIndex = sender.tag / 100
-        let cellIndex = sender.tag % 100
+    private func chooseNextCalibrationTarget(from calibration: WidgetCalibrationState?) {
+        guard let displays = calibration?.displays, !displays.isEmpty else {
+            calibrationTarget = nil
+            return
+        }
+        let totalCells = displays.reduce(0) { total, display in
+            total + max(1, display.columns * display.rows)
+        }
+        guard totalCells > 0 else {
+            calibrationTarget = nil
+            return
+        }
+
+        var cursor = calibrationSampleCount % totalCells
+        for display in displays {
+            let cellCount = max(1, display.columns * display.rows)
+            if cursor < cellCount {
+                calibrationTarget = CalibrationTarget(displayIndex: display.index, cellIndex: cursor)
+                return
+            }
+            cursor -= cellCount
+        }
+        calibrationTarget = nil
+    }
+
+    private func updateCalibrationInstruction(_ calibration: WidgetCalibrationState?) {
+        guard
+            let target = calibrationTarget,
+            let display = calibration?.displays.first(where: { $0.index == target.displayIndex })
+        else {
+            contextLabel.stringValue = "Калибровка: жду экран · Enter записывает"
+            return
+        }
+        contextLabel.stringValue = "Калибровка: смотри \(display.title), зона \(target.cellIndex + 1) · Enter"
+    }
+
+    private func recordCurrentCalibrationTarget() {
+        guard isCalibrationMode, let target = calibrationTarget else {
+            return
+        }
         let prediction = state?.calibration
-        lastCalibrationSelection = CalibrationSelection(
-            displayIndex: displayIndex,
-            cellIndex: cellIndex,
-            predictedDisplayIndex: prediction?.predictedDisplayIndex,
-            predictedCellIndex: prediction?.predictedCellIndex
-        )
         onCalibrationSample(
-            displayIndex,
-            cellIndex,
+            target.displayIndex,
+            target.cellIndex,
             prediction?.predictedDisplayIndex,
             prediction?.predictedCellIndex
         )
+        calibrationSampleCount += 1
+        chooseNextCalibrationTarget(from: state?.calibration)
+        updateCalibrationInstruction(state?.calibration)
         rebuildCalibrationGrid(state?.calibration)
+    }
+
+    @objc private func selectCalibrationCell(_ sender: NSButton) {
+        recordCurrentCalibrationTarget()
     }
 
     @objc private func openSecurityFolder() {
