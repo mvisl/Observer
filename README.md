@@ -15,6 +15,8 @@ Build a local development app:
 scripts/package-dev-app.sh
 ```
 
+The packaging script uses a stable local signing identity when possible. This helps macOS remember camera permission across development rebuilds instead of treating each ad-hoc build as a new app.
+
 Open:
 
 ```bash

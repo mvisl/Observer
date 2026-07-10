@@ -7,7 +7,7 @@ final class WidgetPanelController {
     private let widgetView: ObserverWidgetView
 
     init() {
-        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 390, height: 82))
+        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 312, height: 78))
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -225,19 +225,19 @@ final class ObserverWidgetView: NSView {
 
             statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
             statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
-            statusLabel.widthAnchor.constraint(equalToConstant: 82),
-
-            metaLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
-            metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            metaLabel.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
 
             contextLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             contextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            contextLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 6),
+            contextLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 7),
+
+            metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            metaLabel.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 5),
 
             hintLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            hintLabel.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 4)
+            hintLabel.topAnchor.constraint(equalTo: metaLabel.bottomAnchor, constant: 3)
         ])
     }
 

@@ -165,6 +165,35 @@ struct AttentionSnapshot: Sendable {
     let yaw: Double?
     let pitch: Double?
     let roll: Double?
+    let isTemporarilyLostFace: Bool
+
+    init(
+        facePresent: Bool,
+        attentionZone: AttentionZone,
+        facePosition: FacePosition,
+        confidence: Double,
+        faceCount: Int,
+        faceCenterX: Double?,
+        faceCenterY: Double?,
+        faceArea: Double?,
+        yaw: Double?,
+        pitch: Double?,
+        roll: Double?,
+        isTemporarilyLostFace: Bool = false
+    ) {
+        self.facePresent = facePresent
+        self.attentionZone = attentionZone
+        self.facePosition = facePosition
+        self.confidence = confidence
+        self.faceCount = faceCount
+        self.faceCenterX = faceCenterX
+        self.faceCenterY = faceCenterY
+        self.faceArea = faceArea
+        self.yaw = yaw
+        self.pitch = pitch
+        self.roll = roll
+        self.isTemporarilyLostFace = isTemporarilyLostFace
+    }
 
     static func from(faceObservations: [VNFaceObservation]) -> AttentionSnapshot {
         guard let largestFace = faceObservations.max(by: { lhs, rhs in
@@ -174,7 +203,7 @@ struct AttentionSnapshot: Sendable {
                 facePresent: false,
                 attentionZone: .offScreen,
                 facePosition: .unknown,
-                confidence: 0.85,
+                confidence: 0.25,
                 faceCount: 0,
                 faceCenterX: nil,
                 faceCenterY: nil,
@@ -215,6 +244,23 @@ struct AttentionSnapshot: Sendable {
         )
     }
 
+    func asTemporarilyLostFace() -> AttentionSnapshot {
+        AttentionSnapshot(
+            facePresent: facePresent,
+            attentionZone: attentionZone,
+            facePosition: facePosition,
+            confidence: min(confidence, 0.45),
+            faceCount: faceCount,
+            faceCenterX: faceCenterX,
+            faceCenterY: faceCenterY,
+            faceArea: faceArea,
+            yaw: yaw,
+            pitch: pitch,
+            roll: roll,
+            isTemporarilyLostFace: true
+        )
+    }
+
     var displayText: String {
         if facePresent {
             return "Attention: face \(facePosition.rawValue)"
@@ -247,6 +293,9 @@ struct AttentionSnapshot: Sendable {
         }
         if let roll {
             payload["head_roll"] = String(format: "%.4f", roll)
+        }
+        if isTemporarilyLostFace {
+            payload["temporarily_lost_face"] = "true"
         }
 
         return payload

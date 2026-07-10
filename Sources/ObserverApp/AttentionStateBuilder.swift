@@ -7,7 +7,7 @@ struct AttentionStateBuilder {
         settings: ObserverSettings,
         topology: WorkspaceTopology? = nil
     ) -> String {
-        "\(buildInputState(input, settings: settings)) · \(buildCameraState(attention, topology: topology))"
+        "\(buildInputState(input, settings: settings)) · \(buildCameraState(attention, input: input, topology: topology))"
     }
 
     private func buildInputState(
@@ -35,13 +35,21 @@ struct AttentionStateBuilder {
 
     private func buildCameraState(
         _ attention: AttentionSnapshot?,
+        input: InputActivitySnapshot?,
         topology: WorkspaceTopology?
     ) -> String {
         guard let attention else {
             return "камера выключена"
         }
 
+        if attention.isTemporarilyLostFace {
+            return "у экрана (камера потеряла лицо)"
+        }
+
         guard attention.facePresent else {
+            if let input, input.secondsSinceAnyInput < 60 {
+                return "камера ищет лицо"
+            }
             return "не у экрана"
         }
 

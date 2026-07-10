@@ -25,6 +25,14 @@ cp "$ROOT_DIR/.build/debug/ObserverApp" "$MACOS_DIR/ObserverApp"
 /usr/libexec/PlistBuddy -c "Add :NSHumanReadableCopyright string Local development build" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string Observer uses the camera locally to estimate coarse attention signals. Frames are not stored." "$CONTENTS_DIR/Info.plist"
 
-codesign --force --deep --sign - "$APP_DIR"
+if [[ -n "${OBSERVER_CODESIGN_IDENTITY:-}" ]]; then
+  SIGN_IDENTITY="$OBSERVER_CODESIGN_IDENTITY"
+elif SIGN_IDENTITY="$("$ROOT_DIR/scripts/ensure-local-codesign-identity.sh" 2>/dev/null)"; then
+  :
+else
+  SIGN_IDENTITY="-"
+fi
+
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
 
 echo "$APP_DIR"

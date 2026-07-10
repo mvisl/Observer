@@ -34,6 +34,36 @@ struct AttentionStateBuilderTests {
         #expect(text.contains("не у экрана"))
     }
 
+    @Test func doesNotCallActiveUserAwayWhenFaceIsMissing() {
+        let attention = AttentionSnapshot(
+            facePresent: false,
+            attentionZone: .offScreen,
+            facePosition: .unknown,
+            confidence: 0.25,
+            faceCount: 0,
+            faceCenterX: nil,
+            faceCenterY: nil,
+            faceArea: nil,
+            yaw: nil,
+            pitch: nil,
+            roll: nil
+        )
+        let input = InputActivitySnapshot(
+            secondsSinceKeyboard: 2,
+            secondsSinceMouseMove: 1,
+            secondsSinceClick: 9,
+            secondsSinceAnyInput: 1
+        )
+
+        let text = AttentionStateBuilder().build(
+            attention: attention,
+            input: input,
+            settings: .defaults
+        )
+        #expect(text.contains("камера ищет лицо"))
+        #expect(!text.contains("не у экрана"))
+    }
+
     @Test func describesThinking() {
         let attention = AttentionSnapshot(
             facePresent: true,

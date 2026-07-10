@@ -15,6 +15,8 @@ final class ObserverController {
     private var currentFocus: AppFocusSnapshot?
     private var currentFocusStartedAt: Date?
     private var latestAttention: AttentionSnapshot?
+    private var lastFacePresentAttention: AttentionSnapshot?
+    private var consecutiveMissingFaceSamples = 0
     private var latestCameraStatus: String?
     private var cameraAccessRequestInFlight = false
     private var lastCameraPermissionStatus: String?
@@ -63,13 +65,29 @@ final class ObserverController {
             contextText: currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? AttentionStateBuilder().build(
-                attention: latestAttention,
+                attention: smoothedAttentionForDisplay,
                 input: latestInputActivity,
                 settings: environment.settings,
                 topology: environment.topology
             ),
             hintText: latestHint
         )
+    }
+
+    private var smoothedAttentionForDisplay: AttentionSnapshot? {
+        guard let latestAttention else {
+            return nil
+        }
+
+        if latestAttention.facePresent {
+            return latestAttention
+        }
+
+        if consecutiveMissingFaceSamples < 4, let lastFacePresentAttention {
+            return lastFacePresentAttention.asTemporarilyLostFace()
+        }
+
+        return latestAttention
     }
 
     func recordLaunch() {
@@ -187,6 +205,8 @@ final class ObserverController {
     func stopCameraAttention() {
         cameraAttentionService.stop()
         latestAttention = nil
+        lastFacePresentAttention = nil
+        consecutiveMissingFaceSamples = 0
         latestCameraStatus = nil
         append(
             .init(
@@ -699,6 +719,12 @@ final class ObserverController {
 
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         latestAttention = snapshot
+        if snapshot.facePresent {
+            lastFacePresentAttention = snapshot
+            consecutiveMissingFaceSamples = 0
+        } else {
+            consecutiveMissingFaceSamples += 1
+        }
         latestCameraStatus = nil
         append(
             .init(
