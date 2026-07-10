@@ -41,6 +41,10 @@ struct GeminiInsightProvider {
         return Self.extractWidgetLine(from: text)
     }
 
+    func generateDailyInsight(context: String, digest: String, attention: String) async throws -> String {
+        try await generate(prompt: Self.buildDailyPrompt(context: context, digest: digest, attention: attention))
+    }
+
     private func generate(prompt: String) async throws -> String {
         let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1/interactions")!
         var request = URLRequest(url: endpoint)
@@ -132,6 +136,37 @@ struct GeminiInsightProvider {
         \(digest)
 
         Context pack:
+        \(context)
+        """
+    }
+
+    static func buildDailyPrompt(context: String, digest: String, attention: String) -> String {
+        """
+        You are Observer's daily pattern-mining layer.
+
+        The input is imperfect local telemetry from one workday. Do not diagnose personality or mental health.
+        Do not summarize low-level actions. Infer behavioral patterns only when multiple evidence streams agree.
+
+        Produce concise Russian markdown with:
+        1. Главный паттерн дня: one clear pattern with evidence.
+        2. Рабочий инсайт: why this pattern matters for tomorrow.
+        3. Задел на будущее: what Observer should watch next time.
+        4. Неуверенность: what may be wrong or noisy in the data.
+
+        Prefer formulations like:
+        - "после X темп/переключения меняются"
+        - "когда контекст распадается между A и B, растёт фрикция"
+        - "общение с Y может быть восстановительным, but needs more evidence"
+
+        Never output generic labels like "active work", "reading", "switching tabs", or "formulating task" as insights.
+
+        Current end-of-day attention state:
+        \(attention)
+
+        Local research digest:
+        \(digest)
+
+        Day context pack:
         \(context)
         """
     }

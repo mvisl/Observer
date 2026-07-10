@@ -55,4 +55,16 @@ struct GeminiInsightProviderTests {
 
         #expect(line == "Observer: ищешь смысл выше статуса")
     }
+
+    @Test func dailyPromptAsksForPatternsAndFutureSeeds() {
+        let prompt = GeminiInsightProvider.buildDailyPrompt(
+            context: "Context pack",
+            digest: "Research digest",
+            attention: "Attention"
+        )
+
+        #expect(prompt.contains("Главный паттерн дня"))
+        #expect(prompt.contains("Задел на будущее"))
+        #expect(prompt.contains("Never output generic labels"))
+    }
 }

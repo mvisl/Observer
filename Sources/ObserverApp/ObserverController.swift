@@ -388,6 +388,12 @@ final class ObserverController {
             }
             return nil
         }
+        if hasAI && text.contains("observer") && (text.contains("меря") || text.contains("измер") || text.contains("выборк") || text.contains("шум")) {
+            return "Observer: проверяешь, меряет ли система смысл, а не шум"
+        }
+        if hasAI && text.contains("observer") && (text.contains("инсайт") || text.contains("паттерн") || text.contains("пилюл")) {
+            return "Observer: настраиваешь переход от событий к паттернам"
+        }
         if text.contains("формулирует задачу") || text.contains("формирует задачу") {
             return "Смысл пилюли: убираешь пустые формулировки без конкретики"
         }
@@ -1301,7 +1307,8 @@ final class ObserverController {
             return
         }
 
-        let events = (try? environment.eventStore.recentEvents(limit: 500)) ?? []
+        let isDailyMode = requestKind == "daily_patterns"
+        let events = (try? environment.eventStore.recentEvents(limit: isDailyMode ? 2500 : 500)) ?? []
         appendDetectorEvents(from: events)
         let context = ContextPackBuilder(
             topology: environment.topology,
@@ -1310,9 +1317,14 @@ final class ObserverController {
         ).build(events: events, mode: mode)
         let digest = ResearchDigestBuilder().build(events: events)
         let attention = stateSnapshot.attentionText
-        let prompt = widgetMode
-            ? GeminiInsightProvider.buildWidgetPrompt(context: context, digest: digest, attention: attention)
-            : GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
+        let prompt: String
+        if isDailyMode {
+            prompt = GeminiInsightProvider.buildDailyPrompt(context: context, digest: digest, attention: attention)
+        } else if widgetMode {
+            prompt = GeminiInsightProvider.buildWidgetPrompt(context: context, digest: digest, attention: attention)
+        } else {
+            prompt = GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
+        }
         let model = environment.settings.geminiModel
         let budgetDecision = GeminiBudgetGuard().evaluate(
             events: events,
@@ -1365,9 +1377,14 @@ final class ObserverController {
                     apiKey: apiKey,
                     model: model
                 )
-                let insight = widgetMode
-                    ? try await provider.generateWidgetInsight(context: context, digest: digest, attention: attention)
-                    : try await provider.generateInsight(context: context, digest: digest, attention: attention)
+                let insight: String
+                if isDailyMode {
+                    insight = try await provider.generateDailyInsight(context: context, digest: digest, attention: attention)
+                } else if widgetMode {
+                    insight = try await provider.generateWidgetInsight(context: context, digest: digest, attention: attention)
+                } else {
+                    insight = try await provider.generateInsight(context: context, digest: digest, attention: attention)
+                }
 
                 await MainActor.run {
                     var payload: [String: String] = [
@@ -2648,6 +2665,7 @@ final class ObserverController {
     private func closeForScheduleEnd(now: Date) {
         let summary = generateLocalSummary()
         _ = summary
+        requestDailyGeminiInsightIfNeeded(now: now)
         closeCurrentFocusInterval(reason: "schedule_end")
         closeObservationInterval(reason: "schedule_end", now: now)
         append(
@@ -2663,6 +2681,25 @@ final class ObserverController {
             )
         )
         enterOffHours()
+    }
+
+    private func requestDailyGeminiInsightIfNeeded(now: Date = Date()) {
+        guard environment.settings.geminiEnabled else {
+            return
+        }
+        let calendar = Calendar.current
+        guard !((try? environment.eventStore.recentEvents(limit: 800)) ?? []).contains(where: { event in
+            calendar.isDate(event.timestamp, inSameDayAs: now)
+                && event.payload["request_kind"] == "daily_patterns"
+                && event.payload["status"] != "skipped_missing_key"
+        }) else {
+            return
+        }
+        requestGeminiInsight(
+            requestKind: "daily_patterns",
+            widgetMode: false,
+            copyToPasteboard: false
+        )
     }
 
     private func closeObservationInterval(reason: String, now: Date = Date()) {
