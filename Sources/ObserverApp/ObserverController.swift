@@ -38,6 +38,7 @@ final class ObserverController {
     private var lastGazeCalibrationAt: Date?
     private var lastAwayPresenceIncidentAt: Date?
     private var lastSmileCueAt: Date?
+    private var lastYawnCueAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
@@ -990,6 +991,7 @@ final class ObserverController {
             now: now
         )
         recordSmileCueIfNeeded(snapshot, now: now)
+        recordYawnCueIfNeeded(snapshot, now: now)
         recordAwayPresenceIncidentIfNeeded(
             currentAttention: snapshot,
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
@@ -1559,6 +1561,54 @@ final class ObserverController {
             confidence: 0.58,
             payload: payload,
             displayText: "Коммуникация: улыбнулся на сообщение",
+            displayEligible: true,
+            surfaceAsContext: true,
+            now: now
+        )
+        notifyStateChanged()
+    }
+
+    private func recordYawnCueIfNeeded(_ attention: AttentionSnapshot, now: Date = Date()) {
+        guard mode == .observing else {
+            return
+        }
+        guard attention.yawnCandidate == true else {
+            return
+        }
+
+        let enoughTimePassed = lastYawnCueAt.map { now.timeIntervalSince($0) >= 180 } ?? true
+        guard enoughTimePassed else {
+            return
+        }
+
+        lastYawnCueAt = now
+
+        var payload: [String: String] = [
+            "cue": "energy_drop_candidate",
+            "interpretation": "yawn_detected"
+        ]
+        if let score = attention.mouthOpenScore {
+            payload["mouth_open_score"] = String(format: "%.3f", score)
+        }
+        if let source = attention.mouthSignalSource {
+            payload["mouth_signal_source"] = source
+        }
+        if let currentFocus {
+            payload["app_name"] = currentFocus.appName
+            if let appID = currentFocus.appID {
+                payload["app_id"] = appID
+            }
+        }
+        if let lastActivityInsight {
+            payload["activity_insight"] = lastActivityInsight
+        }
+
+        appendBehaviorCueForFusion(
+            displayRole: currentFocus?.displayRole,
+            appID: currentFocus?.appID,
+            confidence: 0.56,
+            payload: payload,
+            displayText: "Энергия просела: зевок в текущем контексте",
             displayEligible: true,
             surfaceAsContext: true,
             now: now

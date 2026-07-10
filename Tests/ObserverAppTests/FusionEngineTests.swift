@@ -48,6 +48,30 @@ struct FusionEngineTests {
         #expect(decision.payload["surface_allowed"] == "true")
     }
 
+    @Test func treatsYawnCandidateAsCameraEvidence() {
+        let now = Date()
+        let candidate = event(
+            type: .behaviorCue,
+            timestamp: now,
+            confidence: 0.56,
+            payload: [
+                "cue": "energy_drop_candidate",
+                "interpretation": "yawn_detected"
+            ]
+        )
+        let inputEvidence = event(
+            type: .inputActivity,
+            timestamp: now.addingTimeInterval(-20),
+            payload: ["seconds_since_any_input": "18"]
+        )
+
+        let decision = FusionEngine().decide(candidate: candidate, recentEvents: [inputEvidence, candidate])
+
+        #expect(decision.publicationState == "publishable")
+        #expect(decision.channels.contains("camera"))
+        #expect(decision.channels.contains("input"))
+    }
+
     private func event(
         type: ObserverEventType,
         timestamp: Date,

@@ -175,6 +175,9 @@ struct AttentionSnapshot: Sendable {
     let smileScore: Double?
     let smileCandidate: Bool?
     let smileSignalSource: String?
+    let mouthOpenScore: Double?
+    let yawnCandidate: Bool?
+    let mouthSignalSource: String?
     let isTemporarilyLostFace: Bool
 
     init(
@@ -199,6 +202,9 @@ struct AttentionSnapshot: Sendable {
         smileScore: Double? = nil,
         smileCandidate: Bool? = nil,
         smileSignalSource: String? = nil,
+        mouthOpenScore: Double? = nil,
+        yawnCandidate: Bool? = nil,
+        mouthSignalSource: String? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
         self.facePresent = facePresent
@@ -222,6 +228,9 @@ struct AttentionSnapshot: Sendable {
         self.smileScore = smileScore
         self.smileCandidate = smileCandidate
         self.smileSignalSource = smileSignalSource
+        self.mouthOpenScore = mouthOpenScore
+        self.yawnCandidate = yawnCandidate
+        self.mouthSignalSource = mouthSignalSource
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
@@ -258,6 +267,7 @@ struct AttentionSnapshot: Sendable {
             roll: roll
         )
         let smile = SmileEstimator().estimate(landmarks: largestFace.landmarks)
+        let mouth = MouthOpenEstimator().estimate(landmarks: largestFace.landmarks)
         let facePosition: FacePosition
         if centerX < 0.38 {
             facePosition = .left
@@ -290,7 +300,10 @@ struct AttentionSnapshot: Sendable {
             rightPupilY: eyeContact.rightPupilY,
             smileScore: smile.score,
             smileCandidate: smile.isCandidate,
-            smileSignalSource: smile.source
+            smileSignalSource: smile.source,
+            mouthOpenScore: mouth.score,
+            yawnCandidate: mouth.isYawnCandidate,
+            mouthSignalSource: mouth.source
         )
     }
 
@@ -317,6 +330,9 @@ struct AttentionSnapshot: Sendable {
             smileScore: smileScore,
             smileCandidate: smileCandidate,
             smileSignalSource: smileSignalSource,
+            mouthOpenScore: mouthOpenScore,
+            yawnCandidate: yawnCandidate,
+            mouthSignalSource: mouthSignalSource,
             isTemporarilyLostFace: true
         )
     }
@@ -386,6 +402,15 @@ struct AttentionSnapshot: Sendable {
         if let smileSignalSource {
             payload["smile_signal_source"] = smileSignalSource
         }
+        if let mouthOpenScore {
+            payload["mouth_open_score"] = String(format: "%.3f", mouthOpenScore)
+        }
+        if let yawnCandidate {
+            payload["yawn_candidate"] = yawnCandidate ? "true" : "false"
+        }
+        if let mouthSignalSource {
+            payload["mouth_signal_source"] = mouthSignalSource
+        }
         if isTemporarilyLostFace {
             payload["temporarily_lost_face"] = "true"
         }
@@ -424,6 +449,39 @@ private struct SmileEstimator {
             score: score,
             isCandidate: score >= 0.62,
             source: "outer_lips_aspect_ratio"
+        )
+    }
+}
+
+private struct MouthOpenEstimate {
+    let score: Double?
+    let isYawnCandidate: Bool?
+    let source: String?
+}
+
+private struct MouthOpenEstimator {
+    func estimate(landmarks: VNFaceLandmarks2D?) -> MouthOpenEstimate {
+        guard let mouth = landmarks?.outerLips, !mouth.normalizedPoints.isEmpty else {
+            return MouthOpenEstimate(score: nil, isYawnCandidate: nil, source: nil)
+        }
+
+        let points = mouth.normalizedPoints
+        let minX = points.map(\.x).min() ?? 0
+        let maxX = points.map(\.x).max() ?? 0
+        let minY = points.map(\.y).min() ?? 0
+        let maxY = points.map(\.y).max() ?? 0
+        let width = Double(maxX - minX)
+        let height = Double(maxY - minY)
+        guard width > 0, height > 0 else {
+            return MouthOpenEstimate(score: nil, isYawnCandidate: nil, source: nil)
+        }
+
+        let openness = height / max(width, 0.001)
+        let score = min(1, max(0, (openness - 0.28) / 0.34))
+        return MouthOpenEstimate(
+            score: score,
+            isYawnCandidate: score >= 0.62,
+            source: "outer_lips_open_ratio"
         )
     }
 }

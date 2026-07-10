@@ -199,4 +199,27 @@ struct AttentionStateBuilderTests {
         #expect(attention.eventPayload["smile_score"] == "0.780")
         #expect(attention.eventPayload["smile_signal_source"] == "outer_lips_aspect_ratio")
     }
+
+    @Test func includesYawnPayloadWhenAvailable() {
+        let attention = AttentionSnapshot(
+            facePresent: true,
+            attentionZone: .nearCamera,
+            facePosition: .center,
+            confidence: 0.8,
+            faceCount: 1,
+            faceCenterX: 0.5,
+            faceCenterY: 0.4,
+            faceArea: 0.05,
+            yaw: 0,
+            pitch: 0,
+            roll: 0,
+            mouthOpenScore: 0.72,
+            yawnCandidate: true,
+            mouthSignalSource: "outer_lips_open_ratio"
+        )
+
+        #expect(attention.eventPayload["yawn_candidate"] == "true")
+        #expect(attention.eventPayload["mouth_open_score"] == "0.720")
+        #expect(attention.eventPayload["mouth_signal_source"] == "outer_lips_open_ratio")
+    }
 }

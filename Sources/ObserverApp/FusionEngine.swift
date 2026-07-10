@@ -98,7 +98,13 @@ struct FusionEngine {
             .joined(separator: " ")
             .lowercased()
 
-        if cue.contains("smile") || cue.contains("posture") || cue.contains("concentration") || cue.contains("difficulty") {
+        if cue.contains("smile")
+            || cue.contains("posture")
+            || cue.contains("concentration")
+            || cue.contains("difficulty")
+            || cue.contains("yawn")
+            || cue.contains("energy_drop")
+            || cue.contains("fatigue") {
             return "camera"
         }
         if cue.contains("writing") || cue.contains("text") || cue.contains("tone") {
