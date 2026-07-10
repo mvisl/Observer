@@ -13,6 +13,10 @@ final class CameraAttentionService: NSObject {
     private var lastEmittedAt = Date.distantPast
     private var minimumEmitInterval: TimeInterval = 15
 
+    var isActive: Bool {
+        isRunning
+    }
+
     func start(
         minimumEmitInterval: TimeInterval,
         handler: @escaping @MainActor (AttentionSnapshot) -> Void

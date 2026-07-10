@@ -16,6 +16,8 @@ final class ObserverController {
     private var currentFocusStartedAt: Date?
     private var latestAttention: AttentionSnapshot?
     private var latestCameraStatus: String?
+    private var cameraAccessRequestInFlight = false
+    private var lastCameraPermissionStatus: String?
     private var latestInputActivity: InputActivitySnapshot?
     private var latestHint: String?
     private var lastHintAt: Date?
@@ -132,55 +134,52 @@ final class ObserverController {
     }
 
     func startCameraAttention() {
-        latestCameraStatus = "Контекст: запрашиваю камеру"
-        append(
-            .init(
-                type: .cameraPermission,
-                payload: ["status": PermissionAdvisor.currentStatus().camera],
-                workspaceTopologyVersion: environment.topology.version
-            )
-        )
-        notifyStateChanged()
+        let status = PermissionAdvisor.currentStatus().camera
+        recordCameraPermissionStatus(status)
 
+        if cameraAttentionService.isActive {
+            latestCameraStatus = nil
+            notifyStateChanged()
+            return
+        }
+
+        if status == "authorized" {
+            startCameraCapture()
+            return
+        }
+
+        guard status == "not_determined" else {
+            latestCameraStatus = "Контекст: камера запрещена"
+            notifyStateChanged()
+            print("Camera access not granted.")
+            return
+        }
+
+        guard !cameraAccessRequestInFlight else {
+            latestCameraStatus = "Контекст: жду разрешение камеры"
+            notifyStateChanged()
+            return
+        }
+
+        cameraAccessRequestInFlight = true
+        latestCameraStatus = "Контекст: запрашиваю камеру"
+        notifyStateChanged()
         PermissionAdvisor.requestCameraAccess { [weak self] granted in
             guard let self else {
                 return
             }
+            self.cameraAccessRequestInFlight = false
+            let currentStatus = PermissionAdvisor.currentStatus().camera
+            self.recordCameraPermissionStatus(currentStatus, force: true)
 
             guard granted else {
                 self.latestCameraStatus = "Контекст: камера запрещена"
-                self.append(
-                    .init(
-                        type: .cameraPermission,
-                        payload: ["status": PermissionAdvisor.currentStatus().camera],
-                        workspaceTopologyVersion: self.environment.topology.version
-                    )
-                )
                 self.notifyStateChanged()
                 print("Camera access not granted.")
                 return
             }
 
-            do {
-                self.latestCameraStatus = "Контекст: камера включается"
-                try self.cameraAttentionService.start(
-                    minimumEmitInterval: self.environment.settings.attentionSampleIntervalSeconds
-                ) { [weak self] snapshot in
-                    self?.handleAttentionSnapshot(snapshot)
-                }
-                self.append(
-                    .init(
-                        type: .cameraAttentionStarted,
-                        payload: ["sample_interval_seconds": "\(Int(self.environment.settings.attentionSampleIntervalSeconds))"],
-                        workspaceTopologyVersion: self.environment.topology.version
-                    )
-                )
-                self.notifyStateChanged()
-            } catch {
-                self.latestCameraStatus = "Контекст: камера не запустилась"
-                self.notifyStateChanged()
-                print("Camera attention failed to start: \(error)")
-            }
+            self.startCameraCapture()
         }
     }
 
@@ -195,6 +194,32 @@ final class ObserverController {
             )
         )
         notifyStateChanged()
+    }
+
+    func reconcileCameraPermissionAndStartIfNeeded() {
+        let status = PermissionAdvisor.currentStatus().camera
+        recordCameraPermissionStatus(status)
+
+        switch status {
+        case "authorized":
+            if environment.settings.startCameraAttentionOnLaunch, !cameraAttentionService.isActive {
+                startCameraCapture()
+            }
+        case "denied", "restricted":
+            latestCameraStatus = "Контекст: камера запрещена"
+            notifyStateChanged()
+        case "not_determined":
+            if latestCameraStatus == "Контекст: запрашиваю камеру" {
+                return
+            }
+            latestCameraStatus = cameraAccessRequestInFlight
+                ? "Контекст: жду разрешение камеры"
+                : "Контекст: камера ждет разрешения"
+            notifyStateChanged()
+        default:
+            latestCameraStatus = "Контекст: камера недоступна"
+            notifyStateChanged()
+        }
     }
 
     func collectContextPack() -> String {
@@ -581,6 +606,50 @@ final class ObserverController {
         } catch {
             print("Failed to write event: \(error)")
         }
+    }
+
+    private func startCameraCapture() {
+        guard !cameraAttentionService.isActive else {
+            latestCameraStatus = nil
+            notifyStateChanged()
+            return
+        }
+
+        do {
+            latestCameraStatus = "Контекст: камера включается"
+            try cameraAttentionService.start(
+                minimumEmitInterval: environment.settings.attentionSampleIntervalSeconds
+            ) { [weak self] snapshot in
+                self?.handleAttentionSnapshot(snapshot)
+            }
+            append(
+                .init(
+                    type: .cameraAttentionStarted,
+                    payload: ["sample_interval_seconds": "\(Int(environment.settings.attentionSampleIntervalSeconds))"],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            notifyStateChanged()
+        } catch {
+            latestCameraStatus = "Контекст: камера не запустилась"
+            notifyStateChanged()
+            print("Camera attention failed to start: \(error)")
+        }
+    }
+
+    private func recordCameraPermissionStatus(_ status: String, force: Bool = false) {
+        guard force || status != lastCameraPermissionStatus else {
+            return
+        }
+
+        lastCameraPermissionStatus = status
+        append(
+            .init(
+                type: .cameraPermission,
+                payload: ["status": status],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func appendDetectorEvents(from events: [ObserverEvent]) {

@@ -7,6 +7,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     private var controller: ObserverController?
     private var widgetController: WidgetPanelController?
     private var timelineController: TimelineWindowController?
+    private var cameraPermissionTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -21,6 +22,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             configureWidget()
             controller?.recordLaunch()
             startConfiguredServices()
+            startPermissionReconciliation()
             runDeveloperAutomationIfRequested()
         } catch {
             presentStartupFailure(error)
@@ -394,6 +396,15 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
         if controller.settings.startCameraAttentionOnLaunch {
             startCameraAttention()
+        }
+    }
+
+    private func startPermissionReconciliation() {
+        cameraPermissionTimer?.invalidate()
+        cameraPermissionTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.controller?.reconcileCameraPermissionAndStartIfNeeded()
+            }
         }
     }
 }

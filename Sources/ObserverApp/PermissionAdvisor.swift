@@ -3,7 +3,6 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 
-@MainActor
 enum PermissionAdvisor {
     struct Status {
         let accessibility: Bool
@@ -45,23 +44,29 @@ enum PermissionAdvisor {
         return CGRequestScreenCaptureAccess()
     }
 
-    static func requestCameraAccess(completion: @escaping (Bool) -> Void) {
+    static func requestCameraAccess(completion: @escaping @MainActor (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            completion(true)
+            Task { @MainActor in
+                completion(true)
+            }
 
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     completion(granted)
                 }
             }
 
         case .denied, .restricted:
-            completion(false)
+            Task { @MainActor in
+                completion(false)
+            }
 
         @unknown default:
-            completion(false)
+            Task { @MainActor in
+                completion(false)
+            }
         }
     }
 }
