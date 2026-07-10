@@ -18,7 +18,9 @@ Initial interpretation rules:
 
 First useful product behavior:
 
-- Observe currently playing track locally when a media integration exists.
+- Observe currently playing track locally from available media sources.
+- Auto-pause known media sources when the user is repeatedly absent and input is idle.
+- Auto-resume only sources that Observer itself paused, only shortly after return, and only when the output looks like headphones.
 - Label candidate reactions: `settled`, `energized`, `distracted`, `neutral`.
 - Suggest changes before taking control.
 - Only auto-switch music after an explicit user opt-in.

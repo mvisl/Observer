@@ -10,6 +10,8 @@
   "screenContextRefreshSeconds": 60,
   "geminiEnabled": true,
   "geminiModel": "gemini-3.5-flash",
+  "autoPauseMediaWhenAway": true,
+  "autoResumeMediaWhenBack": true,
   "detectorSettings": {
     "frequentSwitchFocusEvents": 8,
     "frequentSwitchUniqueApps": 2,

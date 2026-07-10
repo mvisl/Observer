@@ -15,6 +15,7 @@ let package = Package(
             name: "ObserverApp",
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreAudio"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("Security"),
                 .linkedFramework("Vision"),

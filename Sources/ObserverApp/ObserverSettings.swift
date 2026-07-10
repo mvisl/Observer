@@ -20,6 +20,8 @@ struct ObserverSettings: Codable {
     var screenContextRefreshSeconds: Double
     var geminiEnabled: Bool
     var geminiModel: String
+    var autoPauseMediaWhenAway: Bool
+    var autoResumeMediaWhenBack: Bool
     var detectorSettings: DetectorSettings
 
     init(
@@ -34,6 +36,8 @@ struct ObserverSettings: Codable {
         screenContextRefreshSeconds: Double,
         geminiEnabled: Bool,
         geminiModel: String,
+        autoPauseMediaWhenAway: Bool,
+        autoResumeMediaWhenBack: Bool,
         detectorSettings: DetectorSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
@@ -47,6 +51,8 @@ struct ObserverSettings: Codable {
         self.screenContextRefreshSeconds = screenContextRefreshSeconds
         self.geminiEnabled = geminiEnabled
         self.geminiModel = geminiModel
+        self.autoPauseMediaWhenAway = autoPauseMediaWhenAway
+        self.autoResumeMediaWhenBack = autoResumeMediaWhenBack
         self.detectorSettings = detectorSettings
     }
 
@@ -64,6 +70,8 @@ struct ObserverSettings: Codable {
         self.screenContextRefreshSeconds = try container.decodeIfPresent(Double.self, forKey: .screenContextRefreshSeconds) ?? defaults.screenContextRefreshSeconds
         self.geminiEnabled = try container.decodeIfPresent(Bool.self, forKey: .geminiEnabled) ?? defaults.geminiEnabled
         self.geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
+        self.autoPauseMediaWhenAway = try container.decodeIfPresent(Bool.self, forKey: .autoPauseMediaWhenAway) ?? defaults.autoPauseMediaWhenAway
+        self.autoResumeMediaWhenBack = try container.decodeIfPresent(Bool.self, forKey: .autoResumeMediaWhenBack) ?? defaults.autoResumeMediaWhenBack
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
     }
 
@@ -79,6 +87,8 @@ struct ObserverSettings: Codable {
         screenContextRefreshSeconds: 60,
         geminiEnabled: true,
         geminiModel: "gemini-3.5-flash",
+        autoPauseMediaWhenAway: true,
+        autoResumeMediaWhenBack: true,
         detectorSettings: DetectorSettings(
             frequentSwitchFocusEvents: 8,
             frequentSwitchUniqueApps: 2,

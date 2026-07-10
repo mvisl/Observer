@@ -41,6 +41,8 @@ struct DiagnosticsBuilder {
         - Gemini enabled: \(settings.geminiEnabled)
         - Gemini model: \(settings.geminiModel)
         - Gemini key configured: \(hasGeminiAPIKey)
+        - Auto-pause media when away: \(settings.autoPauseMediaWhenAway)
+        - Auto-resume media when back: \(settings.autoResumeMediaWhenBack)
         - Frequent switch threshold: \(settings.detectorSettings.frequentSwitchFocusEvents) focus events
         - Reading pause threshold: \(Int(settings.detectorSettings.readingPauseSeconds))s
 

@@ -29,6 +29,11 @@ final class ObserverController {
     private var isIdleBoundaryOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
+    private var mediaTimer: Timer?
+    private var lastMediaPlaybackKey: String?
+    private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
+    private var lastAutoPauseAt: Date?
+    private var autoPausedSources: [String] = []
 
     var onStateChanged: ((ObserverViewState) -> Void)?
 
@@ -144,6 +149,7 @@ final class ObserverController {
             self?.handleSensorEvent(event)
         }
         startSummaryTimer()
+        startMediaTimer()
         notifyStateChanged()
     }
 
@@ -164,6 +170,7 @@ final class ObserverController {
         )
         sensor?.stop()
         stopSummaryTimer()
+        stopMediaTimer()
         notifyStateChanged()
     }
 
@@ -749,6 +756,8 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        pauseMediaIfUserAppearsAway()
+        resumeMediaIfUserReturned()
         notifyStateChanged()
     }
 
@@ -792,6 +801,8 @@ final class ObserverController {
                 )
             )
             updateIdleBoundary(activity)
+            pauseMediaIfUserAppearsAway()
+            resumeMediaIfUserReturned()
             notifyStateChanged()
 
         case .screenContext(let context):
@@ -941,6 +952,143 @@ final class ObserverController {
     private func stopSummaryTimer() {
         summaryTimer?.invalidate()
         summaryTimer = nil
+    }
+
+    private func startMediaTimer() {
+        stopMediaTimer()
+        sampleMediaPlayback()
+        mediaTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.sampleMediaPlayback()
+            }
+        }
+    }
+
+    private func stopMediaTimer() {
+        mediaTimer?.invalidate()
+        mediaTimer = nil
+        lastMediaPlaybackKey = nil
+    }
+
+    private func sampleMediaPlayback() {
+        guard let snapshot = MediaPlaybackService().currentPlayback() else {
+            return
+        }
+
+        guard snapshot.identityKey != lastMediaPlaybackKey else {
+            return
+        }
+
+        var payload = snapshot.eventPayload
+        if let currentFocus {
+            payload["app_name"] = currentFocus.appName
+            if let appID = currentFocus.appID {
+                payload["app_id"] = appID
+            }
+        }
+        if let latestInputActivity {
+            payload["seconds_since_any_input"] = String(format: "%.1f", latestInputActivity.secondsSinceAnyInput)
+            if let mouseDisplayRole = latestInputActivity.mouseDisplayRole {
+                payload["mouse_display_role"] = mouseDisplayRole.rawValue
+            }
+        }
+        if let lastActivityInsight {
+            payload["activity_insight"] = lastActivityInsight
+        }
+
+        lastMediaPlaybackKey = snapshot.identityKey
+        lastMediaPlaybackSnapshot = snapshot
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func pauseMediaIfUserAppearsAway() {
+        guard environment.settings.autoPauseMediaWhenAway else {
+            return
+        }
+        guard mode == .observing else {
+            return
+        }
+        guard consecutiveMissingFaceSamples >= 4 else {
+            return
+        }
+        guard latestInputActivity?.secondsSinceAnyInput ?? 0 >= 45 else {
+            return
+        }
+        guard lastMediaPlaybackSnapshot?.state == "playing" else {
+            return
+        }
+
+        let now = Date()
+        guard lastAutoPauseAt.map({ now.timeIntervalSince($0) >= 600 }) ?? true else {
+            return
+        }
+
+        let pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        guard !pausedSources.isEmpty else {
+            return
+        }
+
+        lastAutoPauseAt = now
+        autoPausedSources = pausedSources
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "auto_pause",
+                    "reason": "away_from_computer",
+                    "paused_sources": pausedSources.joined(separator: ", "),
+                    "missing_face_samples": "\(consecutiveMissingFaceSamples)",
+                    "seconds_since_any_input": String(format: "%.1f", latestInputActivity?.secondsSinceAnyInput ?? 0)
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func resumeMediaIfUserReturned() {
+        guard environment.settings.autoResumeMediaWhenBack else {
+            return
+        }
+        guard !autoPausedSources.isEmpty else {
+            return
+        }
+        guard let lastAutoPauseAt, Date().timeIntervalSince(lastAutoPauseAt) <= 1800 else {
+            autoPausedSources = []
+            return
+        }
+        guard latestAttention?.facePresent == true else {
+            return
+        }
+
+        let outputName = AudioOutputService().currentOutputName()
+        guard AudioOutputService().looksLikeHeadphones(outputName) else {
+            return
+        }
+
+        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
+        guard !resumedSources.isEmpty else {
+            return
+        }
+
+        autoPausedSources = []
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "auto_resume",
+                    "reason": "user_returned",
+                    "resumed_sources": resumedSources.joined(separator: ", "),
+                    "audio_output": outputName ?? "unknown"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 }
 
