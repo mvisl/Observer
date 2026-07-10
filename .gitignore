@@ -1,0 +1,9 @@
+.build/
+build/
+.DS_Store
+*.xcuserstate
+xcuserdata/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+Exports/

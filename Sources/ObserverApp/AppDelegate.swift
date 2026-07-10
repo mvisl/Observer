@@ -1,0 +1,352 @@
+import AppKit
+import Foundation
+
+@MainActor
+final class ObserverApp: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem?
+    private var controller: ObserverController?
+    private var widgetController: WidgetPanelController?
+    private var timelineController: TimelineWindowController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
+        do {
+            let environment = try AppEnvironment.bootstrap()
+            controller = ObserverController(environment: environment)
+            controller?.onStateChanged = { [weak self] snapshot in
+                self?.widgetController?.update(snapshot)
+            }
+            configureStatusItem()
+            configureWidget()
+            controller?.recordLaunch()
+            startConfiguredServices()
+            runDeveloperAutomationIfRequested()
+        } catch {
+            presentStartupFailure(error)
+        }
+    }
+
+    private func configureStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "Observer: Paused"
+        item.menu = makeMenu()
+        statusItem = item
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        addItem("Start Observing", #selector(startObserving), to: menu)
+        addItem("Pause", #selector(pauseObserving), to: menu)
+        addItem("Start Camera Attention", #selector(startCameraAttention), to: menu)
+        addItem("Stop Camera Attention", #selector(stopCameraAttention), to: menu)
+        menu.addItem(.separator())
+        addItem("Show Widget", #selector(showWidget), to: menu)
+        addItem("Hide Widget", #selector(hideWidget), to: menu)
+        addItem("Reset Widget Position", #selector(resetWidgetPosition), to: menu)
+        menu.addItem(.separator())
+        addItem("Collect Context", #selector(collectContext), to: menu)
+        addItem("Generate Local Summary", #selector(generateLocalSummary), to: menu)
+        addItem("Generate Research Digest", #selector(generateResearchDigest), to: menu)
+        addItem("Export Context File", #selector(exportContextFile), to: menu)
+        addItem("Export Research Digest", #selector(exportResearchDigest), to: menu)
+        addItem("Export Events JSONL", #selector(exportEventsJSONL), to: menu)
+        addItem("Generate Local LLM Insight", #selector(generateLocalLLMInsight), to: menu)
+        addItem("Show Timeline", #selector(showTimeline), to: menu)
+        addItem("Add Note", #selector(addNote), to: menu)
+        addItem("Copy Diagnostics", #selector(copyDiagnostics), to: menu)
+        addItem("Capture OCR For Current App", #selector(captureOCRForCurrentApp), to: menu)
+        addItem("Allow Current App Context", #selector(allowCurrentAppContext), to: menu)
+        addItem("Private: Exclude Current App", #selector(excludeCurrentApp), to: menu)
+        addItem("Delete Last Hour", #selector(deleteLastHour), to: menu)
+        addItem("Reset Local Memory", #selector(resetLocalMemory), to: menu)
+        addItem("Request Accessibility Access", #selector(requestAccessibilityAccess), to: menu)
+        addItem("Request Camera Access", #selector(requestCameraAccess), to: menu)
+        addItem("Request Screen Recording Access", #selector(requestScreenRecordingAccess), to: menu)
+        addItem("Current Setup", #selector(printCurrentSetup), to: menu)
+        addItem("Open Data Folder", #selector(openDataFolder), to: menu)
+        addItem("Open Settings File", #selector(openSettingsFile), to: menu)
+        addItem("Open Privacy File", #selector(openPrivacyFile), to: menu)
+        addItem("Open Exports Folder", #selector(openExportsFolder), to: menu)
+        menu.addItem(.separator())
+        addItem("Quit", #selector(quit), to: menu, key: "q")
+        return menu
+    }
+
+    private func addItem(_ title: String, _ action: Selector, to menu: NSMenu, key: String = "") {
+        let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+        item.target = self
+    }
+
+    private func configureWidget() {
+        let widget = WidgetPanelController()
+        widgetController = widget
+        widget.show()
+        if let snapshot = controller?.stateSnapshot {
+            widget.update(snapshot)
+        }
+    }
+
+    @objc private func startObserving() {
+        controller?.startObserving()
+        statusItem?.button?.title = "Observer: Watching"
+    }
+
+    @objc private func pauseObserving() {
+        controller?.pauseObserving()
+        statusItem?.button?.title = "Observer: Paused"
+    }
+
+    @objc private func startCameraAttention() {
+        controller?.startCameraAttention()
+    }
+
+    @objc private func stopCameraAttention() {
+        controller?.stopCameraAttention()
+    }
+
+    @objc private func collectContext() {
+        guard let context = controller?.collectContextPack() else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(context, forType: .string)
+        print(context)
+    }
+
+    @objc private func generateLocalSummary() {
+        guard let summary = controller?.generateLocalSummary() else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        print(summary)
+    }
+
+    @objc private func generateResearchDigest() {
+        guard let digest = controller?.generateResearchDigest() else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(digest, forType: .string)
+        print(digest)
+    }
+
+    @objc private func exportContextFile() {
+        guard let url = controller?.exportContextFile() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func exportResearchDigest() {
+        guard let url = controller?.exportResearchDigest() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func exportEventsJSONL() {
+        guard let url = controller?.exportEventsJSONL() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func generateLocalLLMInsight() {
+        controller?.generateLocalLLMInsight()
+    }
+
+    @objc private func showTimeline() {
+        guard let controller else {
+            return
+        }
+
+        let timeline = timelineController ?? TimelineWindowController()
+        timelineController = timeline
+        timeline.show(text: controller.timelineText())
+    }
+
+    @objc private func addNote() {
+        let alert = NSAlert()
+        alert.messageText = "Add Observer Note"
+        alert.informativeText = "This note is stored locally with the current workspace context."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+        input.placeholderString = "What should Observer remember?"
+        alert.accessoryView = input
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+
+        controller?.addUserNote(input.stringValue)
+    }
+
+    @objc private func copyDiagnostics() {
+        guard let diagnostics = controller?.copyDiagnostics() else {
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(diagnostics, forType: .string)
+        print(diagnostics)
+    }
+
+    @objc private func captureOCRForCurrentApp() {
+        controller?.captureOCRForCurrentApp()
+    }
+
+    @objc private func excludeCurrentApp() {
+        controller?.excludeCurrentApp()
+    }
+
+    @objc private func allowCurrentAppContext() {
+        controller?.allowCurrentAppContext()
+    }
+
+    @objc private func deleteLastHour() {
+        guard confirmDestructiveAction(message: "Delete Observer events from the last hour?") else {
+            return
+        }
+        controller?.deleteEventsFromLastHour()
+    }
+
+    @objc private func resetLocalMemory() {
+        guard confirmDestructiveAction(message: "Delete all Observer events from local memory?") else {
+            return
+        }
+        controller?.resetLocalMemory()
+    }
+
+    @objc private func showWidget() {
+        widgetController?.show()
+    }
+
+    @objc private func hideWidget() {
+        widgetController?.hide()
+    }
+
+    @objc private func resetWidgetPosition() {
+        widgetController?.resetPosition()
+        widgetController?.show()
+    }
+
+    @objc private func requestAccessibilityAccess() {
+        controller?.requestAccessibilityAccess()
+    }
+
+    @objc private func requestCameraAccess() {
+        controller?.requestCameraAccess()
+    }
+
+    @objc private func requestScreenRecordingAccess() {
+        controller?.requestScreenRecordingAccess()
+    }
+
+    @objc private func printCurrentSetup() {
+        guard let description = controller?.currentSetupDescription else {
+            return
+        }
+        print(description)
+    }
+
+    @objc private func openDataFolder() {
+        guard let folder = controller?.dataFolder else {
+            return
+        }
+        NSWorkspace.shared.open(folder)
+    }
+
+    @objc private func openSettingsFile() {
+        openDataFile("observer-settings.json")
+    }
+
+    @objc private func openPrivacyFile() {
+        openDataFile("privacy.json")
+    }
+
+    @objc private func openExportsFolder() {
+        guard let folder = controller?.dataFolder.appendingPathComponent("Exports", isDirectory: true) else {
+            return
+        }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
+    @objc private func quit() {
+        controller?.recordShutdown()
+        NSApp.terminate(nil)
+    }
+
+    private func presentStartupFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Observer could not start"
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
+        NSApp.terminate(nil)
+    }
+
+    private func confirmDestructiveAction(message: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = "This only affects Observer's local event database."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func openDataFile(_ filename: String) {
+        guard let file = controller?.dataFolder.appendingPathComponent(filename) else {
+            return
+        }
+        NSWorkspace.shared.open(file)
+    }
+
+    private func runDeveloperAutomationIfRequested() {
+        let environment = ProcessInfo.processInfo.environment
+
+        if environment["OBSERVER_AUTOSTART"] == "1" {
+            startObserving()
+        }
+
+        if let collectAfterValue = environment["OBSERVER_COLLECT_CONTEXT_AFTER_SECONDS"],
+           let collectAfter = TimeInterval(collectAfterValue) {
+            Timer.scheduledTimer(withTimeInterval: collectAfter, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    _ = self?.controller?.generateLocalSummary()
+                    _ = self?.controller?.collectContextPack()
+                }
+            }
+        }
+
+        guard
+            let quitAfterValue = environment["OBSERVER_QUIT_AFTER_SECONDS"],
+            let quitAfter = TimeInterval(quitAfterValue)
+        else {
+            return
+        }
+
+        Timer.scheduledTimer(withTimeInterval: quitAfter, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.quit()
+            }
+        }
+    }
+
+    private func startConfiguredServices() {
+        guard let controller else {
+            return
+        }
+
+        if controller.settings.startObservingOnLaunch {
+            startObserving()
+        }
+
+        if controller.settings.startCameraAttentionOnLaunch {
+            startCameraAttention()
+        }
+    }
+}

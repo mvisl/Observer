@@ -1,0 +1,18 @@
+{
+  "summaryIntervalSeconds": 900,
+  "retentionDays": 90,
+  "idleSessionBoundarySeconds": 300,
+  "startObservingOnLaunch": false,
+  "startCameraAttentionOnLaunch": false,
+  "hintDeliveryMode": "quiet",
+  "minimumHintIntervalSeconds": 1800,
+  "attentionSampleIntervalSeconds": 15,
+  "screenContextRefreshSeconds": 60,
+  "detectorSettings": {
+    "frequentSwitchFocusEvents": 8,
+    "frequentSwitchUniqueApps": 2,
+    "returnLoopMinimumEvents": 5,
+    "returnLoopMinimumReturns": 3,
+    "readingPauseSeconds": 180
+  }
+}
