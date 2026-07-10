@@ -182,7 +182,7 @@ final class WidgetPanelController {
     private static func clampedSize(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, 190), 360),
-            height: min(max(size.height, 68), 190)
+            height: min(max(size.height, 68), 240)
         )
     }
 }
@@ -551,8 +551,9 @@ final class ObserverWidgetView: NSView {
         recommendationLabel.isHidden = false
         updateInsightContent()
         onInsightOpened()
+        let expandedHeight: CGFloat = securityFolderButton.isHidden ? 190 : 222
         WidgetPanelController.applyWidgetSize(
-            CGSize(width: window.frame.width, height: 190),
+            CGSize(width: window.frame.width, height: expandedHeight),
             to: window,
             persist: false,
             anchor: .topRight
