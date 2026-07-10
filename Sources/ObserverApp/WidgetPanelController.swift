@@ -41,6 +41,7 @@ final class WidgetPanelController {
     }
 
     func show() {
+        normalizePanelSizeIfNeeded()
         positionPanelIfNeeded()
         panel.orderFrontRegardless()
     }
@@ -59,7 +60,16 @@ final class WidgetPanelController {
     }
 
     func update(_ state: ObserverViewState) {
+        normalizePanelSizeIfNeeded()
         widgetView.update(state)
+    }
+
+    private func normalizePanelSizeIfNeeded() {
+        let clamped = Self.clampedSize(panel.frame.size)
+        guard abs(panel.frame.width - clamped.width) > 0.5 || abs(panel.frame.height - clamped.height) > 0.5 else {
+            return
+        }
+        Self.applyWidgetSize(clamped, to: panel, anchor: .topRight)
     }
 
     private func positionPanelIfNeeded() {
@@ -888,7 +898,7 @@ final class ObserverWidgetView: NSView {
     private func calibrationCellColor(isPredicted: Bool, isSelected: Bool) -> NSColor {
         guard let selection = lastCalibrationSelection, isSelected else {
             return isPredicted
-                ? NSColor.white.withAlphaComponent(0.38)
+                ? NSColor.white.withAlphaComponent(0.72)
                 : NSColor.controlBackgroundColor.withAlphaComponent(0.22)
         }
         return selection.isCorrect
@@ -901,7 +911,7 @@ final class ObserverWidgetView: NSView {
             return .white.withAlphaComponent(0.9)
         }
         if isPredicted {
-            return .white.withAlphaComponent(0.8)
+            return .white.withAlphaComponent(1)
         }
         return .separatorColor.withAlphaComponent(0.65)
     }

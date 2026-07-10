@@ -167,22 +167,65 @@ final class ObserverController {
     }
 
     private func widgetGazePrediction(displays: [WorkspaceTopology.Display]) -> (displayIndex: Int?, cellIndex: Int?) {
-        guard let attention = smoothedAttentionForDisplay, attention.facePresent else {
-            return (nil, nil)
-        }
         guard !displays.isEmpty else {
             return (nil, nil)
+        }
+        guard let attention = smoothedAttentionForDisplay, attention.facePresent else {
+            return fallbackCalibrationPrediction(displays: displays)
         }
 
         let displayIndex = predictedDisplayIndex(from: attention, displays: displays)
         let display = displays[displayIndex]
         let columns = display.isCameraMounted ? 3 : 2
         let rows = display.isCameraMounted ? 3 : 2
-        let x = min(0.999, max(0, attention.faceCenterX ?? 0.5))
-        let y = min(0.999, max(0, attention.faceCenterY ?? 0.5))
+        let x = min(0.999, max(0, horizontalGazeProxy(attention)))
+        let y = min(0.999, max(0, verticalGazeProxy(attention)))
         let column = min(columns - 1, max(0, Int((1 - x) * Double(columns))))
         let row = min(rows - 1, max(0, Int((1 - y) * Double(rows))))
         return (displayIndex, row * columns + column)
+    }
+
+    private func fallbackCalibrationPrediction(displays: [WorkspaceTopology.Display]) -> (displayIndex: Int?, cellIndex: Int?) {
+        let displayIndex = displays.firstIndex(where: { $0.isCameraMounted }) ?? displays.indices.first
+        guard let displayIndex else {
+            return (nil, nil)
+        }
+        let display = displays[displayIndex]
+        let columns = display.isCameraMounted ? 3 : 2
+        let rows = display.isCameraMounted ? 3 : 2
+        return (displayIndex, (rows / 2) * columns + (columns / 2))
+    }
+
+    private func horizontalGazeProxy(_ attention: AttentionSnapshot) -> Double {
+        let faceX = attention.faceCenterX ?? 0.5
+        guard let pupilX = averagePupilX(attention) else {
+            return faceX
+        }
+        return faceX * 0.65 + pupilX * 0.35
+    }
+
+    private func verticalGazeProxy(_ attention: AttentionSnapshot) -> Double {
+        let faceY = attention.faceCenterY ?? 0.5
+        guard let pupilY = averagePupilY(attention) else {
+            return faceY
+        }
+        return faceY * 0.65 + pupilY * 0.35
+    }
+
+    private func averagePupilX(_ attention: AttentionSnapshot) -> Double? {
+        let values = [attention.leftPupilX, attention.rightPupilX].compactMap { $0 }
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private func averagePupilY(_ attention: AttentionSnapshot) -> Double? {
+        let values = [attention.leftPupilY, attention.rightPupilY].compactMap { $0 }
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.reduce(0, +) / Double(values.count)
     }
 
     private func predictedDisplayIndex(from attention: AttentionSnapshot, displays: [WorkspaceTopology.Display]) -> Int {
