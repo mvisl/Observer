@@ -40,6 +40,53 @@ struct ActivityInsightBuilderTests {
         #expect(text.contains("Поиск / сравнение"))
     }
 
+    @Test func socialNetworkInChromeIsNotSearchAndCompare() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 1,
+                secondsSinceMouseMove: 1,
+                secondsSinceClick: 1,
+                secondsSinceAnyInput: 1
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(
+                appName: "Google Chrome",
+                appID: "com.google.Chrome",
+                windowTitle: "Instagram - Google Chrome"
+            ),
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Соцсети: просматривает ленту")
+        #expect(!text.contains("ищет"))
+        #expect(!text.contains("сравнивает"))
+    }
+
+    @Test func rapidSocialFeedSwitchingIsNotWorkSearch() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 1,
+                secondsSinceMouseMove: 1,
+                secondsSinceClick: 1,
+                secondsSinceAnyInput: 1
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(
+                appName: "Google Chrome",
+                appID: "com.google.Chrome",
+                windowTitle: "X / Twitter - Google Chrome"
+            ),
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 5
+        )
+
+        #expect(text == "Соцсети: быстро переключает ленту")
+        #expect(!text.contains("Поиск"))
+    }
+
     @Test func doesNotTreatActiveMissingFaceAsAway() {
         let text = ActivityInsightBuilder().build(
             attention: AttentionSnapshot(
@@ -298,13 +345,14 @@ struct ActivityInsightBuilderTests {
     private func focus(
         appName: String,
         appID: String,
-        displayRole: WorkspaceTopology.DisplayRole? = nil
+        displayRole: WorkspaceTopology.DisplayRole? = nil,
+        windowTitle: String? = nil
     ) -> AppFocusSnapshot {
         AppFocusSnapshot(
             appID: appID,
             appName: appName,
             processID: 1,
-            windowTitle: nil,
+            windowTitle: windowTitle,
             screenIndex: displayRole == nil ? nil : 0,
             displayRole: displayRole,
             contentAllowed: false

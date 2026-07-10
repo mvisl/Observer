@@ -23,6 +23,9 @@ struct ActivityInsightBuilder {
         }
 
         if focusChangesLastMinute >= 4 {
+            if intent == .socialFeed {
+                return "Соцсети: быстро переключает ленту"
+            }
             return "Поиск / сравнение: много переключений"
         }
 
@@ -140,6 +143,7 @@ private enum AppIntent {
     case design
     case code
     case browser
+    case socialFeed
     case communication
     case meeting
     case service
@@ -161,8 +165,8 @@ private enum AppIntent {
             self = .design
         } else if haystack.contains("xcode") || haystack.contains("visual studio code") || haystack.contains("cursor") || haystack.contains("terminal") {
             self = .code
-        } else if haystack.contains("chrome") || haystack.contains("safari") || haystack.contains("firefox") {
-            self = .browser
+        } else if Self.isSocialFeed(haystack) {
+            self = .socialFeed
         } else if haystack.contains("slack")
             || haystack.contains("telegram")
             || haystack.contains("viber")
@@ -170,6 +174,8 @@ private enum AppIntent {
             || haystack.contains("messages")
             || haystack.contains("mail") {
             self = .communication
+        } else if haystack.contains("chrome") || haystack.contains("safari") || haystack.contains("firefox") {
+            self = .browser
         } else if haystack.contains("zoom") || haystack.contains("meet") || haystack.contains("teams") {
             self = .meeting
         } else if haystack.contains("finder") || haystack.contains("system settings") || haystack.contains("settings") {
@@ -177,6 +183,25 @@ private enum AppIntent {
         } else {
             self = .unknown
         }
+    }
+
+    private static func isSocialFeed(_ haystack: String) -> Bool {
+        [
+            "instagram",
+            "facebook",
+            "fb.com",
+            "x.com",
+            "twitter",
+            "threads",
+            "tiktok",
+            "reddit",
+            "linkedin",
+            "pinterest",
+            "vk.com",
+            "vkontakte",
+            "ok.ru",
+            "одноклассники"
+        ].contains { haystack.contains($0) }
     }
 
     var prefix: String {
@@ -189,6 +214,8 @@ private enum AppIntent {
             return "Код"
         case .browser:
             return "Веб-контекст"
+        case .socialFeed:
+            return "Соцсети"
         case .communication:
             return "Коммуникация"
         case .meeting:
@@ -212,6 +239,8 @@ private enum AppIntent {
             return "Код: активная правка"
         case .browser:
             return "Веб-контекст: ищет / сравнивает"
+        case .socialFeed:
+            return "Соцсети: просматривает ленту"
         case .communication:
             return "Коммуникация: отвечает"
         case .meeting:
@@ -235,6 +264,8 @@ private enum AppIntent {
             return "Код"
         case .browser:
             return "Веб-контекст"
+        case .socialFeed:
+            return "Соцсети"
         case .communication:
             return "Коммуникация"
         case .meeting:
@@ -258,6 +289,8 @@ private enum AppIntent {
             return "Код: читает / думает"
         case .browser:
             return "Веб-контекст: читает"
+        case .socialFeed:
+            return "Соцсети: читает / смотрит ленту"
         case .communication:
             return "Коммуникация: читает"
         case .meeting:
@@ -275,7 +308,7 @@ private enum AppIntent {
         switch self {
         case .aiAssistant, .code:
             return false
-        case .design, .browser, .communication, .meeting, .service, .unknown, .lockScreen:
+        case .design, .browser, .socialFeed, .communication, .meeting, .service, .unknown, .lockScreen:
             return true
         }
     }
