@@ -16,6 +16,7 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreMedia"),
+                .linkedFramework("Security"),
                 .linkedFramework("Vision"),
                 .linkedLibrary("sqlite3")
             ]

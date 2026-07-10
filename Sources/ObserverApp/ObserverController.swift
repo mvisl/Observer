@@ -50,6 +50,10 @@ final class ObserverController {
         environment.topology.debugDescription
     }
 
+    var hasGeminiAPIKey: Bool {
+        KeychainStore.geminiAPIKey.hasPassword()
+    }
+
     var stateSnapshot: ObserverViewState {
         ObserverViewState(
             mode: mode,
@@ -263,6 +267,126 @@ final class ObserverController {
         }
     }
 
+    func setGeminiAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            print("Gemini API key was empty; nothing saved.")
+            return
+        }
+
+        do {
+            try KeychainStore.geminiAPIKey.setPassword(trimmed)
+            append(
+                .init(
+                    type: .geminiKeyUpdated,
+                    payload: ["storage": "keychain"],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            print("Gemini API key saved in Keychain.")
+        } catch {
+            print("Failed to save Gemini API key: \(error)")
+        }
+    }
+
+    func deleteGeminiAPIKey() {
+        do {
+            try KeychainStore.geminiAPIKey.deletePassword()
+            append(
+                .init(
+                    type: .geminiKeyDeleted,
+                    payload: ["storage": "keychain"],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            print("Gemini API key deleted from Keychain.")
+        } catch {
+            print("Failed to delete Gemini API key: \(error)")
+        }
+    }
+
+    func generateGeminiInsight() {
+        guard environment.settings.geminiEnabled else {
+            print("Gemini is disabled in Observer settings.")
+            return
+        }
+
+        let keyFromKeychain = try? KeychainStore.geminiAPIKey.password()
+        let keyFromEnvironment = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]
+            ?? ProcessInfo.processInfo.environment["GOOGLE_API_KEY"]
+        let apiKey = (keyFromKeychain ?? keyFromEnvironment)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let apiKey, !apiKey.isEmpty else {
+            print("Gemini API key is not configured. Use Set Gemini API Key first.")
+            return
+        }
+
+        let events = (try? environment.eventStore.recentEvents(limit: 500)) ?? []
+        appendDetectorEvents(from: events)
+        let context = ContextPackBuilder(topology: environment.topology).build(events: events, mode: mode)
+        let digest = ResearchDigestBuilder().build(events: events)
+        let attention = stateSnapshot.attentionText
+        let prompt = GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
+        let model = environment.settings.geminiModel
+
+        append(
+            .init(
+                type: .externalLLMRequest,
+                payload: [
+                    "provider": "gemini",
+                    "model": model,
+                    "request_kind": "work_insight",
+                    "prompt_chars": "\(prompt.count)"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+
+        Task {
+            do {
+                let insight = try await GeminiInsightProvider(
+                    apiKey: apiKey,
+                    model: model
+                ).generateInsight(context: context, digest: digest, attention: attention)
+
+                await MainActor.run {
+                    self.append(
+                        .init(
+                            type: .geminiInsight,
+                            payload: [
+                                "provider": "gemini",
+                                "model": model,
+                                "insight": insight
+                            ],
+                            workspaceTopologyVersion: self.environment.topology.version
+                        )
+                    )
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(insight, forType: .string)
+                    print(insight)
+                }
+            } catch {
+                await MainActor.run {
+                    self.append(
+                        .init(
+                            type: .externalLLMRequest,
+                            payload: [
+                                "provider": "gemini",
+                                "model": model,
+                                "request_kind": "work_insight",
+                                "status": "failed",
+                                "error": String(describing: error)
+                            ],
+                            workspaceTopologyVersion: self.environment.topology.version
+                        )
+                    )
+                    print("Gemini insight unavailable: \(error)")
+                }
+            }
+        }
+    }
+
     func copyDiagnostics() -> String {
         let counts = (try? environment.eventStore.eventCountsByType()) ?? [:]
         return DiagnosticsBuilder().build(
@@ -273,7 +397,8 @@ final class ObserverController {
             currentFocus: currentFocus,
             latestAttention: latestAttention,
             permissions: PermissionAdvisor.currentStatus(),
-            mode: mode
+            mode: mode,
+            hasGeminiAPIKey: hasGeminiAPIKey
         )
     }
 

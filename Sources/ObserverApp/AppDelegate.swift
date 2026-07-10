@@ -52,6 +52,9 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Export Research Digest", #selector(exportResearchDigest), to: menu)
         addItem("Export Events JSONL", #selector(exportEventsJSONL), to: menu)
         addItem("Generate Local LLM Insight", #selector(generateLocalLLMInsight), to: menu)
+        addItem("Set Gemini API Key", #selector(setGeminiAPIKey), to: menu)
+        addItem("Delete Gemini API Key", #selector(deleteGeminiAPIKey), to: menu)
+        addItem("Generate Gemini Insight", #selector(generateGeminiInsight), to: menu)
         addItem("Show Timeline", #selector(showTimeline), to: menu)
         addItem("Add Note", #selector(addNote), to: menu)
         addItem("Copy Diagnostics", #selector(copyDiagnostics), to: menu)
@@ -155,6 +158,42 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func generateLocalLLMInsight() {
         controller?.generateLocalLLMInsight()
+    }
+
+    @objc private func setGeminiAPIKey() {
+        let alert = NSAlert()
+        alert.messageText = "Set Gemini API Key"
+        alert.informativeText = "Observer stores the key in macOS Keychain. It is not written to settings, logs, exports, or the event database."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+        input.placeholderString = "Paste Gemini API key"
+        alert.accessoryView = input
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+
+        controller?.setGeminiAPIKey(input.stringValue)
+    }
+
+    @objc private func deleteGeminiAPIKey() {
+        let alert = NSAlert()
+        alert.messageText = "Delete the Gemini API key from Keychain?"
+        alert.informativeText = "Observer will stop using Gemini until a new key is saved."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+        controller?.deleteGeminiAPIKey()
+    }
+
+    @objc private func generateGeminiInsight() {
+        controller?.generateGeminiInsight()
     }
 
     @objc private func showTimeline() {

@@ -18,6 +18,8 @@ struct ObserverSettings: Codable {
     var minimumHintIntervalSeconds: Double
     var attentionSampleIntervalSeconds: Double
     var screenContextRefreshSeconds: Double
+    var geminiEnabled: Bool
+    var geminiModel: String
     var detectorSettings: DetectorSettings
 
     init(
@@ -30,6 +32,8 @@ struct ObserverSettings: Codable {
         minimumHintIntervalSeconds: Double,
         attentionSampleIntervalSeconds: Double,
         screenContextRefreshSeconds: Double,
+        geminiEnabled: Bool,
+        geminiModel: String,
         detectorSettings: DetectorSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
@@ -41,6 +45,8 @@ struct ObserverSettings: Codable {
         self.minimumHintIntervalSeconds = minimumHintIntervalSeconds
         self.attentionSampleIntervalSeconds = attentionSampleIntervalSeconds
         self.screenContextRefreshSeconds = screenContextRefreshSeconds
+        self.geminiEnabled = geminiEnabled
+        self.geminiModel = geminiModel
         self.detectorSettings = detectorSettings
     }
 
@@ -56,6 +62,8 @@ struct ObserverSettings: Codable {
         self.minimumHintIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .minimumHintIntervalSeconds) ?? defaults.minimumHintIntervalSeconds
         self.attentionSampleIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .attentionSampleIntervalSeconds) ?? defaults.attentionSampleIntervalSeconds
         self.screenContextRefreshSeconds = try container.decodeIfPresent(Double.self, forKey: .screenContextRefreshSeconds) ?? defaults.screenContextRefreshSeconds
+        self.geminiEnabled = try container.decodeIfPresent(Bool.self, forKey: .geminiEnabled) ?? defaults.geminiEnabled
+        self.geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
     }
 
@@ -69,6 +77,8 @@ struct ObserverSettings: Codable {
         minimumHintIntervalSeconds: 1800,
         attentionSampleIntervalSeconds: 15,
         screenContextRefreshSeconds: 60,
+        geminiEnabled: true,
+        geminiModel: "gemini-3.5-flash",
         detectorSettings: DetectorSettings(
             frequentSwitchFocusEvents: 8,
             frequentSwitchUniqueApps: 2,

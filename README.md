@@ -57,6 +57,9 @@ GitHub CI is included under `.github/workflows/ci.yml` and runs `swift test` on 
 - `Export Research Digest`: saves the current research digest under `Exports`.
 - `Export Events JSONL`: exports local events as JSONL under `Exports`.
 - `Generate Local LLM Insight`: asks a local Ollama server for a concise insight, if Ollama is installed and running.
+- `Set Gemini API Key`: stores a Gemini API key in macOS Keychain. The key is not written to settings, logs, exports, SQLite, or GitHub brain files.
+- `Delete Gemini API Key`: removes the Gemini API key from Keychain.
+- `Generate Gemini Insight`: sends a compact, user-triggered context packet to Gemini and copies the answer to the clipboard.
 - `Show Timeline`: opens a local event timeline.
 - `Add Note`: stores a local note linked to the current workspace context.
 - `Capture OCR For Current App`: runs local Apple Vision OCR for the current app, only if that app is allowlisted.
@@ -90,6 +93,7 @@ Files:
 - `observer.sqlite`: local event database.
 - `Exports/`: exported context packs.
 - `brain/`: syncable product brain for GitHub, without private telemetry.
+- Gemini API key: macOS Keychain only, under Observer's Gemini service.
 
 While observing, Observer also writes quiet local summaries on a timer. The default interval is 15 minutes.
 Local deterministic detectors run during summary generation and can add `detectorFired` events for frequent app switching, return loops, and reading/thinking pauses.
@@ -100,7 +104,8 @@ Local deterministic detectors run during summary generation and can add `detecto
 - OCR uses local Apple Vision and stores recognized text snippets, not images.
 - Camera attention is coarse: face present/off-screen, face position in frame, confidence. It is not eye tracking.
 - The floating widget translates camera/input signals into soft states such as `активно работает`, `думает / читает`, `не у экрана`.
-- No external model calls. Optional LLM insight uses local Ollama at `127.0.0.1:11434` only.
+- External model calls are manual-only. `Generate Gemini Insight` sends a compact context packet only when explicitly triggered.
+- Optional local LLM insight uses local Ollama at `127.0.0.1:11434` only.
 - SQLite is not encrypted yet; SQLCipher is the intended durable backend later.
 
 Optional local LLM model:

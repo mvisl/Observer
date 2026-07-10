@@ -16,11 +16,13 @@ struct DiagnosticsBuilderTests {
                 camera: "authorized",
                 screenRecording: true
             ),
-            mode: .paused
+            mode: .paused,
+            hasGeminiAPIKey: true
         )
 
         #expect(diagnostics.contains("## Settings"))
         #expect(diagnostics.contains("## Permissions"))
+        #expect(diagnostics.contains("Gemini key configured: true"))
         #expect(diagnostics.contains("appFocus: 2"))
     }
 }

@@ -21,6 +21,8 @@ Core event families:
 - context: `screenContext`, `ocrContext`
 - attention: `attention`
 - memory: `localSummary`, `researchDigest`, `userNote`
+- external reasoning: `externalLLMRequest`, `geminiInsight`, `localInsight`
+- secrets: `geminiKeyUpdated`, `geminiKeyDeleted` record only key lifecycle metadata, never key material
 - privacy: `privacyAllowlistAdded`, `privacyExclusionAdded`
 - product: `detectorFired`, `hintCandidate`
 - lifecycle: `appLaunch`, `appShutdown`, `observingStarted`, `observingPaused`, `sessionBoundary`

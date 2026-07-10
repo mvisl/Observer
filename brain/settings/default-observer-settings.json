@@ -8,6 +8,8 @@
   "minimumHintIntervalSeconds": 1800,
   "attentionSampleIntervalSeconds": 15,
   "screenContextRefreshSeconds": 60,
+  "geminiEnabled": true,
+  "geminiModel": "gemini-3.5-flash",
   "detectorSettings": {
     "frequentSwitchFocusEvents": 8,
     "frequentSwitchUniqueApps": 2,

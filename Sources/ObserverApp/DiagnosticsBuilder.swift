@@ -9,7 +9,8 @@ struct DiagnosticsBuilder {
         currentFocus: AppFocusSnapshot?,
         latestAttention: AttentionSnapshot?,
         permissions: PermissionAdvisor.Status,
-        mode: ObserverController.Mode
+        mode: ObserverController.Mode,
+        hasGeminiAPIKey: Bool = false
     ) -> String {
         let counts = eventCounts
             .sorted { $0.key < $1.key }
@@ -37,6 +38,9 @@ struct DiagnosticsBuilder {
         - Minimum hint interval: \(Int(settings.minimumHintIntervalSeconds))s
         - Attention sample interval: \(Int(settings.attentionSampleIntervalSeconds))s
         - Screen context refresh: \(Int(settings.screenContextRefreshSeconds))s
+        - Gemini enabled: \(settings.geminiEnabled)
+        - Gemini model: \(settings.geminiModel)
+        - Gemini key configured: \(hasGeminiAPIKey)
         - Frequent switch threshold: \(settings.detectorSettings.frequentSwitchFocusEvents) focus events
         - Reading pause threshold: \(Int(settings.detectorSettings.readingPauseSeconds))s
 

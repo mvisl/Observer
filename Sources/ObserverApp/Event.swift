@@ -10,6 +10,10 @@ enum ObserverEventType: String, Codable {
     case displayInventory
     case hintCandidate
     case inputActivity
+    case externalLLMRequest
+    case geminiInsight
+    case geminiKeyDeleted
+    case geminiKeyUpdated
     case localInsight
     case researchDigest
     case localSummary
