@@ -120,6 +120,7 @@ struct BehaviorCueBuilder {
             payload["motion_score"] = String(format: "%.3f", motionScore)
             payload["face_area_ratio"] = String(format: "%.2f", areaRatio)
             payload["seconds_since_previous_attention"] = String(format: "%.1f", seconds)
+            payload["display_eligible"] = "false"
             if let idle = input?.secondsSinceAnyInput {
                 payload["seconds_since_any_input"] = String(format: "%.1f", idle)
             }

@@ -21,6 +21,7 @@ Core event families:
 - context: `screenContext`, `ocrContext`, `writingContext`
 - attention: `attention`
 - interpretation: `activityInsight`, `behaviorCue`, `gazeCalibrationSample`
+- protection: `awayPresenceIncident`
 - camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
 - memory: `localSummary`, `researchDigest`, `userNote`
 - external reasoning: `externalLLMRequest`, `geminiInsight`, `localInsight`
@@ -53,10 +54,20 @@ Behavior cue payloads:
 - `cue`: `steady_focus`, `friction_candidate`, `strong_reaction_candidate`, or future weak cues
 - `interpretation`: local explanation such as `sustained_single_context`, `rapid_context_switching`, `sudden_posture_change`, `frustrated_writing_tone`
 - posture metrics when available: `motion_score`, `face_area_ratio`
+- `display_eligible=false` means the cue is internal evidence for fusion and should not surface as raw widget text
 - text markers when available: `markers`, for example `strong_negative_language`, `uppercase_emphasis`, `repeated_punctuation`
-- likely cause when available: `likely_cause`, for example `visual_design_cacophony`
+- likely cause evidence when available: `likely_cause`, for example `visual_design_cacophony`; treat this as evidence until confirmed or corroborated
 - context metadata: `activity_insight`, `app_name`, `app_id`, optional `display_role`
 - cues are behavioral candidates, not definitive emotion labels
+
+Away presence incident payloads:
+
+- `cue`: `presence_detected_after_away`
+- `interpretation`: `person_seen_after_idle_absence`
+- `owner_identity`: `unverified` unless a future explicit identity model confirms otherwise
+- `capture_policy`: current safe policy, initially `no_hidden_screenshot_no_audio`
+- `microphone_capture`, `screen_image_capture`: `disabled` until a visible, explicit protection mode exists
+- context metadata: `activity_insight`, `app_name`, `app_id`, optional `window_title`, `display_role`
 
 Gaze calibration sample payloads:
 

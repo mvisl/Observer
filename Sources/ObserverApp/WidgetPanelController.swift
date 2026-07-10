@@ -7,7 +7,8 @@ final class WidgetPanelController {
     private let widgetView: ObserverWidgetView
 
     init() {
-        widgetView = ObserverWidgetView(frame: NSRect(x: 0, y: 0, width: 312, height: 58))
+        let size = Self.storedWidgetSize() ?? Self.defaultWidgetSize
+        widgetView = ObserverWidgetView(frame: NSRect(origin: .zero, size: size))
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -38,6 +39,9 @@ final class WidgetPanelController {
     func resetPosition() {
         UserDefaults.standard.removeObject(forKey: "widget.origin.x")
         UserDefaults.standard.removeObject(forKey: "widget.origin.y")
+        UserDefaults.standard.removeObject(forKey: "widget.width")
+        UserDefaults.standard.removeObject(forKey: "widget.height")
+        panel.setFrame(NSRect(origin: panel.frame.origin, size: Self.defaultWidgetSize), display: true)
         positionPanel()
     }
 
@@ -91,6 +95,21 @@ final class WidgetPanelController {
         defaults.set(origin.y, forKey: "widget.origin.y")
     }
 
+    fileprivate static func saveWidgetSize(_ size: CGSize) {
+        let clamped = clampedSize(size)
+        let defaults = UserDefaults.standard
+        defaults.set(clamped.width, forKey: "widget.width")
+        defaults.set(clamped.height, forKey: "widget.height")
+    }
+
+    fileprivate static func applyWidgetSize(_ size: CGSize, to window: NSWindow) {
+        let clampedSize = clampedSize(size)
+        let clampedOrigin = clampedOrigin(window.frame.origin, size: clampedSize)
+        window.setFrame(NSRect(origin: clampedOrigin, size: clampedSize), display: true)
+        saveWidgetOrigin(clampedOrigin)
+        saveWidgetSize(clampedSize)
+    }
+
     fileprivate static func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let unionFrame = visibleFrames.reduce(visibleFrames.first ?? .zero) { $0.union($1) }
@@ -107,6 +126,34 @@ final class WidgetPanelController {
     private func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
         Self.clampedOrigin(origin, size: size)
     }
+
+    fileprivate static let defaultWidgetSize = CGSize(width: 248, height: 76)
+    fileprivate static let compactWidgetSize = CGSize(width: 220, height: 70)
+    fileprivate static let comfortableWidgetSize = CGSize(width: 280, height: 76)
+    fileprivate static let wideWidgetSize = CGSize(width: 340, height: 76)
+
+    private static func storedWidgetSize() -> CGSize? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "widget.width") != nil,
+              defaults.object(forKey: "widget.height") != nil
+        else {
+            return nil
+        }
+
+        return clampedSize(
+            CGSize(
+                width: defaults.double(forKey: "widget.width"),
+                height: defaults.double(forKey: "widget.height")
+            )
+        )
+    }
+
+    private static func clampedSize(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: min(max(size.width, 190), 360),
+            height: min(max(size.height, 68), 86)
+        )
+    }
 }
 
 final class FloatingWidgetPanel: NSPanel {
@@ -117,13 +164,21 @@ final class FloatingWidgetPanel: NSPanel {
 final class ObserverWidgetView: NSView {
     private let statusDot = NSView()
     private let statusLabel = NSTextField(labelWithString: "Paused")
+    private let appLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "No active context yet")
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
+    private var dragStartWindowSize: CGSize?
+    private var dragMode: DragMode?
     private var state: ObserverViewState?
     private var refreshTimer: Timer?
+
+    private enum DragMode {
+        case move
+        case resize
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -148,6 +203,7 @@ final class ObserverWidgetView: NSView {
     func update(_ state: ObserverViewState) {
         self.state = state
         statusLabel.stringValue = state.mode.displayText
+        appLabel.stringValue = appLine(for: state)
         contextLabel.stringValue = summaryLine(for: state)
         metaLabel.stringValue = ""
         hintLabel.stringValue = ""
@@ -160,6 +216,8 @@ final class ObserverWidgetView: NSView {
     override func mouseDown(with event: NSEvent) {
         dragStartMouseLocation = NSEvent.mouseLocation
         dragStartWindowOrigin = window?.frame.origin
+        dragStartWindowSize = window?.frame.size
+        dragMode = isResizeHotspot(event) ? .resize : .move
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -176,6 +234,20 @@ final class ObserverWidgetView: NSView {
             x: currentMouseLocation.x - dragStartMouseLocation.x,
             y: currentMouseLocation.y - dragStartMouseLocation.y
         )
+
+        if dragMode == .resize {
+            guard let dragStartWindowSize else {
+                return
+            }
+
+            let newSize = CGSize(
+                width: dragStartWindowSize.width + delta.x,
+                height: dragStartWindowSize.height
+            )
+            WidgetPanelController.applyWidgetSize(newSize, to: window)
+            return
+        }
+
         let newOrigin = CGPoint(
             x: dragStartWindowOrigin.x + delta.x,
             y: dragStartWindowOrigin.y + delta.y
@@ -187,10 +259,23 @@ final class ObserverWidgetView: NSView {
         if let origin = window?.frame.origin {
             WidgetPanelController.saveWidgetOrigin(origin)
         }
+        if let size = window?.frame.size {
+            WidgetPanelController.saveWidgetSize(size)
+        }
+        dragMode = nil
+        dragStartWindowSize = nil
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(menuItem("Small", action: #selector(setCompactSize)))
+        menu.addItem(menuItem("Medium", action: #selector(setComfortableSize)))
+        menu.addItem(menuItem("Wide", action: #selector(setWideSize)))
+        return menu
     }
 
     private func configureSubviews() {
-        [statusDot, statusLabel, contextLabel, metaLabel, hintLabel].forEach {
+        [statusDot, statusLabel, appLabel, contextLabel, metaLabel, hintLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -202,9 +287,14 @@ final class ObserverWidgetView: NSView {
         statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         statusLabel.textColor = .labelColor
 
+        appLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        appLabel.textColor = .labelColor
+        appLabel.lineBreakMode = .byTruncatingTail
+        appLabel.maximumNumberOfLines = 1
+
         contextLabel.font = .systemFont(ofSize: 12, weight: .medium)
         contextLabel.textColor = .labelColor
-        contextLabel.lineBreakMode = .byTruncatingMiddle
+        contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
 
         metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
@@ -229,9 +319,13 @@ final class ObserverWidgetView: NSView {
             statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
 
+            appLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            appLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            appLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
+
             contextLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             contextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            contextLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 7),
+            contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
             metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -243,24 +337,64 @@ final class ObserverWidgetView: NSView {
         ])
     }
 
+    private func isResizeHotspot(_ event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        return point.x >= bounds.maxX - 22
+    }
+
+    private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    @objc private func setCompactSize() {
+        applyPresetSize(WidgetPanelController.compactWidgetSize)
+    }
+
+    @objc private func setComfortableSize() {
+        applyPresetSize(WidgetPanelController.comfortableWidgetSize)
+    }
+
+    @objc private func setWideSize() {
+        applyPresetSize(WidgetPanelController.wideWidgetSize)
+    }
+
+    private func applyPresetSize(_ size: CGSize) {
+        guard let window else {
+            return
+        }
+        WidgetPanelController.applyWidgetSize(size, to: window)
+    }
+
+    private func appLine(for state: ObserverViewState) -> String {
+        let appName = state.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let appName, !appName.isEmpty {
+            return appName
+        }
+
+        let context = state.contextText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return context.displayAppOnlyFallback
+    }
+
     private func summaryLine(for state: ObserverViewState) -> String {
         let context = state.contextText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attention = state.attentionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hint = state.hintText?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if context.hasPrefix("Пишет:") || context.hasPrefix("Контекст:") {
+        if context.isHighSignalWidgetContext {
             return context
         }
 
-        if let hint, !hint.isEmpty {
-            return "\(context): \(hint)"
+        if let hint, hint.isWidgetWorthyHint {
+            return hint
         }
 
-        if !attention.isEmpty, attention != context {
-            return "\(context): \(attention)"
+        if attention.isWidgetWorthyAttention, attention != context {
+            return attention
         }
 
-        return context.isEmpty ? "Наблюдаю контекст" : context
+        return context.displayAppOnlyFallback
     }
 
     private func refreshSessionDuration() {
@@ -294,5 +428,50 @@ final class ObserverWidgetView: NSView {
         case .observing:
             return .systemGreen
         }
+    }
+}
+
+private extension String {
+    var isHighSignalWidgetContext: Bool {
+        let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
+        return [
+            "Пишет:",
+            "Фрикция:",
+            "Фокус:",
+            "Медиа:",
+            "Контент:"
+        ].contains { normalized.hasPrefix($0) }
+    }
+
+    var isWidgetWorthyHint: Bool {
+        let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return false
+        }
+
+        let hiddenPrefixes = [
+            "Реакция: заметный резкий сдвиг"
+        ]
+        return !hiddenPrefixes.contains { normalized.hasPrefix($0) }
+    }
+
+    var isWidgetWorthyAttention: Bool {
+        let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalized.isEmpty && normalized != "No active context yet"
+    }
+
+    var displayAppOnlyFallback: String {
+        let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return "Наблюдаю контекст"
+        }
+
+        if let separator = normalized.range(of: " · ") {
+            return String(normalized[..<separator.lowerBound])
+        }
+        if normalized.hasPrefix("Контекст:") {
+            return "Наблюдаю контекст"
+        }
+        return normalized
     }
 }

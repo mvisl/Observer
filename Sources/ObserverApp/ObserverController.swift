@@ -34,6 +34,7 @@ final class ObserverController {
     private var lastTextAffectCueAt: Date?
     private var lastGazeCalibrationKey: String?
     private var lastGazeCalibrationAt: Date?
+    private var lastAwayPresenceIncidentAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
@@ -85,6 +86,7 @@ final class ObserverController {
     var stateSnapshot: ObserverViewState {
         ObserverViewState(
             mode: mode,
+            appName: currentFocus?.appName,
             contextText: latestContextLine ?? currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
@@ -786,6 +788,7 @@ final class ObserverController {
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         let previousAttention = latestAttention
         let previousAttentionAt = latestAttentionAt
+        let missingFaceSamplesBeforeCurrent = consecutiveMissingFaceSamples
         let now = Date()
         latestAttention = snapshot
         latestAttentionAt = now
@@ -808,6 +811,11 @@ final class ObserverController {
             previousAttention: previousAttention,
             currentAttention: snapshot,
             secondsSincePreviousAttention: previousAttentionAt.map { now.timeIntervalSince($0) },
+            now: now
+        )
+        recordAwayPresenceIncidentIfNeeded(
+            currentAttention: snapshot,
+            missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
             now: now
         )
         recordGazeCalibrationSampleIfNeeded(now: now)
@@ -934,7 +942,6 @@ final class ObserverController {
             var payload = result.eventPayload
             payload["context_kind"] = "writing_fallback"
             payload["fallback_reason"] = "accessibility_text_unavailable"
-            latestContextLine = result.shortDisplayLine(prefix: "Контекст")
             recordTextAffectCueIfNeeded(text: result.text, appName: result.appName)
             append(
                 .init(
@@ -1078,7 +1085,8 @@ final class ObserverController {
             )
         )
 
-        if cue.name != "steady_focus" {
+        let displayEligible = cue.payload["display_eligible"] != "false"
+        if displayEligible, cue.name != "steady_focus" {
             latestHint = cue.insight
             lastHintAt = now
         }
@@ -1117,6 +1125,42 @@ final class ObserverController {
                 appID: currentFocus?.appID,
                 confidence: sample.confidence,
                 payload: sample.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func recordAwayPresenceIncidentIfNeeded(
+        currentAttention: AttentionSnapshot,
+        missingFaceSamplesBeforeCurrent: Int,
+        now: Date = Date()
+    ) {
+        guard mode == .observing else {
+            return
+        }
+        guard let incident = AwayPresenceIncidentBuilder().build(
+            currentAttention: currentAttention,
+            missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
+            input: latestInputActivity,
+            currentFocus: currentFocus,
+            activityInsight: lastActivityInsight
+        ) else {
+            return
+        }
+
+        let enoughTimePassed = lastAwayPresenceIncidentAt.map { now.timeIntervalSince($0) >= 600 } ?? true
+        guard enoughTimePassed else {
+            return
+        }
+
+        lastAwayPresenceIncidentAt = now
+        append(
+            .init(
+                type: .awayPresenceIncident,
+                displayRole: currentFocus?.displayRole,
+                appID: currentFocus?.appID,
+                confidence: incident.confidence,
+                payload: incident.payload,
                 workspaceTopologyVersion: environment.topology.version
             )
         )
@@ -1222,11 +1266,11 @@ final class ObserverController {
     }
 
     private func sampleMediaPlayback() {
+        pauseMediaIfHeadphonesWereRemoved()
+
         guard let snapshot = MediaPlaybackService().currentPlayback() else {
             return
         }
-
-        pauseMediaIfHeadphonesWereRemoved(current: snapshot)
 
         guard snapshot.identityKey != lastMediaPlaybackKey else {
             return
@@ -1301,11 +1345,11 @@ final class ObserverController {
             && (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 45
     }
 
-    private func pauseMediaIfHeadphonesWereRemoved(current snapshot: MediaPlaybackSnapshot) {
+    private func pauseMediaIfHeadphonesWereRemoved() {
         guard environment.settings.autoPauseMediaWhenAway else {
             return
         }
-        guard mode == .observing, snapshot.state == "playing" else {
+        guard mode == .observing else {
             return
         }
 
@@ -1326,27 +1370,29 @@ final class ObserverController {
         }
 
         let pausedSources = MediaPlaybackService().pauseAllKnownSources()
-        guard !pausedSources.isEmpty else {
-            return
-        }
-
-        lastAutoPauseAt = now
         lastHeadphonesAutoPauseAt = now
-        autoPausedSources = pausedSources
+        if !pausedSources.isEmpty {
+            lastAutoPauseAt = now
+            autoPausedSources = pausedSources
+            latestHint = "Медиа: снял наушники, поставил на паузу"
+        } else {
+            latestHint = "Медиа: снял наушники, уже тихо"
+        }
+        lastHintAt = now
+
         append(
             .init(
                 type: .mediaPlayback,
                 payload: [
-                    "action": "auto_pause",
+                    "action": pausedSources.isEmpty ? "auto_pause_skipped" : "auto_pause",
                     "reason": "headphones_removed",
                     "paused_sources": pausedSources.joined(separator: ", "),
-                    "audio_output": outputName ?? "unknown",
-                    "source": snapshot.source,
-                    "title": snapshot.title ?? ""
+                    "audio_output": outputName ?? "unknown"
                 ],
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        notifyStateChanged()
     }
 
     private func pauseMediaIfUserAppearsAway() {
@@ -1473,6 +1519,7 @@ private extension String {
 
 struct ObserverViewState {
     let mode: ObserverController.Mode
+    let appName: String?
     let contextText: String
     let sessionStartedAt: Date?
     let attentionText: String

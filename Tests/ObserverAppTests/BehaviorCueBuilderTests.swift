@@ -33,6 +33,7 @@ struct BehaviorCueBuilderTests {
 
         #expect(cue.name == "strong_reaction_candidate")
         #expect(cue.payload["interpretation"] == "sudden_posture_change")
+        #expect(cue.payload["display_eligible"] == "false")
     }
 
     @Test func detectsSteadyFocus() throws {
