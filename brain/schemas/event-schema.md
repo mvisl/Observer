@@ -51,8 +51,10 @@ Attention payloads:
 Behavior cue payloads:
 
 - `cue`: `steady_focus`, `friction_candidate`, `strong_reaction_candidate`, or future weak cues
-- `interpretation`: local explanation such as `sustained_single_context`, `rapid_context_switching`, `sudden_posture_change`
+- `interpretation`: local explanation such as `sustained_single_context`, `rapid_context_switching`, `sudden_posture_change`, `frustrated_writing_tone`
 - posture metrics when available: `motion_score`, `face_area_ratio`
+- text markers when available: `markers`, for example `strong_negative_language`, `uppercase_emphasis`, `repeated_punctuation`
+- likely cause when available: `likely_cause`, for example `visual_design_cacophony`
 - context metadata: `activity_insight`, `app_name`, `app_id`, optional `display_role`
 - cues are behavioral candidates, not definitive emotion labels
 

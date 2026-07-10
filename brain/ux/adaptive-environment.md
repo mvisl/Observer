@@ -14,6 +14,8 @@ Initial interpretation rules:
 - Do not infer "likes music" from a single face frame.
 - Do not infer a definitive emotion from the face. Use weak labels such as focus, friction, or strong reaction candidate.
 - Treat "irritation" as a possible friction pattern only after repeated evidence: rapid switches, short skips, abrupt input rhythm, or user confirmation.
+- Text can be a strong frustration signal when it contains explicit negative language, rule-violation language, uppercase emphasis, or repeated punctuation.
+- When frustration text mentions design, visual chaos, broken layout, or unnecessary elements, connect the affect to a likely product/design cause instead of treating it as free-floating mood.
 - Treat surprise as a strong reaction candidate, not a fact, unless the user confirms it.
 - Treat a song as helpful only after repeated association with longer focus intervals or lower switching.
 - Treat a song as disruptive only after repeated skips, abrupt app switching, or work stalls.

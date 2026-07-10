@@ -30,6 +30,8 @@ final class ObserverController {
     private var lastActivityInsightAt: Date?
     private var lastBehaviorCueName: String?
     private var lastBehaviorCueAt: Date?
+    private var lastTextAffectCueKey: String?
+    private var lastTextAffectCueAt: Date?
     private var lastGazeCalibrationKey: String?
     private var lastGazeCalibrationAt: Date?
     private var lastWritingContextAt: Date?
@@ -879,6 +881,10 @@ final class ObserverController {
             payload["context_kind"] = "active_writing"
             lastWritingContextAt = Date()
             latestContextLine = context.shortDisplayLine(prefix: "Пишет")
+            recordTextAffectCueIfNeeded(
+                text: context.focusedElementValue ?? context.selectedText,
+                appName: context.appName
+            )
             append(
                 .init(
                     type: .writingContext,
@@ -929,6 +935,7 @@ final class ObserverController {
             payload["context_kind"] = "writing_fallback"
             payload["fallback_reason"] = "accessibility_text_unavailable"
             latestContextLine = result.shortDisplayLine(prefix: "Контекст")
+            recordTextAffectCueIfNeeded(text: result.text, appName: result.appName)
             append(
                 .init(
                     type: .ocrContext,
@@ -942,6 +949,38 @@ final class ObserverController {
         } catch {
             lastOCRWritingFallbackAt = now
         }
+    }
+
+    private func recordTextAffectCueIfNeeded(text: String?, appName: String?) {
+        guard let text else {
+            return
+        }
+        guard let cue = TextAffectCueBuilder().build(
+            text: text,
+            appName: appName,
+            activityInsight: lastActivityInsight
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let key = [cue.name, cue.payload["markers"] ?? ""].joined(separator: "|")
+        let enoughTimePassed = lastTextAffectCueAt.map { now.timeIntervalSince($0) >= 60 } ?? true
+        guard key != lastTextAffectCueKey || enoughTimePassed else {
+            return
+        }
+
+        lastTextAffectCueKey = key
+        lastTextAffectCueAt = now
+        latestContextLine = cue.insight
+        append(
+            .init(
+                type: .behaviorCue,
+                confidence: cue.confidence,
+                payload: cue.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func notifyStateChanged() {
