@@ -9,96 +9,73 @@ struct ActivityInsightBuilder {
         focusChangesLastMinute: Int,
         now: Date = Date()
     ) -> String {
-        let inputSignal = inputSignal(input)
-        let cameraSignal = cameraSignal(attention, input: input, topology: topology)
+        let presence = presenceSignal(attention, input: input)
         let focusSeconds = currentFocusStartedAt.map { max(0, now.timeIntervalSince($0)) }
 
         if focusChangesLastMinute >= 4 {
-            return "Поиск: частые переключения · \(cameraSignal)"
+            return "Поиск: частые переключения"
         }
 
         if let attention, attention.isLookingAway {
             if input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude < 20 {
-                return "Фрикция: работа рывками · взгляд в сторону"
+                return "Фрикция: работа рывками"
             }
-            return "Пауза: взгляд в сторону · \(inputSignal)"
+            return "Пауза: внимание ушло в сторону"
         }
 
         if let input, input.secondsSinceAnyInput >= 120 {
             if attention?.facePresent == true || attention?.isTemporarilyLostFace == true {
                 return "Глубокое чтение: \(formatDuration(input.secondsSinceAnyInput)) без ввода"
             }
-            return "Похоже, отошел · \(cameraSignal)"
+            return presence == .away
+                ? "Похоже, отошел"
+                : "Долгая пауза: возможно думает"
         }
 
         if let input, input.secondsSinceAnyInput < 15 {
             if let focusSeconds, focusSeconds >= 180 {
-                return "Фокус: устойчиво работает · \(cameraSignal)"
+                return "Фокус: устойчиво работает"
             }
-            return "Разгон: активный ввод · \(cameraSignal)"
+            return "Активная работа"
         }
 
         if let input, input.secondsSinceAnyInput < 75 {
-            return "Микропауза: \(formatDuration(input.secondsSinceAnyInput)) · \(cameraSignal)"
+            return "Микропауза: \(formatDuration(input.secondsSinceAnyInput))"
         }
 
         if let focusSeconds, focusSeconds >= 300 {
-            return "Фокус: долго в одном контексте · \(inputSignal)"
+            return "Фокус: долго в одном контексте"
         }
 
-        return "\(inputSignal) · \(cameraSignal)"
+        return "Пауза: возможно читает"
     }
 
-    private func inputSignal(_ input: InputActivitySnapshot?) -> String {
-        guard let input else {
-            return "жду действий"
-        }
-
-        if input.secondsSinceAnyInput < 15 {
-            return "идет работа"
-        }
-        if input.secondsSinceAnyInput < 75 {
-            return "короткая пауза"
-        }
-        return "пауза \(formatDuration(input.secondsSinceAnyInput))"
+    private enum PresenceSignal {
+        case present
+        case uncertain
+        case away
     }
 
-    private func cameraSignal(
+    private func presenceSignal(
         _ attention: AttentionSnapshot?,
-        input: InputActivitySnapshot?,
-        topology: WorkspaceTopology
-    ) -> String {
+        input: InputActivitySnapshot?
+    ) -> PresenceSignal {
         guard let attention else {
-            return "камера ждет"
+            return .uncertain
         }
 
         if attention.isTemporarilyLostFace {
-            return "камера потеряла лицо"
+            return .present
         }
 
         guard attention.facePresent else {
             if let input, input.secondsSinceAnyInput < 60 {
-                return "камера ищет лицо"
+                return .uncertain
             }
-            return "лица нет в кадре"
+            return .away
         }
 
-        if attention.isLookingAway {
-            return "взгляд в сторону"
-        }
-
-        if isSideMountedCamera(topology), attention.facePosition != .center {
-            return "у экрана, камера сбоку"
-        }
-
-        return "лицо в кадре"
-    }
-
-    private func isSideMountedCamera(_ topology: WorkspaceTopology) -> Bool {
-        guard let cameraDisplay = topology.cameraMountedDisplay else {
-            return false
-        }
-        return cameraDisplay.position == .left || cameraDisplay.position == .right
+        return .present
     }
 
     private func formatDuration(_ seconds: Double) -> String {

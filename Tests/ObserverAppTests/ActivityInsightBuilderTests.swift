@@ -64,8 +64,28 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text.contains("камера ищет лицо"))
+        #expect(text.contains("Активная работа"))
         #expect(!text.contains("отошел"))
+        #expect(!text.contains("камера"))
+    }
+
+    @Test func avoidsTechnicalCameraDetails() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 1,
+                secondsSinceMouseMove: 1,
+                secondsSinceClick: 3,
+                secondsSinceAnyInput: 1
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Активная работа")
+        #expect(!text.contains("камера"))
+        #expect(!text.contains("экран"))
     }
 
     private func face(
