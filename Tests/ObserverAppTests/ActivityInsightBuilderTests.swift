@@ -285,7 +285,7 @@ struct ActivityInsightBuilderTests {
         #expect(!text.contains("микропауза"))
     }
 
-    @Test func classifiesLookingAwayIdleAsPhoneInsteadOfVagueSideAttention() {
+    @Test func classifiesLookingAwayIdleAsOffScreenWithoutStrongPhoneEvidence() {
         let text = ActivityInsightBuilder().build(
             attention: face(yaw: 0.72, position: .right, pitch: -0.32),
             input: InputActivitySnapshot(
@@ -300,8 +300,9 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Диалог с ИИ: смотрит в телефон")
+        #expect(text == "Диалог с ИИ: смотрит вне экрана")
         #expect(!text.contains("внимание ушло"))
+        #expect(!text.contains("телефон"))
     }
 
     @Test func downGazeIdleOnCommunicationAppIsPhoneNotReadingMessages() {
@@ -338,8 +339,8 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Дизайн: смотрит в телефон")
-        #expect(!text.contains("рассматривает макет"))
+        #expect(text == "Дизайн: рассматривает макет: нижняя часть экрана")
+        #expect(!text.contains("телефон"))
     }
 
     private func face(

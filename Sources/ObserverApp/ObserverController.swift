@@ -281,7 +281,74 @@ final class ObserverController {
             return latestContextLine
         }
 
+        if let hypothesis = currentWorkHypothesisLine(now: now) {
+            return hypothesis
+        }
+
         return currentFocus?.shortContextText ?? "No active context yet"
+    }
+
+    private func currentWorkHypothesisLine(now: Date = Date()) -> String? {
+        let events = ((try? environment.eventStore.recentEvents(limit: 120)) ?? [])
+            .filter { now.timeIntervalSince($0.timestamp) <= 10 * 60 }
+        guard !events.isEmpty else {
+            return nil
+        }
+
+        let text = events
+            .filter { $0.type == .contentContext || $0.type == .userNote }
+            .suffix(8)
+            .compactMap { event in
+                [
+                    event.payload["topic"],
+                    event.payload["raw_fragment"],
+                    event.payload["summary"],
+                    event.payload["note"]
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            }
+            .joined(separator: " ")
+            .lowercased()
+
+        let focusedApps = NSOrderedSet(array: events
+            .filter { $0.type == .appFocus || $0.type == .activityInsight }
+            .compactMap { cleanInsightFragment($0.payload["app_name"]) })
+            .array
+            .compactMap { $0 as? String }
+        let hasAI = focusedApps.contains { app in
+            let lower = app.lowercased()
+            return lower.contains("chatgpt") || lower.contains("claude") || lower.contains("gemini") || lower.contains("codex")
+        }
+        let hasBrowser = focusedApps.contains { $0.lowercased().contains("chrome") || $0.lowercased().contains("safari") }
+        let hasDesign = focusedApps.contains { $0.lowercased().contains("figma") || $0.lowercased().contains("sketch") }
+
+        if text.contains("телефон") && text.contains("карман") {
+            return "Калибровка внимания: исправляешь ложный вывод про телефон"
+        }
+        if text.contains("санитар") || text.contains("второго") || text.contains("третьего") || text.contains("абстракц") {
+            return "Смысл пилюли: нужен уровень гипотез, а не статус действий"
+        }
+        if text.contains("формулирует задачу") || text.contains("формирует задачу") {
+            return "Смысл пилюли: убираешь пустые формулировки без конкретики"
+        }
+        if text.contains("рекомендац") && (text.contains("польза 0") || text.contains("ни о ч")) {
+            return "Пилюля: чистишь рекомендации, которые не дают действия"
+        }
+        if text.contains("ocr") || text.contains("кашу") || text.contains("русск") {
+            return "Контекст: чинишь чтение русского текста для точных инсайтов"
+        }
+        if hasAI && hasDesign {
+            return "Связка ИИ + дизайн: сверяешь объяснение с визуальным результатом"
+        }
+        if hasAI && hasBrowser {
+            return "Связка ИИ + веб: уточняешь задачу через несколько источников"
+        }
+        if hasAI {
+            return nil
+        }
+
+        return nil
     }
 
     private func currentWidgetHintText(now: Date = Date()) -> String? {

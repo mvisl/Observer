@@ -33,8 +33,9 @@ struct ActivityInsightBuilder {
         }
 
         if let attention,
-           (attention.isPhoneLikeOffscreen || (intent.downwardIdleOverridesScreenReading && attention.isDownwardIdleCandidate)),
-           input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude >= 15 {
+           let input,
+           input.secondsSinceAnyInput >= 45,
+           attention.isStrongPhoneLook {
             return "\(intent.prefix): смотрит в телефон"
         }
 
@@ -42,7 +43,7 @@ struct ActivityInsightBuilder {
             if input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude < 20 {
                 return "\(intent.prefix): отвлекся от экрана"
             }
-            if attention.isPhoneLikeOffscreen {
+            if let input, input.secondsSinceAnyInput >= 45, attention.isStrongPhoneLook {
                 return "\(intent.prefix): смотрит в телефон"
             }
             return "\(intent.prefix): смотрит вне экрана"
@@ -328,14 +329,14 @@ private extension AttentionSnapshot {
         return attentionZone == .offScreen
     }
 
-    var isPhoneLikeOffscreen: Bool {
+    var isStrongPhoneLook: Bool {
         guard facePresent else {
             return false
         }
-        if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {
-            return true
+        if isTemporarilyLostFace {
+            return false
         }
-        if let faceCenterY, faceCenterY <= 0.22 {
+        if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {
             return true
         }
         if let pitch, pitch < -0.25 {
