@@ -86,7 +86,7 @@ final class WorkspaceSensor {
         let pid = app.processIdentifier
         let canReadContent = isContentAllowed(appID)
         let windowTitle = canReadContent ? ActiveWindowReader.focusedWindowTitle(processID: pid) : nil
-        let screenIndex = canReadContent ? ActiveWindowReader.focusedWindowScreenIndex(processID: pid) : nil
+        let screenIndex = ActiveWindowReader.focusedWindowScreenIndex(processID: pid)
         let displayRole = screenIndex.flatMap { topology.displayRole(for: $0) }
 
         let focus = AppFocusSnapshot(
@@ -161,6 +161,8 @@ final class WorkspaceSensor {
         let mouseIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
         let clickIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
         let secondsSinceInput = min(keyboardIdle, mouseIdle, clickIdle)
+        let mouseScreenIndex = Self.currentMouseScreenIndex()
+        let mouseDisplayRole = mouseScreenIndex.map { topology.displayRole(for: $0) }
 
         handler?(
             .inputActivity(
@@ -168,10 +170,17 @@ final class WorkspaceSensor {
                     secondsSinceKeyboard: keyboardIdle,
                     secondsSinceMouseMove: mouseIdle,
                     secondsSinceClick: clickIdle,
-                    secondsSinceAnyInput: secondsSinceInput
+                    secondsSinceAnyInput: secondsSinceInput,
+                    mouseScreenIndex: mouseScreenIndex,
+                    mouseDisplayRole: mouseDisplayRole
                 )
             )
         )
+    }
+
+    private static func currentMouseScreenIndex() -> Int? {
+        let location = NSEvent.mouseLocation
+        return NSScreen.screens.firstIndex { $0.frame.contains(location) }
     }
 }
 
@@ -215,6 +224,24 @@ struct InputActivitySnapshot {
     let secondsSinceMouseMove: CFTimeInterval
     let secondsSinceClick: CFTimeInterval
     let secondsSinceAnyInput: CFTimeInterval
+    let mouseScreenIndex: Int?
+    let mouseDisplayRole: WorkspaceTopology.DisplayRole?
+
+    init(
+        secondsSinceKeyboard: CFTimeInterval,
+        secondsSinceMouseMove: CFTimeInterval,
+        secondsSinceClick: CFTimeInterval,
+        secondsSinceAnyInput: CFTimeInterval,
+        mouseScreenIndex: Int? = nil,
+        mouseDisplayRole: WorkspaceTopology.DisplayRole? = nil
+    ) {
+        self.secondsSinceKeyboard = secondsSinceKeyboard
+        self.secondsSinceMouseMove = secondsSinceMouseMove
+        self.secondsSinceClick = secondsSinceClick
+        self.secondsSinceAnyInput = secondsSinceAnyInput
+        self.mouseScreenIndex = mouseScreenIndex
+        self.mouseDisplayRole = mouseDisplayRole
+    }
 }
 
 struct ScreenContextSnapshot {
@@ -480,12 +507,19 @@ extension AppFocusSnapshot {
 
 extension InputActivitySnapshot {
     var eventPayload: [String: String] {
-        [
+        var payload = [
             "seconds_since_keyboard": String(format: "%.1f", secondsSinceKeyboard),
             "seconds_since_mouse_move": String(format: "%.1f", secondsSinceMouseMove),
             "seconds_since_click": String(format: "%.1f", secondsSinceClick),
             "seconds_since_any_input": String(format: "%.1f", secondsSinceAnyInput)
         ]
+        if let mouseScreenIndex {
+            payload["mouse_screen_index"] = "\(mouseScreenIndex)"
+        }
+        if let mouseDisplayRole {
+            payload["mouse_display_role"] = mouseDisplayRole.rawValue
+        }
+        return payload
     }
 }
 

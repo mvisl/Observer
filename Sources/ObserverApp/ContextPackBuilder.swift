@@ -13,6 +13,7 @@ struct ContextPackBuilder {
         let screenContexts = events.filter { $0.type == .screenContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
         let inputEvents = events.filter { $0.type == .inputActivity }
+        let activityInsightEvents = events.filter { $0.type == .activityInsight }
         let latestSummary = events.last { $0.type == .localSummary }?.payload["summary"]
         let currentFocus = appFocusEvents.last
         let currentContext = screenContexts.last ?? ocrContexts.last ?? currentFocus
@@ -60,6 +61,10 @@ struct ContextPackBuilder {
         ## Local Detectors
 
         \(describeDetectors(detectorEvents))
+
+        ## Activity Insights
+
+        \(describeActivityInsights(activityInsightEvents))
 
         ## Latest Local Summary
 
@@ -179,6 +184,20 @@ struct ContextPackBuilder {
         }.joined(separator: "\n")
     }
 
+    private func describeActivityInsights(_ activityInsightEvents: [ObserverEvent]) -> String {
+        let insights = activityInsightEvents.suffix(6)
+        guard !insights.isEmpty else {
+            return "- No activity insights recorded yet."
+        }
+
+        return insights.map { event in
+            let insight = event.payload["insight"] ?? "unknown"
+            let app = event.payload["app_name"].map { " · \($0)" } ?? ""
+            let mouse = event.payload["mouse_display_role"].map { " · pointer: \($0)" } ?? ""
+            return "- \(insight)\(app)\(mouse)"
+        }.joined(separator: "\n")
+    }
+
     private func buildObservations(
         appFocusEvents: [ObserverEvent],
         attentionEvents: [ObserverEvent],
@@ -199,6 +218,10 @@ struct ContextPackBuilder {
                 observations.append("- Input was active recently; avoid interrupting during typing.")
             } else if idle > 180 {
                 observations.append("- There has been no recent input; this may be reading, thinking, or absence.")
+            }
+
+            if let mouseDisplayRole = lastInput.payload["mouse_display_role"], idle < 15 {
+                observations.append("- Recent pointer activity is on the \(mouseDisplayRole) display; use this as a workspace-attention signal.")
             }
         }
 

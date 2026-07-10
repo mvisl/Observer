@@ -13,11 +13,12 @@ struct ActivityInsightBuilderTests {
                 secondsSinceAnyInput: 2
             ),
             topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Figma", appID: "com.figma.Desktop"),
             currentFocusStartedAt: Date().addingTimeInterval(-240),
             focusChangesLastMinute: 0
         )
 
-        #expect(text.contains("Фокус"))
+        #expect(text.contains("Дизайн"))
         #expect(text.contains("устойчиво"))
     }
 
@@ -31,11 +32,12 @@ struct ActivityInsightBuilderTests {
                 secondsSinceAnyInput: 1
             ),
             topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Google Chrome", appID: "com.google.Chrome"),
             currentFocusStartedAt: Date(),
             focusChangesLastMinute: 5
         )
 
-        #expect(text.contains("Поиск"))
+        #expect(text.contains("Поиск / сравнение"))
     }
 
     @Test func doesNotTreatActiveMissingFaceAsAway() {
@@ -60,11 +62,12 @@ struct ActivityInsightBuilderTests {
                 secondsSinceAnyInput: 2
             ),
             topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "ChatGPT", appID: "com.openai.codex"),
             currentFocusStartedAt: Date(),
             focusChangesLastMinute: 0
         )
 
-        #expect(text.contains("Активная работа"))
+        #expect(text.contains("Диалог с ИИ"))
         #expect(!text.contains("отошел"))
         #expect(!text.contains("камера"))
     }
@@ -79,13 +82,56 @@ struct ActivityInsightBuilderTests {
                 secondsSinceAnyInput: 1
             ),
             topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "ChatGPT", appID: "com.openai.codex"),
             currentFocusStartedAt: Date(),
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Активная работа")
+        #expect(text == "Диалог с ИИ: формулирует задачу")
         #expect(!text.contains("камера"))
         #expect(!text.contains("экран"))
+    }
+
+    @Test func classifiesFigmaAsDesignWork() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .center),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 1,
+                secondsSinceMouseMove: 1,
+                secondsSinceClick: 5,
+                secondsSinceAnyInput: 1
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Figma", appID: "com.figma.Desktop"),
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Дизайн: правит макет")
+    }
+
+    @Test func usesMouseDisplayAsWorkspaceSignal() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 8,
+                secondsSinceMouseMove: 0,
+                secondsSinceClick: 4,
+                secondsSinceAnyInput: 0,
+                mouseScreenIndex: 0,
+                mouseDisplayRole: .mainWorkbench
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(
+                appName: "Figma",
+                appID: "com.figma.Desktop",
+                displayRole: .mainWorkbench
+            ),
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Дизайн: основной экран")
     }
 
     private func face(
@@ -104,6 +150,22 @@ struct ActivityInsightBuilderTests {
             yaw: yaw,
             pitch: nil,
             roll: nil
+        )
+    }
+
+    private func focus(
+        appName: String,
+        appID: String,
+        displayRole: WorkspaceTopology.DisplayRole? = nil
+    ) -> AppFocusSnapshot {
+        AppFocusSnapshot(
+            appID: appID,
+            appName: appName,
+            processID: 1,
+            windowTitle: nil,
+            screenIndex: displayRole == nil ? nil : 0,
+            displayRole: displayRole,
+            contentAllowed: false
         )
     }
 }

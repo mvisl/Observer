@@ -24,6 +24,8 @@ final class ObserverController {
     private var latestHint: String?
     private var lastHintAt: Date?
     private var focusChangeTimestamps: [Date] = []
+    private var lastActivityInsight: String?
+    private var lastActivityInsightAt: Date?
     private var isIdleBoundaryOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
@@ -65,13 +67,7 @@ final class ObserverController {
             mode: mode,
             contextText: currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
-            attentionText: latestCameraStatus ?? ActivityInsightBuilder().build(
-                attention: smoothedAttentionForDisplay,
-                input: latestInputActivity,
-                topology: environment.topology,
-                currentFocusStartedAt: currentFocusStartedAt,
-                focusChangesLastMinute: recentFocusChangesCount
-            ),
+            attentionText: latestCameraStatus ?? currentActivityInsightText(),
             hintText: latestHint
         )
     }
@@ -96,6 +92,17 @@ final class ObserverController {
         let cutoff = Date().addingTimeInterval(-60)
         focusChangeTimestamps.removeAll { $0 < cutoff }
         return focusChangeTimestamps.count
+    }
+
+    private func currentActivityInsightText() -> String {
+        ActivityInsightBuilder().build(
+            attention: smoothedAttentionForDisplay,
+            input: latestInputActivity,
+            topology: environment.topology,
+            currentFocus: currentFocus,
+            currentFocusStartedAt: currentFocusStartedAt,
+            focusChangesLastMinute: recentFocusChangesCount
+        )
     }
 
     func recordLaunch() {
@@ -802,7 +809,58 @@ final class ObserverController {
     }
 
     private func notifyStateChanged() {
+        recordActivityInsightIfNeeded()
         onStateChanged?(stateSnapshot)
+    }
+
+    private func recordActivityInsightIfNeeded() {
+        guard mode == .observing, latestCameraStatus == nil else {
+            return
+        }
+
+        let insight = currentActivityInsightText()
+        let now = Date()
+        let enoughTimePassed = lastActivityInsightAt.map { now.timeIntervalSince($0) >= 60 } ?? true
+        guard insight != lastActivityInsight || enoughTimePassed else {
+            return
+        }
+
+        lastActivityInsight = insight
+        lastActivityInsightAt = now
+
+        var payload: [String: String] = ["insight": insight]
+        if let currentFocus {
+            payload["app_name"] = currentFocus.appName
+            if let appID = currentFocus.appID {
+                payload["app_id"] = appID
+            }
+            if let displayRole = currentFocus.displayRole {
+                payload["focus_display_role"] = displayRole.rawValue
+            }
+        }
+        if let input = latestInputActivity {
+            payload["seconds_since_any_input"] = String(format: "%.1f", input.secondsSinceAnyInput)
+            if let mouseDisplayRole = input.mouseDisplayRole {
+                payload["mouse_display_role"] = mouseDisplayRole.rawValue
+            }
+        }
+        if let attention = smoothedAttentionForDisplay {
+            payload["face_present"] = attention.facePresent ? "true" : "false"
+            if attention.isTemporarilyLostFace {
+                payload["temporarily_lost_face"] = "true"
+            }
+        }
+
+        append(
+            .init(
+                type: .activityInsight,
+                displayRole: currentFocus?.displayRole,
+                appID: currentFocus?.appID,
+                confidence: 0.65,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func closeCurrentFocusInterval(reason: String) {

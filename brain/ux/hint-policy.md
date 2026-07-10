@@ -10,6 +10,7 @@ Rules:
 - visible widget hints must be short;
 - research digest is preferred over repeated interruptions.
 - adaptive environment actions, such as music switching, start as suggestions until explicitly opted in.
+- widget status should express second-level work interpretation, not raw sensor facts.
 
 Good hint:
 

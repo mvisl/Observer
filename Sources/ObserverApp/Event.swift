@@ -3,6 +3,7 @@ import Foundation
 enum ObserverEventType: String, Codable {
     case appLaunch
     case appShutdown
+    case activityInsight
     case attention
     case appFocus
     case appFocusInterval
