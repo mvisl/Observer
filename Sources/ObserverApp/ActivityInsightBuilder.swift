@@ -27,7 +27,7 @@ struct ActivityInsightBuilder {
         }
 
         if let attention,
-           attention.isPhoneLikeOffscreen,
+           (attention.isPhoneLikeOffscreen || (intent.downwardIdleOverridesScreenReading && attention.isDownwardIdleCandidate)),
            input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude >= 15 {
             return "\(intent.prefix): смотрит в телефон"
         }
@@ -270,6 +270,15 @@ private enum AppIntent {
             return "Глубокое чтение"
         }
     }
+
+    var downwardIdleOverridesScreenReading: Bool {
+        switch self {
+        case .aiAssistant, .code:
+            return false
+        case .design, .browser, .communication, .meeting, .service, .unknown, .lockScreen:
+            return true
+        }
+    }
 }
 
 private extension AttentionSnapshot {
@@ -294,6 +303,22 @@ private extension AttentionSnapshot {
             return true
         }
         if let pitch, pitch < -0.25 {
+            return true
+        }
+        return false
+    }
+
+    var isDownwardIdleCandidate: Bool {
+        guard facePresent else {
+            return false
+        }
+        if let pitch, pitch < -0.14 {
+            return true
+        }
+        if let faceCenterY, faceCenterY <= 0.34 {
+            return true
+        }
+        if let eyeContactScore, eyeContactScore <= 0.34 {
             return true
         }
         return false

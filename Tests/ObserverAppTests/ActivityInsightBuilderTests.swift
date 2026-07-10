@@ -225,6 +225,25 @@ struct ActivityInsightBuilderTests {
         #expect(!text.contains("читает"))
     }
 
+    @Test func downGazeIdleOnFigmaIsPhoneNotInspectingLayout() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0.05, position: .center),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 28,
+                secondsSinceMouseMove: 28,
+                secondsSinceClick: 28,
+                secondsSinceAnyInput: 28
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Figma", appID: "com.figma.Desktop", displayRole: .mainWorkbench),
+            currentFocusStartedAt: Date().addingTimeInterval(-360),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Дизайн: смотрит в телефон")
+        #expect(!text.contains("рассматривает макет"))
+    }
+
     private func face(
         yaw: Double,
         position: AttentionSnapshot.FacePosition,
