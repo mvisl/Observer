@@ -39,6 +39,8 @@ make github-private REPO=observer
 make github-brain REPO=observer-brain
 ```
 
+GitHub CI is included under `.github/workflows/ci.yml` and runs `swift test` on macOS.
+
 ## Menu Actions
 
 - `Start Observing`: starts coarse local observation.
