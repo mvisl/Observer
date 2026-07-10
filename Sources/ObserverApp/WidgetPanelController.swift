@@ -9,14 +9,18 @@ final class WidgetPanelController {
     init(
         onInsightRequest: @escaping (TimeInterval) -> String?,
         onInsightOpened: @escaping () -> Void,
-        onSecurityArtifactRequest: @escaping () -> URL?
+        onSecurityArtifactRequest: @escaping () -> URL?,
+        onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
+        onCalibrationAction: @escaping (String) -> Void
     ) {
         let size = Self.storedWidgetSize() ?? Self.defaultWidgetSize
         widgetView = ObserverWidgetView(
             frame: NSRect(origin: .zero, size: size),
             onInsightRequest: onInsightRequest,
             onInsightOpened: onInsightOpened,
-            onSecurityArtifactRequest: onSecurityArtifactRequest
+            onSecurityArtifactRequest: onSecurityArtifactRequest,
+            onCalibrationSample: onCalibrationSample,
+            onCalibrationAction: onCalibrationAction
         )
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
@@ -142,16 +146,28 @@ final class WidgetPanelController {
     }
 
     fileprivate static func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
-        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
-        let unionFrame = visibleFrames.reduce(visibleFrames.first ?? .zero) { $0.union($1) }
-        guard !unionFrame.isEmpty else {
+        guard let frame = screenFrame(for: origin, size: size) else {
             return origin
         }
 
         return CGPoint(
-            x: min(max(origin.x, unionFrame.minX), unionFrame.maxX - size.width),
-            y: min(max(origin.y, unionFrame.minY), unionFrame.maxY - size.height)
+            x: min(max(origin.x, frame.minX), frame.maxX - size.width),
+            y: min(max(origin.y, frame.minY), frame.maxY - size.height)
         )
+    }
+
+    private static func screenFrame(for origin: CGPoint, size: CGSize) -> CGRect? {
+        let candidate = CGRect(origin: origin, size: size)
+        let center = CGPoint(x: candidate.midX, y: candidate.midY)
+        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(center) }) {
+            return screen.visibleFrame
+        }
+        return NSScreen.screens
+            .map(\.visibleFrame)
+            .max { lhs, rhs in
+                lhs.intersection(candidate).width * lhs.intersection(candidate).height
+                    < rhs.intersection(candidate).width * rhs.intersection(candidate).height
+            }
     }
 
     private func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
@@ -181,7 +197,7 @@ final class WidgetPanelController {
 
     private static func clampedSize(_ size: CGSize) -> CGSize {
         CGSize(
-            width: min(max(size.width, 190), 360),
+            width: min(max(size.width, 190), 340),
             height: min(max(size.height, 68), 240)
         )
     }
@@ -208,11 +224,18 @@ final class ObserverWidgetView: NSView {
     private let descriptionLabel = NSTextField(labelWithString: "")
     private let recommendationLabel = NSTextField(labelWithString: "")
     private let securityFolderButton = NSButton(title: "Папка", target: nil, action: nil)
+    private let calibrationButton = NSButton(title: "Калибровка", target: nil, action: nil)
+    private let calibrationContainer = NSView()
+    private let finishCalibrationButton = NSButton(title: "Закончить", target: nil, action: nil)
+    private let resetCalibrationButton = NSButton(title: "Сбросить", target: nil, action: nil)
+    private let confirmCalibrationButton = NSButton(title: "Подтвердить", target: nil, action: nil)
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private let onInsightRequest: (TimeInterval) -> String?
     private let onInsightOpened: () -> Void
     private let onSecurityArtifactRequest: () -> URL?
+    private let onCalibrationSample: (Int, Int, Int?, Int?) -> Void
+    private let onCalibrationAction: (String) -> Void
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
@@ -222,6 +245,8 @@ final class ObserverWidgetView: NSView {
     private var trackingArea: NSTrackingArea?
     private var previousSizeBeforeInsight: CGSize?
     private var isInsightExpanded = false
+    private var isCalibrationMode = false
+    private var calibrationViews: [NSView] = []
     private var selectedInsightMinutes = UserDefaults.standard.object(forKey: "widget.insight.minutes") as? Int ?? 30
 
     private enum DragMode {
@@ -233,11 +258,15 @@ final class ObserverWidgetView: NSView {
         frame frameRect: NSRect,
         onInsightRequest: @escaping (TimeInterval) -> String?,
         onInsightOpened: @escaping () -> Void,
-        onSecurityArtifactRequest: @escaping () -> URL?
+        onSecurityArtifactRequest: @escaping () -> URL?,
+        onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
+        onCalibrationAction: @escaping (String) -> Void
     ) {
         self.onInsightRequest = onInsightRequest
         self.onInsightOpened = onInsightOpened
         self.onSecurityArtifactRequest = onSecurityArtifactRequest
+        self.onCalibrationSample = onCalibrationSample
+        self.onCalibrationAction = onCalibrationAction
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 16
@@ -282,7 +311,10 @@ final class ObserverWidgetView: NSView {
         metaLabel.isHidden = true
         hintLabel.isHidden = true
         updateSecurityBadge(count: state.securityIncidentCount)
-        if !isInsightExpanded {
+        if isCalibrationMode {
+            contextLabel.stringValue = state.calibration.predictionText
+            rebuildCalibrationGrid(state.calibration)
+        } else if !isInsightExpanded {
             hideInsightControls()
         }
         statusDot.layer?.backgroundColor = dotColor(for: state.mode).cgColor
@@ -373,6 +405,11 @@ final class ObserverWidgetView: NSView {
             descriptionLabel,
             recommendationLabel,
             securityFolderButton,
+            calibrationButton,
+            calibrationContainer,
+            finishCalibrationButton,
+            resetCalibrationButton,
+            confirmCalibrationButton,
             metaLabel,
             hintLabel
         ].forEach {
@@ -444,6 +481,29 @@ final class ObserverWidgetView: NSView {
         securityFolderButton.action = #selector(openSecurityFolder)
         securityFolderButton.isHidden = true
 
+        calibrationButton.bezelStyle = .rounded
+        calibrationButton.controlSize = .small
+        calibrationButton.font = .systemFont(ofSize: 11, weight: .medium)
+        calibrationButton.target = self
+        calibrationButton.action = #selector(startCalibrationMode)
+        calibrationButton.isHidden = true
+
+        calibrationContainer.wantsLayer = true
+        calibrationContainer.isHidden = true
+
+        [finishCalibrationButton, resetCalibrationButton, confirmCalibrationButton].forEach {
+            $0.bezelStyle = .rounded
+            $0.controlSize = .small
+            $0.font = .systemFont(ofSize: 11, weight: .medium)
+            $0.isHidden = true
+        }
+        finishCalibrationButton.target = self
+        finishCalibrationButton.action = #selector(finishCalibrationWithoutSaving)
+        resetCalibrationButton.target = self
+        resetCalibrationButton.action = #selector(resetCalibrationSession)
+        confirmCalibrationButton.target = self
+        confirmCalibrationButton.action = #selector(confirmCalibrationSession)
+
         metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.lineBreakMode = .byTruncatingTail
@@ -502,6 +562,31 @@ final class ObserverWidgetView: NSView {
             securityFolderButton.widthAnchor.constraint(equalToConstant: 58),
             securityFolderButton.heightAnchor.constraint(equalToConstant: 22),
 
+            calibrationButton.leadingAnchor.constraint(equalTo: securityFolderButton.trailingAnchor, constant: 8),
+            calibrationButton.centerYAnchor.constraint(equalTo: securityFolderButton.centerYAnchor),
+            calibrationButton.widthAnchor.constraint(equalToConstant: 92),
+            calibrationButton.heightAnchor.constraint(equalToConstant: 22),
+
+            calibrationContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            calibrationContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            calibrationContainer.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 10),
+            calibrationContainer.heightAnchor.constraint(equalToConstant: 94),
+
+            finishCalibrationButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            finishCalibrationButton.topAnchor.constraint(equalTo: calibrationContainer.bottomAnchor, constant: 8),
+            finishCalibrationButton.widthAnchor.constraint(equalToConstant: 82),
+            finishCalibrationButton.heightAnchor.constraint(equalToConstant: 22),
+
+            resetCalibrationButton.leadingAnchor.constraint(equalTo: finishCalibrationButton.trailingAnchor, constant: 8),
+            resetCalibrationButton.centerYAnchor.constraint(equalTo: finishCalibrationButton.centerYAnchor),
+            resetCalibrationButton.widthAnchor.constraint(equalToConstant: 74),
+            resetCalibrationButton.heightAnchor.constraint(equalToConstant: 22),
+
+            confirmCalibrationButton.leadingAnchor.constraint(equalTo: resetCalibrationButton.trailingAnchor, constant: 8),
+            confirmCalibrationButton.centerYAnchor.constraint(equalTo: finishCalibrationButton.centerYAnchor),
+            confirmCalibrationButton.widthAnchor.constraint(equalToConstant: 98),
+            confirmCalibrationButton.heightAnchor.constraint(equalToConstant: 22),
+
             metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             metaLabel.topAnchor.constraint(equalTo: securityFolderButton.bottomAnchor, constant: 5),
@@ -546,12 +631,16 @@ final class ObserverWidgetView: NSView {
             previousSizeBeforeInsight = window.frame.size
         }
         isInsightExpanded = true
+        isCalibrationMode = false
         intervalControl.isHidden = false
         descriptionLabel.isHidden = false
         recommendationLabel.isHidden = false
+        calibrationButton.isHidden = false
+        hideCalibrationControls()
         updateInsightContent()
+        layoutSubtreeIfNeeded()
         onInsightOpened()
-        let expandedHeight: CGFloat = securityFolderButton.isHidden ? 190 : 222
+        let expandedHeight = insightExpandedHeight()
         WidgetPanelController.applyWidgetSize(
             CGSize(width: window.frame.width, height: expandedHeight),
             to: window,
@@ -565,7 +654,9 @@ final class ObserverWidgetView: NSView {
             return
         }
         isInsightExpanded = false
+        isCalibrationMode = false
         hideInsightControls()
+        hideCalibrationControls()
         let target = previousSizeBeforeInsight ?? WidgetPanelController.defaultWidgetSize
         previousSizeBeforeInsight = nil
         WidgetPanelController.applyWidgetSize(target, to: window, persist: false, anchor: .topRight)
@@ -582,6 +673,7 @@ final class ObserverWidgetView: NSView {
         descriptionLabel.stringValue = description.isEmpty ? "Пока мало наблюдений за выбранный интервал." : description
         recommendationLabel.stringValue = recommendation(for: lines)
         securityFolderButton.isHidden = onSecurityArtifactRequest() == nil
+        calibrationButton.isHidden = false
         updateIntervalControlState()
     }
 
@@ -608,6 +700,7 @@ final class ObserverWidgetView: NSView {
         descriptionLabel.isHidden = true
         recommendationLabel.isHidden = true
         securityFolderButton.isHidden = true
+        calibrationButton.isHidden = true
     }
 
     private func updateSecurityBadge(count: Int) {
@@ -620,7 +713,164 @@ final class ObserverWidgetView: NSView {
             .union(descriptionLabel.frame)
             .union(recommendationLabel.frame)
             .union(securityFolderButton.frame)
+            .union(calibrationButton.frame)
+            .union(calibrationContainer.frame)
+            .union(finishCalibrationButton.frame)
+            .union(resetCalibrationButton.frame)
+            .union(confirmCalibrationButton.frame)
             .insetBy(dx: -8, dy: -8)
+    }
+
+    private func insightExpandedHeight() -> CGFloat {
+        if isCalibrationMode {
+            return 216
+        }
+        if !securityFolderButton.isHidden || !calibrationButton.isHidden {
+            return 204
+        }
+        return 174
+    }
+
+    @objc private func startCalibrationMode() {
+        guard let window else {
+            return
+        }
+        isCalibrationMode = true
+        intervalControl.isHidden = true
+        descriptionLabel.isHidden = true
+        recommendationLabel.isHidden = true
+        securityFolderButton.isHidden = true
+        calibrationButton.isHidden = true
+        calibrationContainer.isHidden = false
+        finishCalibrationButton.isHidden = false
+        resetCalibrationButton.isHidden = false
+        confirmCalibrationButton.isHidden = false
+        contextLabel.stringValue = state?.calibration.predictionText ?? "Калибровка: камера ждёт взгляд"
+        if let state {
+            rebuildCalibrationGrid(state.calibration)
+        }
+        layoutSubtreeIfNeeded()
+        onCalibrationAction("started")
+        WidgetPanelController.applyWidgetSize(
+            CGSize(width: window.frame.width, height: insightExpandedHeight()),
+            to: window,
+            persist: false,
+            anchor: .topRight
+        )
+    }
+
+    @objc private func finishCalibrationWithoutSaving() {
+        onCalibrationAction("finished_without_commit")
+        leaveCalibrationMode()
+    }
+
+    @objc private func resetCalibrationSession() {
+        onCalibrationAction("reset")
+        rebuildCalibrationGrid(state?.calibration)
+    }
+
+    @objc private func confirmCalibrationSession() {
+        onCalibrationAction("confirmed")
+        leaveCalibrationMode()
+    }
+
+    private func leaveCalibrationMode() {
+        isCalibrationMode = false
+        hideCalibrationControls()
+        if isInsightExpanded {
+            intervalControl.isHidden = false
+            descriptionLabel.isHidden = false
+            recommendationLabel.isHidden = false
+            updateInsightContent()
+            layoutSubtreeIfNeeded()
+            if let window {
+                WidgetPanelController.applyWidgetSize(
+                    CGSize(width: window.frame.width, height: insightExpandedHeight()),
+                    to: window,
+                    persist: false,
+                    anchor: .topRight
+                )
+            }
+        }
+    }
+
+    private func hideCalibrationControls() {
+        calibrationContainer.isHidden = true
+        finishCalibrationButton.isHidden = true
+        resetCalibrationButton.isHidden = true
+        confirmCalibrationButton.isHidden = true
+        calibrationViews.forEach { $0.removeFromSuperview() }
+        calibrationViews = []
+    }
+
+    private func rebuildCalibrationGrid(_ calibration: WidgetCalibrationState?) {
+        calibrationViews.forEach { $0.removeFromSuperview() }
+        calibrationViews = []
+        guard isCalibrationMode, let calibration else {
+            return
+        }
+
+        let displays = calibration.displays.isEmpty
+            ? [WidgetCalibrationDisplay(index: 0, title: "Экран", columns: 3, rows: 3, predictedCell: nil)]
+            : calibration.displays
+        let spacing: CGFloat = 10
+        let availableWidth = max(120, calibrationContainer.bounds.width > 20 ? calibrationContainer.bounds.width : bounds.width - 28)
+        let displayWidth = (availableWidth - spacing * CGFloat(max(0, displays.count - 1))) / CGFloat(displays.count)
+        let displayHeight = max(72, calibrationContainer.bounds.height > 20 ? calibrationContainer.bounds.height : 94)
+
+        for (offset, display) in displays.enumerated() {
+            let originX = CGFloat(offset) * (displayWidth + spacing)
+            let titleHeight: CGFloat = 16
+            let title = NSTextField(labelWithString: display.title)
+            title.font = .systemFont(ofSize: 10, weight: .semibold)
+            title.textColor = .secondaryLabelColor
+            title.alignment = .center
+            title.frame = CGRect(x: originX, y: displayHeight - titleHeight, width: displayWidth, height: titleHeight)
+            calibrationContainer.addSubview(title)
+            calibrationViews.append(title)
+
+            let gridY: CGFloat = 0
+            let gridHeight = displayHeight - titleHeight - 4
+            let cellWidth = displayWidth / CGFloat(display.columns)
+            let cellHeight = gridHeight / CGFloat(display.rows)
+            for row in 0..<display.rows {
+                for column in 0..<display.columns {
+                    let cellIndex = row * display.columns + column
+                    let button = NSButton(title: "", target: self, action: #selector(selectCalibrationCell(_:)))
+                    button.tag = display.index * 100 + cellIndex
+                    button.bezelStyle = .regularSquare
+                    button.isBordered = false
+                    button.wantsLayer = true
+                    button.layer?.cornerRadius = 3
+                    button.layer?.borderWidth = 1
+                    button.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.65).cgColor
+                    button.layer?.backgroundColor = cellIndex == display.predictedCell
+                        ? NSColor.systemGreen.withAlphaComponent(0.45).cgColor
+                        : NSColor.controlBackgroundColor.withAlphaComponent(0.28).cgColor
+                    button.frame = CGRect(
+                        x: originX + CGFloat(column) * cellWidth + 1,
+                        y: gridY + CGFloat(display.rows - row - 1) * cellHeight + 1,
+                        width: max(12, cellWidth - 2),
+                        height: max(12, cellHeight - 2)
+                    )
+                    calibrationContainer.addSubview(button)
+                    calibrationViews.append(button)
+                }
+            }
+        }
+    }
+
+    @objc private func selectCalibrationCell(_ sender: NSButton) {
+        let displayIndex = sender.tag / 100
+        let cellIndex = sender.tag % 100
+        let prediction = state?.calibration
+        onCalibrationSample(
+            displayIndex,
+            cellIndex,
+            prediction?.predictedDisplayIndex,
+            prediction?.predictedCellIndex
+        )
+        sender.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.55).cgColor
     }
 
     @objc private func openSecurityFolder() {

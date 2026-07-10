@@ -26,6 +26,9 @@ struct ActivityInsightBuilder {
             if intent == .socialFeed {
                 return "Соцсети: быстро переключает ленту"
             }
+            if intent == .browser {
+                return "Веб-контекст: переключает вкладки"
+            }
             return "Поиск / сравнение: много переключений"
         }
 
@@ -238,7 +241,7 @@ private enum AppIntent {
         case .code:
             return "Код: активная правка"
         case .browser:
-            return "Веб-контекст: ищет / сравнивает"
+            return "Веб-контекст: просматривает страницу"
         case .socialFeed:
             return "Соцсети: просматривает ленту"
         case .communication:

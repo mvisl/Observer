@@ -37,7 +37,27 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 5
         )
 
-        #expect(text.contains("Поиск / сравнение"))
+        #expect(text == "Веб-контекст: переключает вкладки")
+    }
+
+    @Test func defaultChromeContextIsNeutralBrowsingNotSearch() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 1,
+                secondsSinceMouseMove: 1,
+                secondsSinceClick: 1,
+                secondsSinceAnyInput: 1
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Google Chrome", appID: "com.google.Chrome"),
+            currentFocusStartedAt: Date(),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Веб-контекст: просматривает страницу")
+        #expect(!text.contains("ищет"))
+        #expect(!text.contains("сравнивает"))
     }
 
     @Test func socialNetworkInChromeIsNotSearchAndCompare() {

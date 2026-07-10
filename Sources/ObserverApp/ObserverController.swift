@@ -116,8 +116,72 @@ final class ObserverController {
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
             hintText: currentWidgetHintText(),
-            securityIncidentCount: environment.securityIncidentStore.unseenCount()
+            securityIncidentCount: environment.securityIncidentStore.unseenCount(),
+            calibration: currentWidgetCalibrationState()
         )
+    }
+
+    private func currentWidgetCalibrationState() -> WidgetCalibrationState {
+        let prediction = widgetGazePrediction()
+        let displays = environment.topology.displays.enumerated().map { index, display in
+            let grid = display.isCameraMounted ? (columns: 3, rows: 3) : (columns: 2, rows: 2)
+            return WidgetCalibrationDisplay(
+                index: index,
+                title: display.role.shortDisplayName,
+                columns: grid.columns,
+                rows: grid.rows,
+                predictedCell: prediction.displayIndex == index ? prediction.cellIndex : nil
+            )
+        }
+        let text: String
+        if let displayIndex = prediction.displayIndex,
+           let cellIndex = prediction.cellIndex,
+           let display = displays.first(where: { $0.index == displayIndex }) {
+            text = "Калибровка: думаю, \(display.title), зона \(cellIndex + 1)"
+        } else {
+            text = "Калибровка: камера ждёт устойчивый взгляд"
+        }
+        return WidgetCalibrationState(
+            displays: displays,
+            predictedDisplayIndex: prediction.displayIndex,
+            predictedCellIndex: prediction.cellIndex,
+            predictionText: text
+        )
+    }
+
+    private func widgetGazePrediction() -> (displayIndex: Int?, cellIndex: Int?) {
+        guard let attention = smoothedAttentionForDisplay, attention.facePresent else {
+            return (nil, nil)
+        }
+        guard !environment.topology.displays.isEmpty else {
+            return (nil, nil)
+        }
+
+        let displayIndex = predictedDisplayIndex(from: attention)
+        let display = environment.topology.displays[displayIndex]
+        let columns = display.isCameraMounted ? 3 : 2
+        let rows = display.isCameraMounted ? 3 : 2
+        let x = min(0.999, max(0, attention.faceCenterX ?? 0.5))
+        let y = min(0.999, max(0, attention.faceCenterY ?? 0.5))
+        let column = min(columns - 1, max(0, Int((1 - x) * Double(columns))))
+        let row = min(rows - 1, max(0, Int((1 - y) * Double(rows))))
+        return (displayIndex, row * columns + column)
+    }
+
+    private func predictedDisplayIndex(from attention: AttentionSnapshot) -> Int {
+        if environment.topology.displays.count == 1 {
+            return 0
+        }
+        if let cameraIndex = environment.topology.displays.firstIndex(where: { $0.isCameraMounted }) {
+            if abs(attention.yaw ?? 0) < 0.25, attention.facePosition == .center {
+                return cameraIndex
+            }
+            let nonCameraIndexes = environment.topology.displays.indices.filter { $0 != cameraIndex }
+            if let first = nonCameraIndexes.first {
+                return first
+            }
+        }
+        return 0
     }
 
     private var scheduleGate: ScheduleGate {
@@ -493,6 +557,53 @@ final class ObserverController {
         notifyStateChanged()
     }
 
+    func recordManualGazeCalibration(
+        displayIndex: Int,
+        cellIndex: Int,
+        predictedDisplayIndex: Int?,
+        predictedCellIndex: Int?
+    ) {
+        var payload: [String: String] = [
+            "target_source": "manual_pill_calibration",
+            "actual_display_index": "\(displayIndex)",
+            "actual_cell_index": "\(cellIndex)",
+            "prediction_correct": predictedDisplayIndex == displayIndex && predictedCellIndex == cellIndex ? "true" : "false"
+        ]
+        if let predictedDisplayIndex {
+            payload["predicted_display_index"] = "\(predictedDisplayIndex)"
+        }
+        if let predictedCellIndex {
+            payload["predicted_cell_index"] = "\(predictedCellIndex)"
+        }
+        if let attention = smoothedAttentionForDisplay {
+            payload.merge(attention.eventPayload) { current, _ in current }
+        }
+        append(
+            .init(
+                type: .gazeCalibrationSample,
+                confidence: 0.9,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
+    }
+
+    func recordCalibrationSessionAction(_ action: String) {
+        append(
+            .init(
+                type: .gazeCalibrationSample,
+                confidence: 1,
+                payload: [
+                    "target_source": "manual_pill_calibration_session",
+                    "action": action
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
+    }
+
     func latestSecurityIncidentArtifactURL() -> URL? {
         let incident = environment.securityIncidentStore.latestReviewable()
         return incident?.photoURL
@@ -512,9 +623,13 @@ final class ObserverController {
     }
 
     private func semanticFocusSummary(_ events: [ObserverEvent]) -> String {
+        if let content = latestContentSummary(events)?.replacingOccurrences(of: "Контекст: ", with: "") {
+            return content
+        }
+
         let topApps = topFocusApps(events, limit: 3)
         guard !topApps.isEmpty else {
-            return latestContentSummary(events)?.replacingOccurrences(of: "Контекст: ", with: "") ?? "нет устойчивой рабочей линии"
+            return "нет устойчивой рабочей линии"
         }
 
         let names = topApps.map(\.name)
@@ -549,7 +664,7 @@ final class ObserverController {
 
         if uniqueApps.count >= 4 {
             let route = uniqueApps.prefix(4).joined(separator: " -> ")
-            return "Сдвиг: много переходов (\(route)); похоже, идёт поиск или сверка."
+            return "Сдвиг: много переходов (\(route)); проверь, не потерялась ли главная линия."
         }
 
         let route = uniqueApps.prefix(3).joined(separator: " -> ")
@@ -1517,8 +1632,31 @@ final class ObserverController {
         case "status_only":
             return nil
         default:
-            return "\(prefix): \(annotation.contentKind)"
+            return semanticWidgetContextLine(prefix: prefix, annotation: annotation, context: context)
         }
+    }
+
+    private func semanticWidgetContextLine(
+        prefix: String,
+        annotation: ContentContextAnnotation,
+        context: ScreenContextSnapshot
+    ) -> String {
+        let kind = readableContentKind(annotation.contentKind)
+        let topic = cleanInsightFragment(annotation.topic, allowShortCodeLikeText: false)
+        let entity = cleanInsightFragment(annotation.sourceEntityDisplayName, allowShortCodeLikeText: false)
+        let app = cleanInsightFragment(context.appName)
+        let subject: String
+        if let entity, ["message", "email"].contains(annotation.contentKind) {
+            subject = "\(kind) с \(entity)"
+        } else if let app {
+            subject = "\(app): \(kind)"
+        } else {
+            subject = kind
+        }
+        if let topic, !topic.isEmpty, topic.caseInsensitiveCompare(subject) != .orderedSame {
+            return "\(prefix): \(subject) · \(topic)"
+        }
+        return "\(prefix): \(subject)"
     }
 
     private func captureOCRWritingFallbackIfNeeded(_ activity: InputActivitySnapshot) {
@@ -2714,6 +2852,22 @@ struct ObserverViewState {
     let attentionText: String
     let hintText: String?
     let securityIncidentCount: Int
+    let calibration: WidgetCalibrationState
+}
+
+struct WidgetCalibrationState: Equatable {
+    let displays: [WidgetCalibrationDisplay]
+    let predictedDisplayIndex: Int?
+    let predictedCellIndex: Int?
+    let predictionText: String
+}
+
+struct WidgetCalibrationDisplay: Equatable {
+    let index: Int
+    let title: String
+    let columns: Int
+    let rows: Int
+    let predictedCell: Int?
 }
 
 extension ObserverController.Mode {
@@ -2756,6 +2910,23 @@ private extension AppFocusSnapshot {
             "messenger",
             "viber"
         ])
+    }
+}
+
+private extension WorkspaceTopology.DisplayRole {
+    var shortDisplayName: String {
+        switch self {
+        case .mainWorkbench:
+            return "Основной"
+        case .productivity:
+            return "Ноутбук"
+        case .reference:
+            return "Реф."
+        case .communication:
+            return "Связь"
+        case .unknown:
+            return "Экран"
+        }
     }
 }
 

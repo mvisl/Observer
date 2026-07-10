@@ -96,6 +96,17 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             },
             onSecurityArtifactRequest: { [weak self] in
                 self?.controller?.latestSecurityIncidentArtifactURL()
+            },
+            onCalibrationSample: { [weak self] displayIndex, cellIndex, predictedDisplayIndex, predictedCellIndex in
+                self?.controller?.recordManualGazeCalibration(
+                    displayIndex: displayIndex,
+                    cellIndex: cellIndex,
+                    predictedDisplayIndex: predictedDisplayIndex,
+                    predictedCellIndex: predictedCellIndex
+                )
+            },
+            onCalibrationAction: { [weak self] action in
+                self?.controller?.recordCalibrationSessionAction(action)
             }
         )
         widgetController = widget
