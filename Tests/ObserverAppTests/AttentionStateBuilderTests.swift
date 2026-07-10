@@ -174,4 +174,27 @@ struct AttentionStateBuilderTests {
         #expect(attention.eventPayload["eye_signal_source"] == "pupil_landmarks")
         #expect(attention.eventPayload["left_pupil_x"] == "0.510")
     }
+
+    @Test func includesSmilePayloadWhenAvailable() {
+        let attention = AttentionSnapshot(
+            facePresent: true,
+            attentionZone: .nearCamera,
+            facePosition: .center,
+            confidence: 0.8,
+            faceCount: 1,
+            faceCenterX: 0.5,
+            faceCenterY: 0.4,
+            faceArea: 0.05,
+            yaw: 0,
+            pitch: 0,
+            roll: 0,
+            smileScore: 0.78,
+            smileCandidate: true,
+            smileSignalSource: "outer_lips_aspect_ratio"
+        )
+
+        #expect(attention.eventPayload["smile_candidate"] == "true")
+        #expect(attention.eventPayload["smile_score"] == "0.780")
+        #expect(attention.eventPayload["smile_signal_source"] == "outer_lips_aspect_ratio")
+    }
 }

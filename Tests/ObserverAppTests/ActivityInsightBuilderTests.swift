@@ -164,6 +164,27 @@ struct ActivityInsightBuilderTests {
         #expect(text == "Защита: похоже, отошел и прикрыл экран")
     }
 
+    @Test func readingScreenIsNotMicroPauseWhenFaceStaysPresent() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 44,
+                secondsSinceMouseMove: 44,
+                secondsSinceClick: 44,
+                secondsSinceAnyInput: 44,
+                mouseScreenIndex: 0,
+                mouseDisplayRole: .mainWorkbench
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "ChatGPT", appID: "com.openai.codex", displayRole: .mainWorkbench),
+            currentFocusStartedAt: Date().addingTimeInterval(-360),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Диалог с ИИ: читает ответ: нижняя часть экрана")
+        #expect(!text.contains("микропауза"))
+    }
+
     private func face(
         yaw: Double,
         position: AttentionSnapshot.FacePosition

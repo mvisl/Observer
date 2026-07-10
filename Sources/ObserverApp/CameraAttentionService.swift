@@ -172,6 +172,9 @@ struct AttentionSnapshot: Sendable {
     let leftPupilY: Double?
     let rightPupilX: Double?
     let rightPupilY: Double?
+    let smileScore: Double?
+    let smileCandidate: Bool?
+    let smileSignalSource: String?
     let isTemporarilyLostFace: Bool
 
     init(
@@ -193,6 +196,9 @@ struct AttentionSnapshot: Sendable {
         leftPupilY: Double? = nil,
         rightPupilX: Double? = nil,
         rightPupilY: Double? = nil,
+        smileScore: Double? = nil,
+        smileCandidate: Bool? = nil,
+        smileSignalSource: String? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
         self.facePresent = facePresent
@@ -213,6 +219,9 @@ struct AttentionSnapshot: Sendable {
         self.leftPupilY = leftPupilY
         self.rightPupilX = rightPupilX
         self.rightPupilY = rightPupilY
+        self.smileScore = smileScore
+        self.smileCandidate = smileCandidate
+        self.smileSignalSource = smileSignalSource
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
@@ -248,6 +257,7 @@ struct AttentionSnapshot: Sendable {
             pitch: pitch,
             roll: roll
         )
+        let smile = SmileEstimator().estimate(landmarks: largestFace.landmarks)
         let facePosition: FacePosition
         if centerX < 0.38 {
             facePosition = .left
@@ -277,7 +287,10 @@ struct AttentionSnapshot: Sendable {
             leftPupilX: eyeContact.leftPupilX,
             leftPupilY: eyeContact.leftPupilY,
             rightPupilX: eyeContact.rightPupilX,
-            rightPupilY: eyeContact.rightPupilY
+            rightPupilY: eyeContact.rightPupilY,
+            smileScore: smile.score,
+            smileCandidate: smile.isCandidate,
+            smileSignalSource: smile.source
         )
     }
 
@@ -301,6 +314,9 @@ struct AttentionSnapshot: Sendable {
             leftPupilY: leftPupilY,
             rightPupilX: rightPupilX,
             rightPupilY: rightPupilY,
+            smileScore: smileScore,
+            smileCandidate: smileCandidate,
+            smileSignalSource: smileSignalSource,
             isTemporarilyLostFace: true
         )
     }
@@ -359,11 +375,54 @@ struct AttentionSnapshot: Sendable {
         if let rightPupilY {
             payload["right_pupil_y"] = String(format: "%.3f", rightPupilY)
         }
+        if let smileScore {
+            payload["smile_score"] = String(format: "%.3f", smileScore)
+        }
+        if let smileCandidate {
+            payload["smile_candidate"] = smileCandidate ? "true" : "false"
+        }
+        if let smileSignalSource {
+            payload["smile_signal_source"] = smileSignalSource
+        }
         if isTemporarilyLostFace {
             payload["temporarily_lost_face"] = "true"
         }
 
         return payload
+    }
+}
+
+private struct SmileEstimate {
+    let score: Double?
+    let isCandidate: Bool?
+    let source: String?
+}
+
+private struct SmileEstimator {
+    func estimate(landmarks: VNFaceLandmarks2D?) -> SmileEstimate {
+        guard let mouth = landmarks?.outerLips, !mouth.normalizedPoints.isEmpty else {
+            return SmileEstimate(score: nil, isCandidate: nil, source: nil)
+        }
+
+        let points = mouth.normalizedPoints
+        let minX = points.map(\.x).min() ?? 0
+        let maxX = points.map(\.x).max() ?? 0
+        let minY = points.map(\.y).min() ?? 0
+        let maxY = points.map(\.y).max() ?? 0
+        let width = Double(maxX - minX)
+        let height = Double(maxY - minY)
+        guard width > 0, height > 0 else {
+            return SmileEstimate(score: nil, isCandidate: nil, source: nil)
+        }
+
+        // A weak local proxy: smiling usually widens the mouth relative to its height.
+        let ratio = width / max(height, 0.001)
+        let score = min(1, max(0, (ratio - 2.2) / 1.4))
+        return SmileEstimate(
+            score: score,
+            isCandidate: score >= 0.62,
+            source: "outer_lips_aspect_ratio"
+        )
     }
 }
 

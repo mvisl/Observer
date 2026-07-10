@@ -53,6 +53,9 @@ struct ActivityInsightBuilder {
         }
 
         if let input, input.secondsSinceAnyInput < 75 {
+            if let attention, attention.facePresent || attention.isTemporarilyLostFace {
+                return "\(intent.readingPrefix): \(attention.readingZoneHint)"
+            }
             return "\(intent.prefix): микропауза \(formatDuration(input.secondsSinceAnyInput))"
         }
 
@@ -260,5 +263,22 @@ private extension AttentionSnapshot {
             return false
         }
         return abs(yaw) > 0.55
+    }
+
+    var readingZoneHint: String {
+        guard facePresent || isTemporarilyLostFace else {
+            return "экран"
+        }
+
+        if let faceCenterY {
+            if faceCenterY <= 0.35 {
+                return "нижняя часть экрана"
+            }
+            if faceCenterY >= 0.68 {
+                return "верхняя часть экрана"
+            }
+        }
+
+        return "экран"
     }
 }

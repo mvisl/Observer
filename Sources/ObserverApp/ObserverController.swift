@@ -36,6 +36,7 @@ final class ObserverController {
     private var lastGazeCalibrationKey: String?
     private var lastGazeCalibrationAt: Date?
     private var lastAwayPresenceIncidentAt: Date?
+    private var lastSmileCueAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
@@ -836,6 +837,7 @@ final class ObserverController {
             secondsSincePreviousAttention: previousAttentionAt.map { now.timeIntervalSince($0) },
             now: now
         )
+        recordSmileCueIfNeeded(snapshot, now: now)
         recordAwayPresenceIncidentIfNeeded(
             currentAttention: snapshot,
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
@@ -1187,6 +1189,59 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+    }
+
+    private func recordSmileCueIfNeeded(_ attention: AttentionSnapshot, now: Date = Date()) {
+        guard mode == .observing else {
+            return
+        }
+        guard attention.smileCandidate == true else {
+            return
+        }
+        guard currentFocus?.isCommunicationContext == true || lastActivityInsight?.contains("Коммуникация") == true else {
+            return
+        }
+
+        let enoughTimePassed = lastSmileCueAt.map { now.timeIntervalSince($0) >= 90 } ?? true
+        guard enoughTimePassed else {
+            return
+        }
+
+        lastSmileCueAt = now
+        latestHint = "Коммуникация: улыбнулся на сообщение"
+        lastHintAt = now
+
+        var payload: [String: String] = [
+            "cue": "positive_reaction_candidate",
+            "interpretation": "smile_in_communication_context"
+        ]
+        if let score = attention.smileScore {
+            payload["smile_score"] = String(format: "%.3f", score)
+        }
+        if let source = attention.smileSignalSource {
+            payload["smile_signal_source"] = source
+        }
+        if let currentFocus {
+            payload["app_name"] = currentFocus.appName
+            if let appID = currentFocus.appID {
+                payload["app_id"] = appID
+            }
+        }
+        if let lastActivityInsight {
+            payload["activity_insight"] = lastActivityInsight
+        }
+
+        append(
+            .init(
+                type: .behaviorCue,
+                displayRole: currentFocus?.displayRole,
+                appID: currentFocus?.appID,
+                confidence: 0.58,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
     }
 
     private func closeCurrentFocusInterval(reason: String) {
@@ -1620,5 +1675,32 @@ private extension AppFocusSnapshot {
             return "\(appName) · \(windowTitle)"
         }
         return appName
+    }
+
+    var isCommunicationContext: Bool {
+        [
+            appName,
+            appID ?? "",
+            windowTitle ?? ""
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        .containsAny([
+            "whatsapp",
+            "telegram",
+            "signal",
+            "messages",
+            "slack",
+            "mail",
+            "gmail",
+            "messenger",
+            "viber"
+        ])
+    }
+}
+
+private extension String {
+    func containsAny(_ needles: [String]) -> Bool {
+        needles.contains { contains($0) }
     }
 }
