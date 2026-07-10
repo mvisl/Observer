@@ -1331,6 +1331,8 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+            setLatestContextLine("Внешний анализ выключен: нет Gemini-ключа")
+            notifyStateChanged()
             print("Gemini API key is not configured. Use Set Gemini API Key first.")
             return
         }

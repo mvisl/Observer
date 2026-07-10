@@ -3,17 +3,22 @@ import Testing
 @testable import ObserverApp
 
 struct ScheduleGateTests {
-    @Test func gatesSensorsAtWorkdayBoundaries() {
+    @Test func marksDefaultWorkdayBoundariesWithoutStoppingSensors() {
         let calendar = calendar(timeZone: "Europe/Belgrade")
         let gate = ScheduleGate(
             settings: ObserverSettings.defaults.workSchedule,
             calendar: calendar
         )
 
-        #expect(gate.status(at: date(2026, 7, 10, 8, 59, calendar)).sensorAllowed == false)
+        let beforeStart = gate.status(at: date(2026, 7, 10, 8, 59, calendar))
+        #expect(beforeStart.sensorAllowed == true)
+        #expect(beforeStart.outsideDefaultSchedule == true)
+
         #expect(gate.status(at: date(2026, 7, 10, 9, 0, calendar)).sensorAllowed == true)
-        #expect(gate.status(at: date(2026, 7, 10, 18, 0, calendar)).sensorAllowed == false)
-        #expect(gate.status(at: date(2026, 7, 10, 18, 1, calendar)).sensorAllowed == false)
+
+        let afterEnd = gate.status(at: date(2026, 7, 10, 18, 1, calendar))
+        #expect(afterEnd.sensorAllowed == true)
+        #expect(afterEnd.outsideDefaultSchedule == true)
     }
 
     @Test func overrideAllowsOutsideDefaultScheduleUntilItExpires() {
@@ -33,7 +38,8 @@ struct ScheduleGateTests {
         #expect(during.outsideDefaultSchedule == true)
 
         let after = gate.status(at: date(2026, 7, 10, 21, 1, calendar))
-        #expect(after.sensorAllowed == false)
+        #expect(after.sensorAllowed == true)
+        #expect(after.reason == "off_hours_observing")
     }
 
     @Test func localTimezoneControlsTheWindow() {
@@ -50,8 +56,19 @@ struct ScheduleGateTests {
             calendar: belgradeCalendar
         )
 
-        #expect(utcGate.status(at: instant).sensorAllowed == false)
+        #expect(utcGate.status(at: instant).sensorAllowed == true)
+        #expect(utcGate.status(at: instant).outsideDefaultSchedule == true)
         #expect(belgradeGate.status(at: instant).sensorAllowed == true)
+        #expect(belgradeGate.status(at: instant).insideDefaultSchedule == true)
+    }
+
+    @Test func optionalHardGateCanStillStopSensorsOutsideSchedule() {
+        let calendar = calendar(timeZone: "Europe/Belgrade")
+        var settings = ObserverSettings.defaults.workSchedule
+        settings.observeOutsideDefaultSchedule = false
+        let gate = ScheduleGate(settings: settings, calendar: calendar)
+
+        #expect(gate.status(at: date(2026, 7, 10, 18, 1, calendar)).sensorAllowed == false)
     }
 
     @Test func suppressesPredictionsNearScheduleEndAndFlagsTruncation() {

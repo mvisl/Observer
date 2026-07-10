@@ -38,9 +38,61 @@ struct ObserverSettings: Codable {
         var gracePeriodSeconds: Double
         var nightlyJobLeadSeconds: Double
         var includeOverridesInBaselines: Bool
+        var observeOutsideDefaultSchedule: Bool
         var morningTailMinutes: Double
         var predictionSuppressionBeforeEndSeconds: Double
         var boundaryTruncationMarginSeconds: Double
+
+        init(
+            enabled: Bool,
+            weekdays: [Int],
+            startHour: Int,
+            startMinute: Int,
+            endHour: Int,
+            endMinute: Int,
+            daysOff: [String],
+            gracePeriodSeconds: Double,
+            nightlyJobLeadSeconds: Double,
+            includeOverridesInBaselines: Bool,
+            observeOutsideDefaultSchedule: Bool,
+            morningTailMinutes: Double,
+            predictionSuppressionBeforeEndSeconds: Double,
+            boundaryTruncationMarginSeconds: Double
+        ) {
+            self.enabled = enabled
+            self.weekdays = weekdays
+            self.startHour = startHour
+            self.startMinute = startMinute
+            self.endHour = endHour
+            self.endMinute = endMinute
+            self.daysOff = daysOff
+            self.gracePeriodSeconds = gracePeriodSeconds
+            self.nightlyJobLeadSeconds = nightlyJobLeadSeconds
+            self.includeOverridesInBaselines = includeOverridesInBaselines
+            self.observeOutsideDefaultSchedule = observeOutsideDefaultSchedule
+            self.morningTailMinutes = morningTailMinutes
+            self.predictionSuppressionBeforeEndSeconds = predictionSuppressionBeforeEndSeconds
+            self.boundaryTruncationMarginSeconds = boundaryTruncationMarginSeconds
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.workSchedule
+            self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+            self.weekdays = try container.decodeIfPresent([Int].self, forKey: .weekdays) ?? defaults.weekdays
+            self.startHour = try container.decodeIfPresent(Int.self, forKey: .startHour) ?? defaults.startHour
+            self.startMinute = try container.decodeIfPresent(Int.self, forKey: .startMinute) ?? defaults.startMinute
+            self.endHour = try container.decodeIfPresent(Int.self, forKey: .endHour) ?? defaults.endHour
+            self.endMinute = try container.decodeIfPresent(Int.self, forKey: .endMinute) ?? defaults.endMinute
+            self.daysOff = try container.decodeIfPresent([String].self, forKey: .daysOff) ?? defaults.daysOff
+            self.gracePeriodSeconds = try container.decodeIfPresent(Double.self, forKey: .gracePeriodSeconds) ?? defaults.gracePeriodSeconds
+            self.nightlyJobLeadSeconds = try container.decodeIfPresent(Double.self, forKey: .nightlyJobLeadSeconds) ?? defaults.nightlyJobLeadSeconds
+            self.includeOverridesInBaselines = try container.decodeIfPresent(Bool.self, forKey: .includeOverridesInBaselines) ?? defaults.includeOverridesInBaselines
+            self.observeOutsideDefaultSchedule = try container.decodeIfPresent(Bool.self, forKey: .observeOutsideDefaultSchedule) ?? defaults.observeOutsideDefaultSchedule
+            self.morningTailMinutes = try container.decodeIfPresent(Double.self, forKey: .morningTailMinutes) ?? defaults.morningTailMinutes
+            self.predictionSuppressionBeforeEndSeconds = try container.decodeIfPresent(Double.self, forKey: .predictionSuppressionBeforeEndSeconds) ?? defaults.predictionSuppressionBeforeEndSeconds
+            self.boundaryTruncationMarginSeconds = try container.decodeIfPresent(Double.self, forKey: .boundaryTruncationMarginSeconds) ?? defaults.boundaryTruncationMarginSeconds
+        }
     }
 
     var summaryIntervalSeconds: TimeInterval
@@ -206,6 +258,7 @@ struct ObserverSettings: Codable {
             gracePeriodSeconds: 300,
             nightlyJobLeadSeconds: 3600,
             includeOverridesInBaselines: false,
+            observeOutsideDefaultSchedule: true,
             morningTailMinutes: 10,
             predictionSuppressionBeforeEndSeconds: 1800,
             boundaryTruncationMarginSeconds: 300

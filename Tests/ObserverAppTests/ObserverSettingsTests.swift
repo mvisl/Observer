@@ -36,5 +36,6 @@ struct ObserverSettingsTests {
         #expect(settings.rawContextStorageKinds == ["prompt", "code", "doc"])
         #expect(settings.pillVerbosity == "task_only")
         #expect(settings.pseudonymizeEntities == true)
+        #expect(settings.workSchedule.observeOutsideDefaultSchedule == true)
     }
 }

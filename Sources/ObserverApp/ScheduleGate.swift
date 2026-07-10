@@ -50,6 +50,16 @@ struct ScheduleGate {
             )
         }
 
+        if settings.observeOutsideDefaultSchedule {
+            return ScheduleGateStatus(
+                sensorAllowed: true,
+                insideDefaultSchedule: false,
+                outsideDefaultSchedule: true,
+                reason: isDayOff(date) ? "day_off_observing" : "off_hours_observing",
+                secondsUntilEnd: nil
+            )
+        }
+
         return ScheduleGateStatus(
             sensorAllowed: false,
             insideDefaultSchedule: false,
