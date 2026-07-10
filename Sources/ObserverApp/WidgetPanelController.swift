@@ -172,13 +172,17 @@ final class ObserverWidgetView: NSView {
     private let moreButton = NSButton(title: "...", target: nil, action: nil)
     private let appLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "No active context yet")
-    private let intervalStack = NSStackView()
+    private let intervalControl = NSSegmentedControl(
+        labels: ["30м", "1ч", "2ч", "день"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let descriptionLabel = NSTextField(labelWithString: "")
     private let recommendationLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private let onInsightRequest: (TimeInterval) -> String?
-    private var intervalButtons: [Int: NSButton] = [:]
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
@@ -320,7 +324,7 @@ final class ObserverWidgetView: NSView {
     }
 
     private func configureSubviews() {
-        [statusDot, statusLabel, moreButton, appLabel, contextLabel, intervalStack, descriptionLabel, recommendationLabel, metaLabel, hintLabel].forEach {
+        [statusDot, statusLabel, moreButton, appLabel, contextLabel, intervalControl, descriptionLabel, recommendationLabel, metaLabel, hintLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -349,12 +353,15 @@ final class ObserverWidgetView: NSView {
         contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
 
-        intervalStack.orientation = .horizontal
-        intervalStack.alignment = .centerY
-        intervalStack.distribution = .fillEqually
-        intervalStack.spacing = 4
-        intervalStack.isHidden = true
-        configureIntervalButtons()
+        intervalControl.segmentStyle = .rounded
+        intervalControl.target = self
+        intervalControl.action = #selector(selectInsightInterval(_:))
+        intervalControl.isHidden = true
+        intervalControl.setWidth(0, forSegment: 0)
+        intervalControl.setWidth(0, forSegment: 1)
+        intervalControl.setWidth(0, forSegment: 2)
+        intervalControl.setWidth(0, forSegment: 3)
+        updateIntervalControlState()
 
         descriptionLabel.font = .systemFont(ofSize: 11, weight: .medium)
         descriptionLabel.textColor = .labelColor
@@ -403,14 +410,14 @@ final class ObserverWidgetView: NSView {
             contextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
-            intervalStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            intervalStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            intervalStack.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
-            intervalStack.heightAnchor.constraint(equalToConstant: 24),
+            intervalControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            intervalControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            intervalControl.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
+            intervalControl.heightAnchor.constraint(equalToConstant: 24),
 
             descriptionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             descriptionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            descriptionLabel.topAnchor.constraint(equalTo: intervalStack.bottomAnchor, constant: 8),
+            descriptionLabel.topAnchor.constraint(equalTo: intervalControl.bottomAnchor, constant: 8),
 
             recommendationLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             recommendationLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -424,25 +431,6 @@ final class ObserverWidgetView: NSView {
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             hintLabel.topAnchor.constraint(equalTo: metaLabel.bottomAnchor, constant: 3)
         ])
-    }
-
-    private func configureIntervalButtons() {
-        [
-            (30, "30м"),
-            (60, "1ч"),
-            (120, "2ч"),
-            (0, "день")
-        ].forEach { minutes, title in
-            let button = NSButton(title: title, target: self, action: #selector(selectInsightInterval(_:)))
-            button.bezelStyle = .rounded
-            button.font = .systemFont(ofSize: 10, weight: .semibold)
-            button.setButtonType(.toggle)
-            button.tag = minutes
-            button.translatesAutoresizingMaskIntoConstraints = false
-            intervalButtons[minutes] = button
-            intervalStack.addArrangedSubview(button)
-        }
-        updateIntervalButtonState()
     }
 
     private func isResizeHotspot(_ event: NSEvent) -> Bool {
@@ -464,8 +452,8 @@ final class ObserverWidgetView: NSView {
         }
     }
 
-    @objc private func selectInsightInterval(_ sender: NSButton) {
-        let minutes = sender.tag
+    @objc private func selectInsightInterval(_ sender: NSSegmentedControl) {
+        let minutes = minutesForSegment(sender.selectedSegment)
         selectedInsightMinutes = minutes
         UserDefaults.standard.set(minutes, forKey: "widget.insight.minutes")
         updateInsightContent()
@@ -479,7 +467,7 @@ final class ObserverWidgetView: NSView {
             previousSizeBeforeInsight = window.frame.size
         }
         isInsightExpanded = true
-        intervalStack.isHidden = false
+        intervalControl.isHidden = false
         descriptionLabel.isHidden = false
         recommendationLabel.isHidden = false
         updateInsightContent()
@@ -511,7 +499,7 @@ final class ObserverWidgetView: NSView {
         let description = Array(lines.prefix(2)).joined(separator: "\n")
         descriptionLabel.stringValue = description.isEmpty ? "Пока мало наблюдений за выбранный интервал." : description
         recommendationLabel.stringValue = recommendation(for: lines)
-        updateIntervalButtonState()
+        updateIntervalControlState()
     }
 
     private func recommendation(for lines: [String]) -> String {
@@ -528,25 +516,47 @@ final class ObserverWidgetView: NSView {
         return "Рекомендация: держать текущий контекст.\nЕсли сомневаешься, сформулировать один следующий шаг."
     }
 
-    private func updateIntervalButtonState() {
-        intervalButtons.forEach { minutes, button in
-            let selected = minutes == selectedInsightMinutes
-            button.state = selected ? .on : .off
-            button.contentTintColor = selected ? .controlAccentColor : .secondaryLabelColor
-        }
+    private func updateIntervalControlState() {
+        intervalControl.selectedSegment = segmentForMinutes(selectedInsightMinutes)
     }
 
     private func hideInsightControls() {
-        intervalStack.isHidden = true
+        intervalControl.isHidden = true
         descriptionLabel.isHidden = true
         recommendationLabel.isHidden = true
     }
 
     private var expandedControlsFrame: CGRect {
-        intervalStack.frame
+        intervalControl.frame
             .union(descriptionLabel.frame)
             .union(recommendationLabel.frame)
             .insetBy(dx: -8, dy: -8)
+    }
+
+    private func segmentForMinutes(_ minutes: Int) -> Int {
+        switch minutes {
+        case 60:
+            return 1
+        case 120:
+            return 2
+        case 0:
+            return 3
+        default:
+            return 0
+        }
+    }
+
+    private func minutesForSegment(_ segment: Int) -> Int {
+        switch segment {
+        case 1:
+            return 60
+        case 2:
+            return 120
+        case 3:
+            return 0
+        default:
+            return 30
+        }
     }
 
     @objc private func setCompactSize() {

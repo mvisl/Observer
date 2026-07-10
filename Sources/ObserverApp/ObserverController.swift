@@ -457,16 +457,24 @@ final class ObserverController {
             return "За этот интервал пока нет наблюдений."
         }
 
-        let focus = events.reversed().first { $0.type == .appFocus }?.payload["app_name"]
-            ?? events.reversed().first { $0.type == .appFocusInterval }?.payload["app_name"]
-        let state = events.reversed().first { $0.type == .cognitiveState }?.payload["state"]
-        let content = events.reversed().first { $0.type == .contentContext }?.payload["topic"]
+        let focus = cleanInsightFragment(
+            events.reversed().first { $0.type == .appFocus }?.payload["app_name"]
+                ?? events.reversed().first { $0.type == .appFocusInterval }?.payload["app_name"]
+        )
+        let state = cleanInsightFragment(events.reversed().first { $0.type == .cognitiveState }?.payload["state"])
+        let content = cleanInsightFragment(
+            events.reversed().first { $0.type == .contentContext }?.payload["topic"],
+            allowShortCodeLikeText: false
+        )
         let reaction = events.reversed().first { event in
             event.type == .boundReaction || event.type == .behaviorCue || event.type == .activityInsight
         }
-        let reactionText = reaction?.payload["insight"]
-            ?? reaction?.payload["cue"]
-            ?? reaction?.payload["activity_insight"]
+        let reactionText = cleanInsightFragment(
+            reaction?.payload["insight"]
+                ?? reaction?.payload["cue"]
+                ?? reaction?.payload["activity_insight"],
+            allowShortCodeLikeText: false
+        )
         let inputText = events.last { $0.type == .inputActivity }?
             .payload["seconds_since_any_input"]
             .flatMap(Double.init)
@@ -485,6 +493,35 @@ final class ObserverController {
         .compactMap { $0 }
         .prefix(5)
         .joined(separator: "\n")
+    }
+
+    private func cleanInsightFragment(_ value: String?, allowShortCodeLikeText: Bool = true) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        if trimmed.count > 80 {
+            return nil
+        }
+        let letters = trimmed.filter(\.isLetter).count
+        let digits = trimmed.filter(\.isNumber).count
+        let separators = trimmed.filter { $0.isWhitespace || ",.:;!?/()-".contains($0) }.count
+        let other = max(0, trimmed.count - letters - digits - separators)
+        if !allowShortCodeLikeText, other > 2 {
+            return nil
+        }
+        if letters > 0, digits > letters * 2 {
+            return nil
+        }
+        if trimmed.range(of: #"[A-Za-z0-9+/]{12,}"#, options: .regularExpression) != nil {
+            return nil
+        }
+        return trimmed
     }
 
     func generateResearchDigest() -> String {
