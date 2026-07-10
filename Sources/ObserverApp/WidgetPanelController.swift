@@ -121,7 +121,7 @@ final class WidgetPanelController {
     fileprivate static func saveWidgetSize(_ size: CGSize) {
         let clamped = clampedSize(size)
         let defaults = UserDefaults.standard
-        defaults.set(clamped.width, forKey: "widget.width")
+        defaults.set(fixedWidgetWidth, forKey: "widget.width")
         defaults.set(clamped.height, forKey: "widget.height")
     }
 
@@ -185,6 +185,7 @@ final class WidgetPanelController {
     }
 
     fileprivate static let defaultWidgetSize = CGSize(width: 248, height: 76)
+    fileprivate static let fixedWidgetWidth: CGFloat = 248
     fileprivate static let compactWidgetSize = CGSize(width: 220, height: 70)
     fileprivate static let comfortableWidgetSize = CGSize(width: 280, height: 76)
     fileprivate static let wideWidgetSize = CGSize(width: 340, height: 76)
@@ -199,7 +200,7 @@ final class WidgetPanelController {
 
         return clampedSize(
             CGSize(
-                width: defaults.double(forKey: "widget.width"),
+                width: fixedWidgetWidth,
                 height: defaults.double(forKey: "widget.height")
             )
         )
@@ -207,7 +208,7 @@ final class WidgetPanelController {
 
     private static func clampedSize(_ size: CGSize) -> CGSize {
         CGSize(
-            width: min(max(size.width, 190), 340),
+            width: fixedWidgetWidth,
             height: min(max(size.height, 68), 240)
         )
     }
