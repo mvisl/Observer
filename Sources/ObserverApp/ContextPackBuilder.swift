@@ -12,6 +12,7 @@ struct ContextPackBuilder {
         let detectorEvents = events.filter { $0.type == .detectorFired }
         let userNotes = events.filter { $0.type == .userNote }
         let screenContexts = events.filter { $0.type == .screenContext }
+        let writingContexts = events.filter { $0.type == .writingContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
         let inputEvents = events.filter { $0.type == .inputActivity }
         let activityInsightEvents = events.filter { $0.type == .activityInsight }
@@ -19,7 +20,7 @@ struct ContextPackBuilder {
         let mediaReactionEvents = events.filter { $0.type == .mediaReaction }
         let latestSummary = events.last { $0.type == .localSummary }?.payload["summary"]
         let currentFocus = appFocusEvents.last
-        let currentContext = screenContexts.last ?? ocrContexts.last ?? currentFocus
+        let currentContext = writingContexts.last ?? screenContexts.last ?? ocrContexts.last ?? currentFocus
         let transitions = buildTransitions(from: appFocusEvents)
         let observations = buildObservations(
             appFocusEvents: appFocusEvents,
@@ -52,6 +53,10 @@ struct ContextPackBuilder {
         ## Recent Screen Context
 
         \(describeScreenContexts(screenContexts))
+
+        ## Active Writing Context
+
+        \(describeWritingContexts(writingContexts))
 
         ## Recent OCR Context
 
@@ -101,7 +106,7 @@ struct ContextPackBuilder {
 
     private func describePrimaryContext(_ event: ObserverEvent) -> String {
         switch event.type {
-        case .screenContext:
+        case .screenContext, .writingContext:
             return compactLines([
                 requiredLine("App", event.payload["app_name"] ?? event.appID ?? "unknown"),
                 optionalLine("Window", event.payload["window_title"]),
@@ -147,6 +152,22 @@ struct ContextPackBuilder {
             let selected = event.payload["selected_text"].map { " · selected: \($0)" } ?? ""
             let value = event.payload["focused_element_value"].map { " · value: \($0)" } ?? ""
             return "- \(app)\(window)\(selected)\(value)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeWritingContexts(_ writingContexts: [ObserverEvent]) -> String {
+        let contexts = writingContexts.suffix(4)
+        guard !contexts.isEmpty else {
+            return "- No active writing context captured yet."
+        }
+
+        return contexts.map { event in
+            let app = event.payload["app_name"] ?? event.appID ?? "unknown"
+            let window = event.payload["window_title"].map { " · \($0)" } ?? ""
+            let text = event.payload["focused_element_value"]
+                ?? event.payload["selected_text"]
+                ?? ""
+            return "- \(app)\(window) · writing: \(text)"
         }.joined(separator: "\n")
     }
 

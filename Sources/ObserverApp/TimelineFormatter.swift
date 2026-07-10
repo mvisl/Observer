@@ -24,6 +24,8 @@ struct TimelineFormatter {
             return "  duration: \(event.payload["duration_seconds"] ?? "?")s, reason: \(event.payload["reason"] ?? "-")"
         case .screenContext:
             return "  window: \(event.payload["window_title"] ?? "-")"
+        case .writingContext:
+            return "  writing: \(event.payload["focused_element_value"] ?? event.payload["selected_text"] ?? "-")"
         case .ocrContext:
             return "  ocr: \(event.payload["text"] ?? "-")"
         case .attention:

@@ -20,6 +20,8 @@ struct ObserverSettings: Codable {
     var screenContextRefreshSeconds: Double
     var geminiEnabled: Bool
     var geminiModel: String
+    var geminiDailyBudgetEUR: Double
+    var geminiEstimatedCostPerRequestEUR: Double
     var autoPauseMediaWhenAway: Bool
     var autoResumeMediaWhenBack: Bool
     var detectorSettings: DetectorSettings
@@ -36,6 +38,8 @@ struct ObserverSettings: Codable {
         screenContextRefreshSeconds: Double,
         geminiEnabled: Bool,
         geminiModel: String,
+        geminiDailyBudgetEUR: Double,
+        geminiEstimatedCostPerRequestEUR: Double,
         autoPauseMediaWhenAway: Bool,
         autoResumeMediaWhenBack: Bool,
         detectorSettings: DetectorSettings
@@ -51,6 +55,8 @@ struct ObserverSettings: Codable {
         self.screenContextRefreshSeconds = screenContextRefreshSeconds
         self.geminiEnabled = geminiEnabled
         self.geminiModel = geminiModel
+        self.geminiDailyBudgetEUR = geminiDailyBudgetEUR
+        self.geminiEstimatedCostPerRequestEUR = geminiEstimatedCostPerRequestEUR
         self.autoPauseMediaWhenAway = autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = autoResumeMediaWhenBack
         self.detectorSettings = detectorSettings
@@ -70,6 +76,8 @@ struct ObserverSettings: Codable {
         self.screenContextRefreshSeconds = try container.decodeIfPresent(Double.self, forKey: .screenContextRefreshSeconds) ?? defaults.screenContextRefreshSeconds
         self.geminiEnabled = try container.decodeIfPresent(Bool.self, forKey: .geminiEnabled) ?? defaults.geminiEnabled
         self.geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
+        self.geminiDailyBudgetEUR = try container.decodeIfPresent(Double.self, forKey: .geminiDailyBudgetEUR) ?? defaults.geminiDailyBudgetEUR
+        self.geminiEstimatedCostPerRequestEUR = try container.decodeIfPresent(Double.self, forKey: .geminiEstimatedCostPerRequestEUR) ?? defaults.geminiEstimatedCostPerRequestEUR
         self.autoPauseMediaWhenAway = try container.decodeIfPresent(Bool.self, forKey: .autoPauseMediaWhenAway) ?? defaults.autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = try container.decodeIfPresent(Bool.self, forKey: .autoResumeMediaWhenBack) ?? defaults.autoResumeMediaWhenBack
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
@@ -87,6 +95,8 @@ struct ObserverSettings: Codable {
         screenContextRefreshSeconds: 60,
         geminiEnabled: true,
         geminiModel: "gemini-3.5-flash",
+        geminiDailyBudgetEUR: 2.0,
+        geminiEstimatedCostPerRequestEUR: 0.02,
         autoPauseMediaWhenAway: true,
         autoResumeMediaWhenBack: true,
         detectorSettings: DetectorSettings(

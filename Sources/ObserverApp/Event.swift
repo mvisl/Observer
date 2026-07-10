@@ -33,6 +33,7 @@ enum ObserverEventType: String, Codable {
     case privacyAllowlistAdded
     case privacyExclusionAdded
     case userNote
+    case writingContext
     case workspaceTopologyLoaded
 }
 

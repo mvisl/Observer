@@ -62,6 +62,7 @@ GitHub CI is included under `.github/workflows/ci.yml` and runs `swift test` on 
 - `Set Gemini API Key`: stores a Gemini API key in macOS Keychain. The key is not written to settings, logs, exports, SQLite, or GitHub brain files.
 - `Delete Gemini API Key`: removes the Gemini API key from Keychain.
 - `Generate Gemini Insight`: sends a compact, user-triggered context packet to Gemini and copies the answer to the clipboard.
+- Gemini calls are guarded by a local daily budget estimate, defaulting to 2 EUR/day.
 - `Show Timeline`: opens a local event timeline.
 - `Add Note`: stores a local note linked to the current workspace context.
 - `Capture OCR For Current App`: runs local Apple Vision OCR for the current app, only if that app is allowlisted.
@@ -109,6 +110,7 @@ Observation and camera attention now start on launch by default for this prototy
 - Camera attention is coarse: face present/off-screen, face position in frame, confidence. It is not eye tracking.
 - The floating widget translates camera/input signals into soft states such as `активно работает`, `думает / читает`, `не у экрана`, and shows camera startup/permission states.
 - External model calls are manual-only. `Generate Gemini Insight` sends a compact context packet only when explicitly triggered.
+- Active writing context is captured only for content-allowlisted apps, redacted locally, and sampled on meaningful text changes rather than every keystroke.
 - Optional local LLM insight uses local Ollama at `127.0.0.1:11434` only.
 - SQLite is not encrypted yet; SQLCipher is the intended durable backend later.
 

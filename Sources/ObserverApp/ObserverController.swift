@@ -442,6 +442,31 @@ final class ObserverController {
         let attention = stateSnapshot.attentionText
         let prompt = GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
         let model = environment.settings.geminiModel
+        let budgetDecision = GeminiBudgetGuard().evaluate(
+            events: events,
+            budgetEUR: environment.settings.geminiDailyBudgetEUR,
+            estimatedCostPerRequestEUR: environment.settings.geminiEstimatedCostPerRequestEUR
+        )
+
+        guard budgetDecision.allowed else {
+            append(
+                .init(
+                    type: .externalLLMRequest,
+                    payload: [
+                        "provider": "gemini",
+                        "model": model,
+                        "request_kind": "work_insight",
+                        "status": "blocked_budget",
+                        "spent_today_eur": String(format: "%.4f", budgetDecision.spentTodayEUR),
+                        "projected_spend_eur": String(format: "%.4f", budgetDecision.projectedSpendEUR),
+                        "daily_budget_eur": String(format: "%.2f", budgetDecision.budgetEUR)
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            print("Gemini daily budget reached. Request skipped.")
+            return
+        }
 
         append(
             .init(
@@ -450,7 +475,11 @@ final class ObserverController {
                     "provider": "gemini",
                     "model": model,
                     "request_kind": "work_insight",
-                    "prompt_chars": "\(prompt.count)"
+                    "status": "started",
+                    "prompt_chars": "\(prompt.count)",
+                    "estimated_cost_eur": String(format: "%.4f", environment.settings.geminiEstimatedCostPerRequestEUR),
+                    "spent_today_eur": String(format: "%.4f", budgetDecision.spentTodayEUR),
+                    "daily_budget_eur": String(format: "%.2f", budgetDecision.budgetEUR)
                 ],
                 workspaceTopologyVersion: environment.topology.version
             )
@@ -830,6 +859,20 @@ final class ObserverController {
                     appID: context.appID,
                     confidence: context.confidence,
                     payload: context.eventPayload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+
+        case .writingContext(let context):
+            var payload = context.eventPayload
+            payload["context_kind"] = "active_writing"
+            append(
+                .init(
+                    type: .writingContext,
+                    displayRole: context.displayRole,
+                    appID: context.appID,
+                    confidence: context.confidence,
+                    payload: payload,
                     workspaceTopologyVersion: environment.topology.version
                 )
             )

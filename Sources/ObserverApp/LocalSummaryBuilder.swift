@@ -9,6 +9,7 @@ struct LocalSummaryBuilder {
         let detectorEvents = events.filter { $0.type == .detectorFired }
         let userNotes = events.filter { $0.type == .userNote }
         let screenContexts = events.filter { $0.type == .screenContext }
+        let writingContexts = events.filter { $0.type == .writingContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
         let inputEvents = events.filter { $0.type == .inputActivity }
         let startedAt = events.first?.timestamp
@@ -17,7 +18,8 @@ struct LocalSummaryBuilder {
 
         let contentAllowedCount = appFocusEvents.filter { $0.payload["content_allowed"] == "true" }.count
         let contentBlockedCount = appFocusEvents.filter { $0.payload["content_allowed"] == "false" }.count
-        let latestContext = screenContexts.last.map(describeScreenContext)
+        let latestContext = writingContexts.last.map(describeScreenContext)
+            ?? screenContexts.last.map(describeScreenContext)
             ?? ocrContexts.last.map(describeOCRContext)
             ?? "- No allowlisted screen context captured."
         let inputLine = inputEvents.last.map(describeInput) ?? "- No input activity sample yet."
@@ -59,7 +61,7 @@ struct LocalSummaryBuilder {
 
         ## Early Read
 
-        \(earlyRead(appFocusEvents: appFocusEvents, screenContexts: screenContexts, inputEvents: inputEvents))
+        \(earlyRead(appFocusEvents: appFocusEvents, screenContexts: screenContexts + writingContexts, inputEvents: inputEvents))
         """
     }
 

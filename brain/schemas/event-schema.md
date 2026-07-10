@@ -18,7 +18,7 @@ Syncable schema knowledge may live in GitHub. Real event rows should stay local 
 Core event families:
 
 - focus: `appFocus`, `appFocusInterval`
-- context: `screenContext`, `ocrContext`
+- context: `screenContext`, `ocrContext`, `writingContext`
 - attention: `attention`
 - interpretation: `activityInsight`, `behaviorCue`
 - camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
@@ -48,3 +48,16 @@ Behavior cue payloads:
 - posture metrics when available: `motion_score`, `face_area_ratio`
 - context metadata: `activity_insight`, `app_name`, `app_id`, optional `display_role`
 - cues are behavioral candidates, not definitive emotion labels
+
+External LLM request payloads:
+
+- `provider`, `model`, `request_kind`
+- `status`: `started`, `failed`, or `blocked_budget`
+- `estimated_cost_eur`, `spent_today_eur`, `daily_budget_eur` when a cost estimate is available
+
+Writing context payloads:
+
+- `context_kind`: `active_writing`
+- `focused_element_value` or `selected_text`: compact redacted text from the active field
+- emitted only for content-allowlisted apps, while keyboard input is recent, and only when the text changes
+- intended for task understanding, not keystroke logging

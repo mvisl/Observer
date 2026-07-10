@@ -40,6 +40,7 @@ struct DiagnosticsBuilder {
         - Screen context refresh: \(Int(settings.screenContextRefreshSeconds))s
         - Gemini enabled: \(settings.geminiEnabled)
         - Gemini model: \(settings.geminiModel)
+        - Gemini daily budget EUR: \(settings.geminiDailyBudgetEUR)
         - Gemini key configured: \(hasGeminiAPIKey)
         - Auto-pause media when away: \(settings.autoPauseMediaWhenAway)
         - Auto-resume media when back: \(settings.autoResumeMediaWhenBack)

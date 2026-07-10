@@ -22,12 +22,22 @@ struct ContextPackBuilderTests {
                     "face_count": "1"
                 ],
                 workspaceTopologyVersion: 1
+            ),
+            ObserverEvent(
+                type: .writingContext,
+                payload: [
+                    "app_name": "ChatGPT",
+                    "focused_element_value": "Формулирую задачу для Observer"
+                ],
+                workspaceTopologyVersion: 1
             )
         ]
 
         let pack = ContextPackBuilder(topology: .defaultTwoDisplaySetup).build(events: events, mode: .observing)
 
         #expect(pack.contains("## Attention Signal"))
+        #expect(pack.contains("## Active Writing Context"))
+        #expect(pack.contains("Формулирую задачу"))
         #expect(pack.contains("Face: present"))
         #expect(pack.contains("Privacy Notes"))
     }

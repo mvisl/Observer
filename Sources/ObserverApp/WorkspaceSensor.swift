@@ -15,6 +15,8 @@ final class WorkspaceSensor {
     private var handler: EventHandler?
     private var lastFocusKey: String?
     private var lastContextKey: String?
+    private var lastWritingContextKey: String?
+    private var lastWritingContextAt = Date.distantPast
     private var lastContextRefreshAt = Date.distantPast
     private var inputTickCount = 0
 
@@ -45,6 +47,8 @@ final class WorkspaceSensor {
         handler = nil
         lastFocusKey = nil
         lastContextKey = nil
+        lastWritingContextKey = nil
+        lastWritingContextAt = .distantPast
         lastContextRefreshAt = .distantPast
         inputTickCount = 0
     }
@@ -115,6 +119,15 @@ final class WorkspaceSensor {
             screenIndex: screenIndex,
             displayRole: displayRole
         )
+
+        emitWritingContextIfNeeded(
+            focus: focus,
+            processID: pid,
+            appID: appID,
+            canReadContent: canReadContent,
+            screenIndex: screenIndex,
+            displayRole: displayRole
+        )
     }
 
     private func emitScreenContextIfNeeded(
@@ -156,6 +169,53 @@ final class WorkspaceSensor {
         handler?(.screenContext(context))
     }
 
+    private func emitWritingContextIfNeeded(
+        focus: AppFocusSnapshot,
+        processID: pid_t,
+        appID: String?,
+        canReadContent: Bool,
+        screenIndex: Int?,
+        displayRole: WorkspaceTopology.DisplayRole?
+    ) {
+        guard canReadContent else {
+            return
+        }
+
+        let keyboardIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+        guard keyboardIdle <= 6 else {
+            return
+        }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastWritingContextAt) >= 5 else {
+            return
+        }
+
+        guard let context = ActiveWindowReader.focusedWindowContext(
+            processID: processID,
+            appID: appID,
+            appName: focus.appName,
+            screenIndex: screenIndex,
+            displayRole: displayRole
+        ) else {
+            return
+        }
+
+        guard context.hasTextualFocus else {
+            return
+        }
+
+        let key = context.writingIdentityKey
+        guard key != lastWritingContextKey else {
+            lastWritingContextAt = now
+            return
+        }
+
+        lastWritingContextKey = key
+        lastWritingContextAt = now
+        handler?(.writingContext(context))
+    }
+
     private func emitInputActivity() {
         let keyboardIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
         let mouseIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
@@ -189,6 +249,7 @@ enum SensorEvent {
     case appFocus(AppFocusSnapshot)
     case inputActivity(InputActivitySnapshot)
     case screenContext(ScreenContextSnapshot)
+    case writingContext(ScreenContextSnapshot)
 }
 
 struct DisplaySnapshot {
@@ -534,6 +595,28 @@ extension ScreenContextSnapshot {
             focusedElementValue,
             selectedText
         ].allSatisfy { ($0 ?? "").isEmpty }
+    }
+
+    var hasTextualFocus: Bool {
+        guard let value = focusedElementValue, !value.isEmpty else {
+            return selectedText?.isEmpty == false
+        }
+
+        let role = (focusedElementRole ?? "").lowercased()
+        return role.contains("text")
+            || role.contains("area")
+            || role.contains("combo")
+            || value.count >= 8
+    }
+
+    var writingIdentityKey: String {
+        [
+            appID ?? "unknown",
+            focusedElementRole ?? "",
+            focusedElementTitle ?? "",
+            focusedElementValue ?? "",
+            selectedText ?? ""
+        ].joined(separator: "|")
     }
 
     var eventPayload: [String: String] {
