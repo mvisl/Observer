@@ -23,6 +23,7 @@ final class ObserverController {
     private var latestInputActivity: InputActivitySnapshot?
     private var latestHint: String?
     private var lastHintAt: Date?
+    private var focusChangeTimestamps: [Date] = []
     private var isIdleBoundaryOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
@@ -64,11 +65,12 @@ final class ObserverController {
             mode: mode,
             contextText: currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
-            attentionText: latestCameraStatus ?? AttentionStateBuilder().build(
+            attentionText: latestCameraStatus ?? ActivityInsightBuilder().build(
                 attention: smoothedAttentionForDisplay,
                 input: latestInputActivity,
-                settings: environment.settings,
-                topology: environment.topology
+                topology: environment.topology,
+                currentFocusStartedAt: currentFocusStartedAt,
+                focusChangesLastMinute: recentFocusChangesCount
             ),
             hintText: latestHint
         )
@@ -88,6 +90,12 @@ final class ObserverController {
         }
 
         return latestAttention
+    }
+
+    private var recentFocusChangesCount: Int {
+        let cutoff = Date().addingTimeInterval(-60)
+        focusChangeTimestamps.removeAll { $0 < cutoff }
+        return focusChangeTimestamps.count
     }
 
     func recordLaunch() {
@@ -749,6 +757,8 @@ final class ObserverController {
             )
 
         case .appFocus(let focus):
+            focusChangeTimestamps.append(Date())
+            focusChangeTimestamps = focusChangeTimestamps.suffix(20)
             closeCurrentFocusInterval(reason: "focus_changed")
             currentFocus = focus
             currentFocusStartedAt = Date()

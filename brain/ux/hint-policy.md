@@ -9,6 +9,7 @@ Rules:
 - all hints are logged as candidates;
 - visible widget hints must be short;
 - research digest is preferred over repeated interruptions.
+- adaptive environment actions, such as music switching, start as suggestions until explicitly opted in.
 
 Good hint:
 
