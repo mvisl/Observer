@@ -2474,9 +2474,9 @@ final class ObserverController {
             confidence: 0.58,
             payload: payload,
             displayText: isCommunicationSmile
-                ? "Переписка: позитивная реакция на контекст"
-                : "Позитивная реакция: кандидат улыбки",
-            displayEligible: isCommunicationSmile,
+                ? "Камера: кандидат улыбки в переписке"
+                : "Камера: кандидат улыбки",
+            displayEligible: false,
             surfaceAsContext: false,
             now: now
         )
