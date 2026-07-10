@@ -17,7 +17,7 @@ struct ActivityInsightBuilder {
 
         if intent == .lockScreen {
             if presence == .away || attention?.facePresent == false {
-                return "Защита: похоже, отошел и прикрыл экран"
+                return "Защита: отошёл и прикрыл экран"
             }
             return "Защита: экран заблокирован"
         }
@@ -47,7 +47,7 @@ struct ActivityInsightBuilder {
                 return "\(intent.readingPrefix): \(formatDuration(input.secondsSinceAnyInput)) без ввода"
             }
             return presence == .away
-                ? "Похоже, отошел"
+                ? "Отошёл от компьютера"
                 : "\(intent.prefix): долгая пауза"
         }
 

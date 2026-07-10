@@ -163,7 +163,38 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Защита: похоже, отошел и прикрыл экран")
+        #expect(text == "Защита: отошёл и прикрыл экран")
+    }
+
+    @Test func missingFaceAndLongIdleMeansAwayWithoutHedge() {
+        let text = ActivityInsightBuilder().build(
+            attention: AttentionSnapshot(
+                facePresent: false,
+                attentionZone: .offScreen,
+                facePosition: .unknown,
+                confidence: 0.3,
+                faceCount: 0,
+                faceCenterX: nil,
+                faceCenterY: nil,
+                faceArea: nil,
+                yaw: nil,
+                pitch: nil,
+                roll: nil
+            ),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 125,
+                secondsSinceMouseMove: 125,
+                secondsSinceClick: 125,
+                secondsSinceAnyInput: 125
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Figma", appID: "com.figma.Desktop"),
+            currentFocusStartedAt: Date().addingTimeInterval(-240),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Отошёл от компьютера")
+        #expect(!text.contains("Похоже"))
     }
 
     @Test func readingScreenIsNotMicroPauseWhenFaceStaysPresent() {
