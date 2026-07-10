@@ -1,4 +1,4 @@
-.PHONY: build test app run inspect diagnose install-login uninstall-login github-private
+.PHONY: build test app run inspect diagnose install-login uninstall-login github-private github-brain
 
 build:
 	swift build
@@ -27,3 +27,7 @@ uninstall-login:
 github-private:
 	@if [ -z "$$REPO" ]; then echo "Usage: make github-private REPO=<repo-name>"; exit 1; fi
 	scripts/create-private-github-repo.sh "$$REPO"
+
+github-brain:
+	@if [ -z "$$REPO" ]; then echo "Usage: make github-brain REPO=<repo-name>"; exit 1; fi
+	scripts/create-private-github-brain-repo.sh "$$REPO"

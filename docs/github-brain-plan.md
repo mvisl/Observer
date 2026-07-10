@@ -39,3 +39,11 @@ make github-private REPO=observer
 ```
 
 This creates a private GitHub repo through `gh` and attaches it as `origin`. Review and commit intentionally before pushing.
+
+Brain-only repo:
+
+```bash
+make github-brain REPO=observer-brain
+```
+
+This pushes only the `brain/` subtree to a separate private repository. It is the safer option if the app code and local runtime should stay on the Mac while shared product memory syncs through GitHub.

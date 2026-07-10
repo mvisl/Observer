@@ -36,6 +36,7 @@ make diagnose
 make install-login
 make uninstall-login
 make github-private REPO=observer
+make github-brain REPO=observer-brain
 ```
 
 ## Menu Actions
