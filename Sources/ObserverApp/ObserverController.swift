@@ -23,6 +23,7 @@ final class ObserverController {
     private var lastCameraPermissionStatus: String?
     private var latestInputActivity: InputActivitySnapshot?
     private var latestHint: String?
+    private var latestContextLine: String?
     private var lastHintAt: Date?
     private var focusChangeTimestamps: [Date] = []
     private var lastActivityInsight: String?
@@ -80,7 +81,7 @@ final class ObserverController {
     var stateSnapshot: ObserverViewState {
         ObserverViewState(
             mode: mode,
-            contextText: currentFocus?.shortContextText ?? "No active context yet",
+            contextText: latestContextLine ?? currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
             hintText: latestHint
@@ -827,6 +828,7 @@ final class ObserverController {
             closeCurrentFocusInterval(reason: "focus_changed")
             currentFocus = focus
             currentFocusStartedAt = Date()
+            latestContextLine = nil
             append(
                 .init(
                     type: .appFocus,
@@ -856,6 +858,7 @@ final class ObserverController {
             notifyStateChanged()
 
         case .screenContext(let context):
+            latestContextLine = context.shortDisplayLine(prefix: "Контекст")
             append(
                 .init(
                     type: .screenContext,
@@ -871,6 +874,7 @@ final class ObserverController {
             var payload = context.eventPayload
             payload["context_kind"] = "active_writing"
             lastWritingContextAt = Date()
+            latestContextLine = context.shortDisplayLine(prefix: "Пишет")
             append(
                 .init(
                     type: .writingContext,
@@ -920,6 +924,7 @@ final class ObserverController {
             var payload = result.eventPayload
             payload["context_kind"] = "writing_fallback"
             payload["fallback_reason"] = "accessibility_text_unavailable"
+            latestContextLine = result.shortDisplayLine(prefix: "Контекст")
             append(
                 .init(
                     type: .ocrContext,
@@ -1352,6 +1357,36 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+    }
+}
+
+private extension ScreenContextSnapshot {
+    func shortDisplayLine(prefix: String) -> String? {
+        let text = focusedElementValue ?? selectedText ?? windowTitle
+        return text?.shortContextLine(prefix: prefix)
+    }
+}
+
+private extension OCRResult {
+    func shortDisplayLine(prefix: String) -> String? {
+        text.shortContextLine(prefix: prefix)
+    }
+}
+
+private extension String {
+    func shortContextLine(prefix: String) -> String? {
+        let cleaned = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            return nil
+        }
+
+        let maxLength = 72
+        if cleaned.count <= maxLength {
+            return "\(prefix): \(cleaned)"
+        }
+
+        let index = cleaned.index(cleaned.startIndex, offsetBy: maxLength)
+        return "\(prefix): \(cleaned[..<index])..."
     }
 }
 
