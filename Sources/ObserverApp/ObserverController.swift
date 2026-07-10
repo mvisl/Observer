@@ -122,8 +122,9 @@ final class ObserverController {
     }
 
     private func currentWidgetCalibrationState() -> WidgetCalibrationState {
-        let prediction = widgetGazePrediction()
-        let displays = environment.topology.displays.enumerated().map { index, display in
+        let topologyDisplays = widgetCalibrationDisplays()
+        let prediction = widgetGazePrediction(displays: topologyDisplays)
+        let displays = topologyDisplays.enumerated().map { index, display in
             let grid = display.isCameraMounted ? (columns: 3, rows: 3) : (columns: 2, rows: 2)
             return WidgetCalibrationDisplay(
                 index: index,
@@ -149,16 +150,32 @@ final class ObserverController {
         )
     }
 
-    private func widgetGazePrediction() -> (displayIndex: Int?, cellIndex: Int?) {
+    private func widgetCalibrationDisplays() -> [WorkspaceTopology.Display] {
+        let screenCount = NSScreen.screens.count
+        var displays = environment.topology.displays
+        guard screenCount > displays.count else {
+            return displays
+        }
+
+        if screenCount == 2 {
+            displays = WorkspaceTopology.defaultTwoDisplaySetup.displays
+        }
+        while displays.count < screenCount {
+            displays.append(.init(role: .unknown, position: .unknown, isCameraMounted: false))
+        }
+        return displays
+    }
+
+    private func widgetGazePrediction(displays: [WorkspaceTopology.Display]) -> (displayIndex: Int?, cellIndex: Int?) {
         guard let attention = smoothedAttentionForDisplay, attention.facePresent else {
             return (nil, nil)
         }
-        guard !environment.topology.displays.isEmpty else {
+        guard !displays.isEmpty else {
             return (nil, nil)
         }
 
-        let displayIndex = predictedDisplayIndex(from: attention)
-        let display = environment.topology.displays[displayIndex]
+        let displayIndex = predictedDisplayIndex(from: attention, displays: displays)
+        let display = displays[displayIndex]
         let columns = display.isCameraMounted ? 3 : 2
         let rows = display.isCameraMounted ? 3 : 2
         let x = min(0.999, max(0, attention.faceCenterX ?? 0.5))
@@ -168,15 +185,15 @@ final class ObserverController {
         return (displayIndex, row * columns + column)
     }
 
-    private func predictedDisplayIndex(from attention: AttentionSnapshot) -> Int {
-        if environment.topology.displays.count == 1 {
+    private func predictedDisplayIndex(from attention: AttentionSnapshot, displays: [WorkspaceTopology.Display]) -> Int {
+        if displays.count == 1 {
             return 0
         }
-        if let cameraIndex = environment.topology.displays.firstIndex(where: { $0.isCameraMounted }) {
+        if let cameraIndex = displays.firstIndex(where: { $0.isCameraMounted }) {
             if abs(attention.yaw ?? 0) < 0.25, attention.facePosition == .center {
                 return cameraIndex
             }
-            let nonCameraIndexes = environment.topology.displays.indices.filter { $0 != cameraIndex }
+            let nonCameraIndexes = displays.indices.filter { $0 != cameraIndex }
             if let first = nonCameraIndexes.first {
                 return first
             }
