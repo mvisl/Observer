@@ -1493,7 +1493,7 @@ final class ObserverController {
             autoPausedSources = pausedSources
             latestHint = inferredPausedBySystem == nil
                 ? "Медиа: снял наушники, поставил на паузу"
-                : "Медиа: снял наушники, запомнил паузу"
+                : "Медиа: система остановила, запомнил для продолжения"
         } else {
             latestHint = "Медиа: снял наушники, уже тихо"
         }
@@ -1507,6 +1507,7 @@ final class ObserverController {
                         ? "auto_pause_skipped"
                         : (inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred"),
                     "reason": "headphones_removed",
+                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "audio_output": outputName ?? "unknown"
                 ],
