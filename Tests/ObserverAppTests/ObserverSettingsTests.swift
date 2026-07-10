@@ -24,7 +24,7 @@ struct ObserverSettingsTests {
         #expect(settings.startCameraAttentionOnLaunch == true)
         #expect(settings.hintDeliveryMode == "quiet")
         #expect(settings.minimumHintIntervalSeconds == 1800)
-        #expect(settings.attentionSampleIntervalSeconds == 15)
+        #expect(settings.attentionSampleIntervalSeconds == ObserverSettings.defaults.attentionSampleIntervalSeconds)
         #expect(settings.screenContextRefreshSeconds == 60)
         #expect(settings.geminiEnabled == true)
         #expect(settings.geminiModel == "gemini-3.5-flash")

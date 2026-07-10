@@ -83,7 +83,7 @@ struct ObserverSettings: Codable {
         startCameraAttentionOnLaunch: true,
         hintDeliveryMode: "quiet",
         minimumHintIntervalSeconds: 1800,
-        attentionSampleIntervalSeconds: 15,
+        attentionSampleIntervalSeconds: 5,
         screenContextRefreshSeconds: 60,
         geminiEnabled: true,
         geminiModel: "gemini-3.5-flash",

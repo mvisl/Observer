@@ -15,6 +15,7 @@ final class ObserverController {
     private var currentFocus: AppFocusSnapshot?
     private var currentFocusStartedAt: Date?
     private var latestAttention: AttentionSnapshot?
+    private var latestAttentionAt: Date?
     private var lastFacePresentAttention: AttentionSnapshot?
     private var consecutiveMissingFaceSamples = 0
     private var latestCameraStatus: String?
@@ -26,13 +27,19 @@ final class ObserverController {
     private var focusChangeTimestamps: [Date] = []
     private var lastActivityInsight: String?
     private var lastActivityInsightAt: Date?
+    private var lastBehaviorCueName: String?
+    private var lastBehaviorCueAt: Date?
     private var isIdleBoundaryOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
     private var mediaTimer: Timer?
     private var lastMediaPlaybackKey: String?
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
+    private var currentMediaTrackKey: String?
+    private var currentMediaTrackStartedAt: Date?
     private var lastAutoPauseAt: Date?
+    private var lastHeadphonesAutoPauseAt: Date?
+    private var lastAudioOutputLooksLikeHeadphones: Bool?
     private var autoPausedSources: [String] = []
 
     var onStateChanged: ((ObserverViewState) -> Void)?
@@ -740,7 +747,11 @@ final class ObserverController {
     }
 
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
+        let previousAttention = latestAttention
+        let previousAttentionAt = latestAttentionAt
+        let now = Date()
         latestAttention = snapshot
+        latestAttentionAt = now
         if snapshot.facePresent {
             lastFacePresentAttention = snapshot
             consecutiveMissingFaceSamples = 0
@@ -755,6 +766,12 @@ final class ObserverController {
                 payload: snapshot.eventPayload,
                 workspaceTopologyVersion: environment.topology.version
             )
+        )
+        recordBehaviorCueIfNeeded(
+            previousAttention: previousAttention,
+            currentAttention: snapshot,
+            secondsSincePreviousAttention: previousAttentionAt.map { now.timeIntervalSince($0) },
+            now: now
         )
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
@@ -874,6 +891,52 @@ final class ObserverController {
         )
     }
 
+    private func recordBehaviorCueIfNeeded(
+        previousAttention: AttentionSnapshot?,
+        currentAttention: AttentionSnapshot?,
+        secondsSincePreviousAttention: TimeInterval?,
+        now: Date = Date()
+    ) {
+        guard mode == .observing else {
+            return
+        }
+
+        guard let cue = BehaviorCueBuilder().build(
+            previousAttention: previousAttention,
+            currentAttention: currentAttention,
+            secondsSincePreviousAttention: secondsSincePreviousAttention,
+            input: latestInputActivity,
+            currentFocus: currentFocus,
+            currentFocusStartedAt: currentFocusStartedAt,
+            focusChangesLastMinute: recentFocusChangesCount,
+            activityInsight: lastActivityInsight,
+            now: now
+        ) else {
+            return
+        }
+
+        let enoughTimePassed = lastBehaviorCueAt.map { now.timeIntervalSince($0) >= 90 } ?? true
+        guard cue.name != lastBehaviorCueName || enoughTimePassed else {
+            return
+        }
+
+        lastBehaviorCueName = cue.name
+        lastBehaviorCueAt = now
+        append(
+            .init(
+                type: .behaviorCue,
+                confidence: cue.confidence,
+                payload: cue.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+
+        if cue.name != "steady_focus" {
+            latestHint = cue.insight
+            lastHintAt = now
+        }
+    }
+
     private func closeCurrentFocusInterval(reason: String) {
         guard let currentFocus, let currentFocusStartedAt else {
             return
@@ -957,7 +1020,7 @@ final class ObserverController {
     private func startMediaTimer() {
         stopMediaTimer()
         sampleMediaPlayback()
-        mediaTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        mediaTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.sampleMediaPlayback()
             }
@@ -968,6 +1031,9 @@ final class ObserverController {
         mediaTimer?.invalidate()
         mediaTimer = nil
         lastMediaPlaybackKey = nil
+        currentMediaTrackKey = nil
+        currentMediaTrackStartedAt = nil
+        lastAudioOutputLooksLikeHeadphones = nil
     }
 
     private func sampleMediaPlayback() {
@@ -975,11 +1041,20 @@ final class ObserverController {
             return
         }
 
+        pauseMediaIfHeadphonesWereRemoved(current: snapshot)
+
         guard snapshot.identityKey != lastMediaPlaybackKey else {
             return
         }
 
         var payload = snapshot.eventPayload
+        let userAppearsAway = userAppearsAwayForMediaPreference()
+        if userAppearsAway {
+            payload["preference_eligible"] = "false"
+            payload["preference_reason"] = "away_or_idle"
+        } else {
+            payload["preference_eligible"] = "true"
+        }
         if let currentFocus {
             payload["app_name"] = currentFocus.appName
             if let appID = currentFocus.appID {
@@ -996,12 +1071,94 @@ final class ObserverController {
             payload["activity_insight"] = lastActivityInsight
         }
 
-        lastMediaPlaybackKey = snapshot.identityKey
-        lastMediaPlaybackSnapshot = snapshot
+        let now = Date()
+        let previousSnapshot = lastMediaPlaybackSnapshot
+        let secondsOnPrevious = currentMediaTrackStartedAt.map { now.timeIntervalSince($0) }
         append(
             .init(
                 type: .mediaPlayback,
                 payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+
+        if let reaction = MediaReactionBuilder().build(
+            previous: previousSnapshot,
+            current: snapshot,
+            secondsOnPrevious: secondsOnPrevious,
+            userAppearsAway: userAppearsAway,
+            activityInsight: lastActivityInsight,
+            activeAppName: currentFocus?.appName
+        ) {
+            latestHint = reaction.insight
+            lastHintAt = now
+            append(
+                .init(
+                    type: .mediaReaction,
+                    confidence: reaction.confidence,
+                    payload: reaction.payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            notifyStateChanged()
+        }
+
+        if currentMediaTrackKey != snapshot.trackIdentityKey {
+            currentMediaTrackKey = snapshot.trackIdentityKey
+            currentMediaTrackStartedAt = now
+        }
+        lastMediaPlaybackKey = snapshot.identityKey
+        lastMediaPlaybackSnapshot = snapshot
+    }
+
+    private func userAppearsAwayForMediaPreference() -> Bool {
+        consecutiveMissingFaceSamples >= 4
+            && (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 45
+    }
+
+    private func pauseMediaIfHeadphonesWereRemoved(current snapshot: MediaPlaybackSnapshot) {
+        guard environment.settings.autoPauseMediaWhenAway else {
+            return
+        }
+        guard mode == .observing, snapshot.state == "playing" else {
+            return
+        }
+
+        let audioService = AudioOutputService()
+        let outputName = audioService.currentOutputName()
+        let outputLooksLikeHeadphones = audioService.looksLikeHeadphones(outputName)
+        defer {
+            lastAudioOutputLooksLikeHeadphones = outputLooksLikeHeadphones
+        }
+
+        guard lastAudioOutputLooksLikeHeadphones == true, outputLooksLikeHeadphones == false else {
+            return
+        }
+
+        let now = Date()
+        guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
+            return
+        }
+
+        let pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        guard !pausedSources.isEmpty else {
+            return
+        }
+
+        lastAutoPauseAt = now
+        lastHeadphonesAutoPauseAt = now
+        autoPausedSources = pausedSources
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "auto_pause",
+                    "reason": "headphones_removed",
+                    "paused_sources": pausedSources.joined(separator: ", "),
+                    "audio_output": outputName ?? "unknown",
+                    "source": snapshot.source,
+                    "title": snapshot.title ?? ""
+                ],
                 workspaceTopologyVersion: environment.topology.version
             )
         )
@@ -1014,18 +1171,23 @@ final class ObserverController {
         guard mode == .observing else {
             return
         }
-        guard consecutiveMissingFaceSamples >= 4 else {
+
+        let inputIdleSeconds = latestInputActivity?.secondsSinceAnyInput ?? 0
+        let listenerMissing = consecutiveMissingFaceSamples >= 2 && inputIdleSeconds >= 12
+        let fullyAway = consecutiveMissingFaceSamples >= 4 && inputIdleSeconds >= 45
+        guard listenerMissing || fullyAway else {
             return
         }
-        guard latestInputActivity?.secondsSinceAnyInput ?? 0 >= 45 else {
-            return
-        }
-        guard lastMediaPlaybackSnapshot?.state == "playing" else {
+
+        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
+            ? lastMediaPlaybackSnapshot
+            : MediaPlaybackService().currentPlayback()
+        guard playbackSnapshot?.state == "playing" else {
             return
         }
 
         let now = Date()
-        guard lastAutoPauseAt.map({ now.timeIntervalSince($0) >= 600 }) ?? true else {
+        guard lastAutoPauseAt.map({ now.timeIntervalSince($0) >= 60 }) ?? true else {
             return
         }
 
@@ -1041,10 +1203,12 @@ final class ObserverController {
                 type: .mediaPlayback,
                 payload: [
                     "action": "auto_pause",
-                    "reason": "away_from_computer",
+                    "reason": fullyAway ? "away_from_computer" : "listener_not_visible",
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "missing_face_samples": "\(consecutiveMissingFaceSamples)",
-                    "seconds_since_any_input": String(format: "%.1f", latestInputActivity?.secondsSinceAnyInput ?? 0)
+                    "seconds_since_any_input": String(format: "%.1f", inputIdleSeconds),
+                    "source": playbackSnapshot?.source ?? "unknown",
+                    "title": playbackSnapshot?.title ?? ""
                 ],
                 workspaceTopologyVersion: environment.topology.version
             )

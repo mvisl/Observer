@@ -8,12 +8,15 @@ struct ContextPackBuilder {
         let now = formatter.string(from: Date())
         let appFocusEvents = events.filter { $0.type == .appFocus }
         let attentionEvents = events.filter { $0.type == .attention }
+        let behaviorCueEvents = events.filter { $0.type == .behaviorCue }
         let detectorEvents = events.filter { $0.type == .detectorFired }
         let userNotes = events.filter { $0.type == .userNote }
         let screenContexts = events.filter { $0.type == .screenContext }
         let ocrContexts = events.filter { $0.type == .ocrContext }
         let inputEvents = events.filter { $0.type == .inputActivity }
         let activityInsightEvents = events.filter { $0.type == .activityInsight }
+        let mediaEvents = events.filter { $0.type == .mediaPlayback }
+        let mediaReactionEvents = events.filter { $0.type == .mediaReaction }
         let latestSummary = events.last { $0.type == .localSummary }?.payload["summary"]
         let currentFocus = appFocusEvents.last
         let currentContext = screenContexts.last ?? ocrContexts.last ?? currentFocus
@@ -58,6 +61,10 @@ struct ContextPackBuilder {
 
         \(describeAttention(attentionEvents))
 
+        ## Behavior Cues
+
+        \(describeBehaviorCues(behaviorCueEvents))
+
         ## Local Detectors
 
         \(describeDetectors(detectorEvents))
@@ -65,6 +72,14 @@ struct ContextPackBuilder {
         ## Activity Insights
 
         \(describeActivityInsights(activityInsightEvents))
+
+        ## Media Playback
+
+        \(describeMediaPlayback(mediaEvents))
+
+        ## Media Reactions
+
+        \(describeMediaReactions(mediaReactionEvents))
 
         ## Latest Local Summary
 
@@ -171,6 +186,21 @@ struct ContextPackBuilder {
         return "- Face: \(face), zone: \(zone), position: \(position), detected faces: \(count)."
     }
 
+    private func describeBehaviorCues(_ behaviorCueEvents: [ObserverEvent]) -> String {
+        let cues = behaviorCueEvents.suffix(6)
+        guard !cues.isEmpty else {
+            return "- No behavior cues recorded yet."
+        }
+
+        return cues.map { event in
+            let cue = event.payload["cue"] ?? "unknown"
+            let interpretation = event.payload["interpretation"] ?? "unknown"
+            let app = event.payload["app_name"].map { " · \($0)" } ?? ""
+            let activity = event.payload["activity_insight"].map { " · \($0)" } ?? ""
+            return "- \(cue): \(interpretation)\(app)\(activity)"
+        }.joined(separator: "\n")
+    }
+
     private func describeDetectors(_ detectorEvents: [ObserverEvent]) -> String {
         let detectors = detectorEvents.suffix(5)
         guard !detectors.isEmpty else {
@@ -195,6 +225,38 @@ struct ContextPackBuilder {
             let app = event.payload["app_name"].map { " · \($0)" } ?? ""
             let mouse = event.payload["mouse_display_role"].map { " · pointer: \($0)" } ?? ""
             return "- \(insight)\(app)\(mouse)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeMediaPlayback(_ mediaEvents: [ObserverEvent]) -> String {
+        let events = mediaEvents.suffix(6)
+        guard !events.isEmpty else {
+            return "- No media playback changes recorded yet."
+        }
+
+        return events.map { event in
+            let source = event.payload["source"] ?? "unknown"
+            let state = event.payload["state"] ?? "unknown"
+            let title = event.payload["title"].map { " · \($0)" } ?? ""
+            let artist = event.payload["artist"].map { " · \($0)" } ?? ""
+            let insight = event.payload["activity_insight"].map { " · while: \($0)" } ?? ""
+            return "- \(source): \(state)\(title)\(artist)\(insight)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeMediaReactions(_ mediaReactionEvents: [ObserverEvent]) -> String {
+        let events = mediaReactionEvents.suffix(6)
+        guard !events.isEmpty else {
+            return "- No media reactions recorded yet."
+        }
+
+        return events.map { event in
+            let reaction = event.payload["reaction"] ?? "unknown"
+            let preference = event.payload["preference"] ?? "unknown"
+            let title = event.payload["previous_title"] ?? event.payload["current_title"] ?? "unknown track"
+            let artist = event.payload["previous_artist"].map { " · \($0)" } ?? ""
+            let note = event.payload["confounder"].map { " · caveat: \($0)" } ?? ""
+            return "- \(reaction): \(preference) · \(title)\(artist)\(note)"
         }.joined(separator: "\n")
     }
 

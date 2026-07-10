@@ -23,13 +23,30 @@ struct AudioOutputService {
             return nil
         }
 
-        var name: CFString = "" as CFString
-        size = UInt32(MemoryLayout<CFString>.size)
         address = AudioObjectPropertyAddress(
             mSelector: kAudioObjectPropertyName,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
+
+        let sizeStatus = AudioObjectGetPropertyDataSize(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size
+        )
+        guard sizeStatus == noErr, size > 0 else {
+            return nil
+        }
+
+        let buffer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<CFString>.alignment
+        )
+        defer {
+            buffer.deallocate()
+        }
 
         let nameStatus = AudioObjectGetPropertyData(
             deviceID,
@@ -37,13 +54,13 @@ struct AudioOutputService {
             0,
             nil,
             &size,
-            &name
+            buffer
         )
         guard nameStatus == noErr else {
             return nil
         }
 
-        return name as String
+        return buffer.load(as: CFString.self) as String
     }
 
     func looksLikeHeadphones(_ outputName: String?) -> Bool {
