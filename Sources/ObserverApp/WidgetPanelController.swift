@@ -30,6 +30,10 @@ final class WidgetPanelController {
         )
 
         panel.contentView = widgetView
+        panel.minSize = CGSize(width: Self.fixedWidgetWidth, height: 68)
+        panel.maxSize = CGSize(width: Self.fixedWidgetWidth, height: 240)
+        panel.contentMinSize = panel.minSize
+        panel.contentMaxSize = panel.maxSize
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -184,8 +188,8 @@ final class WidgetPanelController {
         Self.clampedOrigin(origin, size: size)
     }
 
-    fileprivate static let defaultWidgetSize = CGSize(width: 248, height: 76)
     fileprivate static let fixedWidgetWidth: CGFloat = 248
+    fileprivate static let defaultWidgetSize = CGSize(width: fixedWidgetWidth, height: 76)
     fileprivate static let compactWidgetSize = CGSize(width: 220, height: 70)
     fileprivate static let comfortableWidgetSize = CGSize(width: 280, height: 76)
     fileprivate static let wideWidgetSize = CGSize(width: 340, height: 76)
@@ -217,6 +221,23 @@ final class WidgetPanelController {
 final class FloatingWidgetPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(constrainedFrame(frameRect), display: flag)
+    }
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate animateFlag: Bool) {
+        super.setFrame(constrainedFrame(frameRect), display: flag, animate: animateFlag)
+    }
+
+    private func constrainedFrame(_ frame: NSRect) -> NSRect {
+        NSRect(
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: WidgetPanelController.fixedWidgetWidth,
+            height: frame.height
+        )
+    }
 }
 
 final class ObserverWidgetView: NSView {
@@ -452,6 +473,7 @@ final class ObserverWidgetView: NSView {
 
         statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         statusLabel.textColor = .labelColor
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         moreButton.bezelStyle = .regularSquare
         moreButton.isBordered = false
@@ -472,11 +494,13 @@ final class ObserverWidgetView: NSView {
         appLabel.textColor = .labelColor
         appLabel.lineBreakMode = .byTruncatingTail
         appLabel.maximumNumberOfLines = 1
+        appLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         contextLabel.font = .systemFont(ofSize: 12, weight: .medium)
         contextLabel.textColor = .labelColor
         contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
+        contextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         intervalControl.segmentStyle = .automatic
         intervalControl.controlSize = .small
@@ -496,12 +520,14 @@ final class ObserverWidgetView: NSView {
         descriptionLabel.lineBreakMode = .byTruncatingTail
         descriptionLabel.maximumNumberOfLines = 2
         descriptionLabel.isHidden = true
+        descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         recommendationLabel.font = .systemFont(ofSize: 11, weight: .medium)
         recommendationLabel.textColor = .secondaryLabelColor
         recommendationLabel.lineBreakMode = .byTruncatingTail
         recommendationLabel.maximumNumberOfLines = 2
         recommendationLabel.isHidden = true
+        recommendationLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         securityFolderButton.bezelStyle = .rounded
         securityFolderButton.controlSize = .small
