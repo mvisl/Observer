@@ -178,11 +178,12 @@ final class WidgetPanelController {
     }
 
     fileprivate static let normalWidgetWidth: CGFloat = 248
+    fileprivate static let normalWidgetHeight: CGFloat = 92
     fileprivate static let calibrationWidgetWidth: CGFloat = 340
-    fileprivate static let defaultWidgetSize = CGSize(width: normalWidgetWidth, height: 76)
-    fileprivate static let compactWidgetSize = CGSize(width: 220, height: 70)
-    fileprivate static let comfortableWidgetSize = CGSize(width: 280, height: 76)
-    fileprivate static let wideWidgetSize = CGSize(width: 340, height: 76)
+    fileprivate static let defaultWidgetSize = CGSize(width: normalWidgetWidth, height: normalWidgetHeight)
+    fileprivate static let compactWidgetSize = CGSize(width: normalWidgetWidth, height: normalWidgetHeight)
+    fileprivate static let comfortableWidgetSize = CGSize(width: normalWidgetWidth, height: normalWidgetHeight)
+    fileprivate static let wideWidgetSize = CGSize(width: normalWidgetWidth, height: normalWidgetHeight)
 
     private static func storedWidgetSize() -> CGSize? {
         let defaults = UserDefaults.standard
@@ -204,7 +205,7 @@ final class WidgetPanelController {
     private static func clampedSize(_ size: CGSize, lockedWidth: CGFloat) -> CGSize {
         CGSize(
             width: lockedWidth,
-            height: min(max(size.height, 68), 240)
+            height: min(max(size.height, normalWidgetHeight), 240)
         )
     }
 }
@@ -216,7 +217,7 @@ final class FloatingWidgetPanel: NSPanel {
                 return
             }
             let size = CGSize(width: lockedWidth, height: frame.height)
-            minSize = CGSize(width: lockedWidth, height: 68)
+            minSize = CGSize(width: lockedWidth, height: WidgetPanelController.normalWidgetHeight)
             maxSize = CGSize(width: lockedWidth, height: 240)
             contentMinSize = minSize
             contentMaxSize = maxSize
@@ -526,8 +527,10 @@ final class ObserverWidgetView: NSView {
 
         contextLabel.font = .systemFont(ofSize: 12, weight: .medium)
         contextLabel.textColor = .labelColor
-        contextLabel.lineBreakMode = .byTruncatingTail
-        contextLabel.maximumNumberOfLines = 1
+        contextLabel.lineBreakMode = .byWordWrapping
+        contextLabel.maximumNumberOfLines = 2
+        contextLabel.cell?.wraps = true
+        contextLabel.cell?.isScrollable = false
         contextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         intervalControl.segmentStyle = .automatic
