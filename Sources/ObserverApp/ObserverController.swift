@@ -292,7 +292,31 @@ final class ObserverController {
             return hypothesis
         }
 
-        return ""
+        return currentFocusFallbackLine() ?? ""
+    }
+
+    private func currentFocusFallbackLine() -> String? {
+        guard let currentFocus else {
+            return "Observer: нет уверенной гипотезы, санитарку скрываю"
+        }
+
+        let appName = currentFocus.appName.lowercased()
+        if appName.contains("chatgpt")
+            || appName.contains("claude")
+            || appName.contains("codex")
+            || appName.contains("gemini") {
+            return "Observer: жду текстовый контекст для вывода выше статуса"
+        }
+        if appName.contains("figma") {
+            return "Дизайн: жду связку макета и реакции, не гадаю по экрану"
+        }
+        if appName.contains("telegram")
+            || appName.contains("whatsapp")
+            || appName.contains("viber")
+            || appName.contains("mail") {
+            return "Переписка: жду смысл эпизода, не показываю статус"
+        }
+        return "Observer: нет уверенной гипотезы, санитарку скрываю"
     }
 
     private func latestExternalWidgetInsightLine(now: Date = Date()) -> String? {
@@ -394,6 +418,9 @@ final class ObserverController {
         if hasAI && text.contains("observer") && (text.contains("инсайт") || text.contains("паттерн") || text.contains("пилюл")) {
             return "Observer: настраиваешь переход от событий к паттернам"
         }
+        if hasAI && (text.contains("observer") || text.contains("macos assistant") || text.contains("macos")) {
+            return "Observer: уточняешь критерии полезного инсайта"
+        }
         if text.contains("формулирует задачу") || text.contains("формирует задачу") {
             return "Смысл пилюли: убираешь пустые формулировки без конкретики"
         }
@@ -471,6 +498,7 @@ final class ObserverController {
             "Поиск / сравнение:",
             "Дизайн: правит",
             "Дизайн: рассматривает",
+            "Дизайн: смотрит",
             "Дизайн: читает",
             "Дизайн: отвлек",
             "Код: активная",
@@ -2173,6 +2201,9 @@ final class ObserverController {
         }
 
         let insight = currentActivityInsightText()
+        guard !insight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
         let now = Date()
         let enoughTimePassed = lastActivityInsightAt.map { now.timeIntervalSince($0) >= 60 } ?? true
         guard insight != lastActivityInsight || enoughTimePassed else {
