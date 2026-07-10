@@ -33,6 +33,15 @@ struct GeminiInsightProvider {
     let model: String
 
     func generateInsight(context: String, digest: String, attention: String) async throws -> String {
+        try await generate(prompt: Self.buildPrompt(context: context, digest: digest, attention: attention))
+    }
+
+    func generateWidgetInsight(context: String, digest: String, attention: String) async throws -> String {
+        let text = try await generate(prompt: Self.buildWidgetPrompt(context: context, digest: digest, attention: attention))
+        return Self.extractWidgetLine(from: text)
+    }
+
+    private func generate(prompt: String) async throws -> String {
         let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1/interactions")!
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -40,7 +49,6 @@ struct GeminiInsightProvider {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 90
 
-        let prompt = Self.buildPrompt(context: context, digest: digest, attention: attention)
         request.httpBody = try JSONEncoder().encode(
             InteractionRequest(model: model, store: false, input: prompt)
         )
@@ -84,6 +92,50 @@ struct GeminiInsightProvider {
         """
     }
 
+    static func buildWidgetPrompt(context: String, digest: String, attention: String) -> String {
+        """
+        You are Observer's higher-level sensemaking layer for a tiny macOS floating widget.
+
+        The local system sends imperfect telemetry. Treat low-level activity labels like "switching tabs",
+        "reading page", "active work", or "formulating a task" only as evidence. Never output them.
+        If the screen content contains a conversation, read the actual topic and emotional tone first:
+        dispute, joking, relief, frustration, priority negotiation, decision pressure, or recovery.
+        Facial signals are not diagnoses; use them as tone modifiers for the content.
+
+        Infer the user's current work situation at the second or third level:
+        - what tension, blocker, loop, decision, or abstraction the user is dealing with;
+        - what the current conversation is really about, if communication is visible;
+        - whether an emotional reaction may affect the next work block;
+        - why the recent app/content switches matter;
+        - what would be useful to notice now.
+
+        Return STRICT JSON only:
+        {"widget_line":"short Russian line, max 86 chars","confidence":0.0,"evidence":["event/source phrase"],"next_action":"optional short Russian action"}
+
+        Good widget_line examples:
+        - "Пилюля: ищешь не статус, а рабочую гипотезу"
+        - "Observer: конфликт между телеметрией и смыслом инсайта"
+        - "ИИ-связка: уточняешь, как объяснить критерий качества"
+        - "Переписка: спор о приоритетах карточек разряжается шуткой"
+        - "Общение со Стасом даёт подъём перед возвратом в задачу"
+
+        Bad widget_line examples:
+        - "Веб-контекст: переключает вкладки"
+        - "Диалог с ИИ: формулирует задачу"
+        - "Коммуникация: отвечает"
+        - "Активная работа"
+
+        Current soft attention state:
+        \(attention)
+
+        Local research digest:
+        \(digest)
+
+        Context pack:
+        \(context)
+        """
+    }
+
     static func extractInsight(from data: Data) throws -> String {
         let response = try JSONDecoder().decode(InteractionResponse.self, from: data)
         var texts: [String] = []
@@ -104,6 +156,55 @@ struct GeminiInsightProvider {
         }
 
         return texts.joined(separator: "\n\n")
+    }
+
+    static func extractWidgetLine(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           let object = try? JSONDecoder().decode([String: FlexibleJSONValue].self, from: data),
+           let line = object["widget_line"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !line.isEmpty {
+            return String(line.prefix(110))
+        }
+
+        let line = trimmed
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? trimmed
+        return String(line.prefix(110))
+    }
+}
+
+private enum FlexibleJSONValue: Decodable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case array([FlexibleJSONValue])
+    case object([String: FlexibleJSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode([FlexibleJSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: FlexibleJSONValue].self))
+        }
+    }
+
+    var stringValue: String? {
+        if case .string(let value) = self {
+            return value
+        }
+        return nil
     }
 }
 

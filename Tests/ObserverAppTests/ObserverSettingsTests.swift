@@ -28,6 +28,8 @@ struct ObserverSettingsTests {
         #expect(settings.screenContextRefreshSeconds == 60)
         #expect(settings.geminiEnabled == true)
         #expect(settings.geminiModel == "gemini-3.5-flash")
+        #expect(settings.geminiAutoInsightEnabled == true)
+        #expect(settings.geminiAutoInsightIntervalSeconds == 1800)
         #expect(settings.autoPauseMediaWhenAway == true)
         #expect(settings.autoResumeMediaWhenBack == true)
         #expect(settings.fullContextMode == true)

@@ -35,4 +35,24 @@ struct GeminiInsightProviderTests {
         #expect(prompt.contains("Контекст: смотрит на экран"))
         #expect(prompt.contains("Keep the answer concise"))
     }
+
+    @Test func widgetPromptForbidsSanitaryActivityLines() {
+        let prompt = GeminiInsightProvider.buildWidgetPrompt(
+            context: "Веб-контекст: переключает вкладки",
+            digest: "Digest",
+            attention: "Коммуникация: отвечает"
+        )
+
+        #expect(prompt.contains("Never output them"))
+        #expect(prompt.contains("second or third level"))
+        #expect(prompt.contains("\"widget_line\""))
+    }
+
+    @Test func extractsWidgetLineFromStrictJSON() {
+        let line = GeminiInsightProvider.extractWidgetLine(
+            from: #"{"widget_line":"Observer: ищешь смысл выше статуса","confidence":0.72}"#
+        )
+
+        #expect(line == "Observer: ищешь смысл выше статуса")
+    }
 }

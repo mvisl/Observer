@@ -49,4 +49,26 @@ struct ContentContextAnnotatorTests {
         #expect(annotation?.contentKind == "prompt")
         #expect(annotation?.rawFragment?.contains("прогресс") == true)
     }
+
+    @Test func telegramInChromeBeatsAITabAndAtSignNoise() {
+        let context = ScreenContextSnapshot(
+            appID: "com.google.Chrome",
+            appName: "Google Chrome",
+            windowTitle: "Google Trar x Inbox - viac -> web.telegram.org/k/#@Stas6012",
+            windowRole: nil,
+            document: "https://web.telegram.org/k/#@Stas6012",
+            focusedElementRole: nil,
+            focusedElementTitle: nil,
+            focusedElementValue: "ChatGPT Gemini Telegram Станислав Гжебовский хакатон бесполезно потраченное время задача ради задачи",
+            selectedText: nil,
+            screenIndex: nil,
+            displayRole: nil,
+            confidence: 0.8
+        )
+
+        let annotation = ContentContextAnnotator().annotate(context: context, allowRawKinds: [])
+
+        #expect(annotation?.contentKind == "message")
+        #expect(annotation?.topic == "хакатон: роль, польза и ощущение бессмысленности")
+    }
 }

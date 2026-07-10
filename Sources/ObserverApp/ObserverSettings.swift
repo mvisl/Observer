@@ -56,6 +56,8 @@ struct ObserverSettings: Codable {
     var geminiModel: String
     var geminiDailyBudgetEUR: Double
     var geminiEstimatedCostPerRequestEUR: Double
+    var geminiAutoInsightEnabled: Bool
+    var geminiAutoInsightIntervalSeconds: Double
     var autoPauseMediaWhenAway: Bool
     var autoResumeMediaWhenBack: Bool
     var fullContextMode: Bool
@@ -80,6 +82,8 @@ struct ObserverSettings: Codable {
         geminiModel: String,
         geminiDailyBudgetEUR: Double,
         geminiEstimatedCostPerRequestEUR: Double,
+        geminiAutoInsightEnabled: Bool,
+        geminiAutoInsightIntervalSeconds: Double,
         autoPauseMediaWhenAway: Bool,
         autoResumeMediaWhenBack: Bool,
         fullContextMode: Bool,
@@ -103,6 +107,8 @@ struct ObserverSettings: Codable {
         self.geminiModel = geminiModel
         self.geminiDailyBudgetEUR = geminiDailyBudgetEUR
         self.geminiEstimatedCostPerRequestEUR = geminiEstimatedCostPerRequestEUR
+        self.geminiAutoInsightEnabled = geminiAutoInsightEnabled
+        self.geminiAutoInsightIntervalSeconds = geminiAutoInsightIntervalSeconds
         self.autoPauseMediaWhenAway = autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = autoResumeMediaWhenBack
         self.fullContextMode = fullContextMode
@@ -130,6 +136,8 @@ struct ObserverSettings: Codable {
         self.geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? defaults.geminiModel
         self.geminiDailyBudgetEUR = try container.decodeIfPresent(Double.self, forKey: .geminiDailyBudgetEUR) ?? defaults.geminiDailyBudgetEUR
         self.geminiEstimatedCostPerRequestEUR = try container.decodeIfPresent(Double.self, forKey: .geminiEstimatedCostPerRequestEUR) ?? defaults.geminiEstimatedCostPerRequestEUR
+        self.geminiAutoInsightEnabled = try container.decodeIfPresent(Bool.self, forKey: .geminiAutoInsightEnabled) ?? defaults.geminiAutoInsightEnabled
+        self.geminiAutoInsightIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .geminiAutoInsightIntervalSeconds) ?? defaults.geminiAutoInsightIntervalSeconds
         self.autoPauseMediaWhenAway = try container.decodeIfPresent(Bool.self, forKey: .autoPauseMediaWhenAway) ?? defaults.autoPauseMediaWhenAway
         self.autoResumeMediaWhenBack = try container.decodeIfPresent(Bool.self, forKey: .autoResumeMediaWhenBack) ?? defaults.autoResumeMediaWhenBack
         self.fullContextMode = try container.decodeIfPresent(Bool.self, forKey: .fullContextMode) ?? defaults.fullContextMode
@@ -155,6 +163,8 @@ struct ObserverSettings: Codable {
         geminiModel: "gemini-3.5-flash",
         geminiDailyBudgetEUR: 2.0,
         geminiEstimatedCostPerRequestEUR: 0.02,
+        geminiAutoInsightEnabled: true,
+        geminiAutoInsightIntervalSeconds: 1800,
         autoPauseMediaWhenAway: true,
         autoResumeMediaWhenBack: true,
         fullContextMode: true,

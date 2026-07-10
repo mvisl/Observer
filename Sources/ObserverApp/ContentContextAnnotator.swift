@@ -54,25 +54,41 @@ struct ContentContextAnnotator {
     }
 
     private func classifyKind(context: ScreenContextSnapshot, text: String) -> String {
-        let haystack = [
+        let appSurface = [
             context.appName,
             context.appID ?? "",
             context.windowTitle ?? "",
-            context.focusedElementRole ?? "",
+            context.document ?? ""
+        ].joined(separator: " ").lowercased()
+        let contentSurface = [
+            context.focusedElementTitle ?? "",
+            context.focusedElementValue ?? "",
+            context.selectedText ?? "",
             text
         ].joined(separator: " ").lowercased()
+        let haystack = [appSurface, contentSurface].joined(separator: " ")
 
-        if haystack.contains("chatgpt") || haystack.contains("claude") || haystack.contains("gemini") || haystack.contains("codex") {
-            return "prompt"
-        }
         if haystack.contains("xcode") || haystack.contains("visual studio code") || haystack.contains("cursor") || haystack.contains("terminal") {
             return "code"
         }
-        if haystack.contains("mail") || haystack.contains("@") {
+        if appSurface.contains("telegram")
+            || appSurface.contains("web.telegram")
+            || appSurface.contains("whatsapp")
+            || appSurface.contains("viber")
+            || appSurface.contains("slack")
+            || contentSurface.contains("telegram")
+            || contentSurface.contains("whatsapp")
+            || contentSurface.contains("viber") {
+            return "message"
+        }
+        if appSurface.contains("mail")
+            || contentSurface.contains("mail")
+            || contentSurface.contains("subject:")
+            || contentSurface.contains("from:") {
             return "email"
         }
-        if haystack.contains("telegram") || haystack.contains("whatsapp") || haystack.contains("slack") {
-            return "message"
+        if appSurface.contains("chatgpt") || appSurface.contains("claude") || appSurface.contains("gemini") || appSurface.contains("codex") {
+            return "prompt"
         }
         if haystack.contains("youtube") || haystack.contains("video") {
             return "video"
@@ -102,6 +118,11 @@ struct ContentContextAnnotator {
     }
 
     private func topicPhrase(from text: String, fallback: String) -> String {
+        let lower = text.lowercased()
+        if let phrase = inferredHighSignalTopic(from: lower) {
+            return phrase
+        }
+
         let cleaned = text
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
@@ -111,6 +132,25 @@ struct ContentContextAnnotator {
 
         let topic = cleaned.isEmpty ? fallback : cleaned
         return String(topic.prefix(90))
+    }
+
+    private func inferredHighSignalTopic(from lower: String) -> String? {
+        if lower.contains("хакатон") {
+            if lower.contains("бесполез") || lower.contains("задача ради задачи") || lower.contains("роль") {
+                return "хакатон: роль, польза и ощущение бессмысленности"
+            }
+            return "хакатон и роль в процессе"
+        }
+        if lower.contains("приоритет") || lower.contains("главным") || lower.contains("второстеп") {
+            return "приоритеты и что должно быть главным"
+        }
+        if lower.contains("карточ") && (lower.contains("описан") || lower.contains("тизер") || lower.contains("вопрос")) {
+            return "структура карточек и уровень описаний"
+        }
+        if lower.contains("тупым роботом") || lower.contains("джира менеджмент") {
+            return "фрустрация из-за процесса и менеджмента"
+        }
+        return nil
     }
 
     private func sentiment(text: String) -> String {

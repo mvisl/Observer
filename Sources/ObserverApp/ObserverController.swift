@@ -50,6 +50,7 @@ final class ObserverController {
     private var pendingAwayPresenceIncident: PendingAwayPresenceIncident?
     private var lastSmileCueAt: Date?
     private var lastYawnCueAt: Date?
+    private var mouthOpenCandidateStartedAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
@@ -57,6 +58,7 @@ final class ObserverController {
     private var isFineInputPauseOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
+    private var geminiInsightTimer: Timer?
     private var mediaTimer: Timer?
     private var predictionTimer: Timer?
     private var lastMediaPlaybackKey: String?
@@ -267,25 +269,42 @@ final class ObserverController {
 
     private func currentWidgetContextText(now: Date = Date()) -> String {
         if currentFocus?.isObserverApp == true {
-            if let latestContextLine {
+            if let latestContextLine = usableWidgetContextLine(latestContextLine) {
                 return latestContextLine
             }
-            if let lastActivityInsight {
+            if let lastActivityInsight = usableWidgetContextLine(lastActivityInsight) {
                 return lastActivityInsight
             }
         }
 
         if let latestContextLine,
            let latestContextLineAt,
-           now.timeIntervalSince(latestContextLineAt) <= 150 {
-            return latestContextLine
+           now.timeIntervalSince(latestContextLineAt) <= 150,
+           let usableLine = usableWidgetContextLine(latestContextLine) {
+            return usableLine
+        }
+
+        if let line = latestExternalWidgetInsightLine(now: now) {
+            return line
         }
 
         if let hypothesis = currentWorkHypothesisLine(now: now) {
             return hypothesis
         }
 
-        return currentFocus?.shortContextText ?? "No active context yet"
+        return ""
+    }
+
+    private func latestExternalWidgetInsightLine(now: Date = Date()) -> String? {
+        let maxAge = max(600, environment.settings.geminiAutoInsightIntervalSeconds * 1.5)
+        return ((try? environment.eventStore.recentEvents(limit: 80)) ?? [])
+            .reversed()
+            .first { event in
+                event.type == .geminiInsight
+                    && now.timeIntervalSince(event.timestamp) <= maxAge
+                    && event.payload["request_kind"] == "widget_sensemaking"
+            }
+            .flatMap { usableWidgetContextLine($0.payload["widget_line"]) }
     }
 
     private func currentWorkHypothesisLine(now: Date = Date()) -> String? {
@@ -300,7 +319,7 @@ final class ObserverController {
             .suffix(8)
             .compactMap { event in
                 [
-                    event.payload["topic"],
+                    usableSemanticTopic(event.payload["topic"]),
                     event.payload["raw_fragment"],
                     event.payload["summary"],
                     event.payload["note"]
@@ -320,14 +339,54 @@ final class ObserverController {
             let lower = app.lowercased()
             return lower.contains("chatgpt") || lower.contains("claude") || lower.contains("gemini") || lower.contains("codex")
         }
-        let hasBrowser = focusedApps.contains { $0.lowercased().contains("chrome") || $0.lowercased().contains("safari") }
         let hasDesign = focusedApps.contains { $0.lowercased().contains("figma") || $0.lowercased().contains("sketch") }
+        let hasCommunication = focusedApps.contains { app in
+            let lower = app.lowercased()
+            return lower.contains("telegram") || lower.contains("whatsapp") || lower.contains("viber") || lower.contains("mail")
+        } || events.contains { event in
+            event.type == .contentContext && ["message", "email"].contains(event.payload["content_kind"])
+        }
+        let hasRecentSmile = events.contains { event in
+            event.type == .behaviorCue
+                && event.payload["cue"] == "positive_reaction_candidate"
+                && (
+                    event.payload["interpretation"] == "smile_in_communication_context"
+                    || event.payload["content_kind"] == "message"
+                    || event.payload["activity_insight"]?.contains("Коммуникация") == true
+                )
+                && now.timeIntervalSince(event.timestamp) <= 180
+        }
+        let hasNegativeCharge = [
+            "бесит", "злюсь", "хует", "хуй", "ебан", "еблан", "гандон", "тупым роботом", "shit", "fuck"
+        ].contains { text.contains($0) }
+        let hasProductPriorityTalk = [
+            "приоритет", "главным", "второстепенным", "уровень", "тизер", "карточ", "продукт", "описан", "вопросик"
+        ].contains { text.contains($0) }
+
+        if hasCommunication && hasProductPriorityTalk && hasRecentSmile {
+            return "Переписка: спор о продукте разряжается шуткой"
+        }
+        if hasCommunication && hasProductPriorityTalk {
+            return "Переписка: спор о приоритетах карточек и описаний"
+        }
+        if hasCommunication && hasNegativeCharge && hasRecentSmile {
+            return "Переписка: резкий тон похож на стёб, а не тупик"
+        }
+        if hasCommunication && hasNegativeCharge {
+            return "Переписка: напряжение вокруг процесса и ответственности"
+        }
+        if hasCommunication && hasRecentSmile {
+            return "Переписка: общение даёт лёгкий эмоциональный подъём"
+        }
 
         if text.contains("телефон") && text.contains("карман") {
             return "Калибровка внимания: исправляешь ложный вывод про телефон"
         }
         if text.contains("санитар") || text.contains("второго") || text.contains("третьего") || text.contains("абстракц") {
-            return "Смысл пилюли: нужен уровень гипотез, а не статус действий"
+            if hasAI && !hasCommunication {
+                return "Observer: меняешь пилюлю с статуса на гипотезы"
+            }
+            return nil
         }
         if text.contains("формулирует задачу") || text.contains("формирует задачу") {
             return "Смысл пилюли: убираешь пустые формулировки без конкретики"
@@ -338,17 +397,84 @@ final class ObserverController {
         if text.contains("ocr") || text.contains("кашу") || text.contains("русск") {
             return "Контекст: чинишь чтение русского текста для точных инсайтов"
         }
-        if hasAI && hasDesign {
-            return "Связка ИИ + дизайн: сверяешь объяснение с визуальным результатом"
-        }
-        if hasAI && hasBrowser {
-            return "Связка ИИ + веб: уточняешь задачу через несколько источников"
-        }
-        if hasAI {
-            return nil
+        if hasAI && hasDesign && (text.contains("дизайн") || text.contains("макет") || text.contains("визуаль") || text.contains("карточ")) {
+            return "Дизайн-ревью: сверяешь объяснение с реальным макетом"
         }
 
         return nil
+    }
+
+    private func usableWidgetContextLine(_ line: String?) -> String? {
+        guard let cleaned = cleanInsightFragment(line, allowShortCodeLikeText: false),
+              !isLowLevelWidgetContextLine(cleaned)
+        else {
+            return nil
+        }
+        return cleaned
+    }
+
+    private func usableSemanticTopic(_ topic: String?) -> String? {
+        guard let cleaned = cleanInsightFragment(topic, allowShortCodeLikeText: false) else {
+            return nil
+        }
+        let lower = cleaned.lowercased()
+        if lower.hasPrefix("→")
+            || lower.contains("google tran")
+            || lower.contains("google trar")
+            || lower.contains("inbox")
+            || lower.contains("internal company bookmarks")
+            || lower.contains("all bookmarks")
+            || lower.contains("web.telegram.org")
+            || lower.contains("chrome extension") {
+            return nil
+        }
+        return cleaned
+    }
+
+    private func isLowLevelWidgetContextLine(_ line: String) -> Bool {
+        let normalized = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty {
+            return true
+        }
+        let exact = [
+            "Диалог с ИИ",
+            "Веб-контекст",
+            "Коммуникация",
+            "Рабочий контекст",
+            "Активная работа",
+            "Наблюдаю контекст"
+        ]
+        if exact.contains(normalized) {
+            return true
+        }
+        return [
+            "Диалог с ИИ: формулирует",
+            "Диалог с ИИ: формирует",
+            "Диалог с ИИ: читает",
+            "Диалог с ИИ: отвлек",
+            "Веб-контекст:",
+            "Веб:",
+            "Коммуникация: отвечает",
+            "Коммуникация: читает",
+            "Коммуникация: пишет",
+            "Сообщения: читает",
+            "Сообщения: пишет",
+            "Почта: читает",
+            "Почта: пишет",
+            "Соцсети:",
+            "Поиск / сравнение:",
+            "Дизайн: правит",
+            "Дизайн: рассматривает",
+            "Дизайн: читает",
+            "Дизайн: отвлек",
+            "Код: активная",
+            "Код: читает",
+            "Код: работает",
+            "Встреча:",
+            "Рабочий контекст:",
+            "Энергия просела:",
+            "Сервисная настройка"
+        ].contains { normalized.hasPrefix($0) }
     }
 
     private func currentWidgetHintText(now: Date = Date()) -> String? {
@@ -387,10 +513,10 @@ final class ObserverController {
 
     private func currentActivityInsightText() -> String {
         if currentFocus?.isObserverApp == true, let lastActivityInsight {
-            return lastActivityInsight
+            return usableWidgetContextLine(lastActivityInsight) ?? ""
         }
 
-        return ActivityInsightBuilder().build(
+        let insight = ActivityInsightBuilder().build(
             attention: smoothedAttentionForDisplay,
             input: latestInputActivity,
             topology: environment.topology,
@@ -398,6 +524,7 @@ final class ObserverController {
             currentFocusStartedAt: currentFocusStartedAt,
             focusChangesLastMinute: recentFocusChangesCount
         )
+        return usableWidgetContextLine(insight) ?? ""
     }
 
     func recordLaunch() {
@@ -447,6 +574,7 @@ final class ObserverController {
             self?.handleSensorEvent(event)
         }
         startSummaryTimer()
+        startGeminiInsightTimer()
         startMediaTimer()
         startPredictionTimer()
         applyMorningTailIfNeeded(now: now)
@@ -471,6 +599,7 @@ final class ObserverController {
         )
         sensor?.stop()
         stopSummaryTimer()
+        stopGeminiInsightTimer()
         stopMediaTimer()
         stopPredictionTimer()
         notifyStateChanged()
@@ -1136,6 +1265,14 @@ final class ObserverController {
     }
 
     func generateGeminiInsight() {
+        requestGeminiInsight(requestKind: "work_insight", widgetMode: false, copyToPasteboard: true)
+    }
+
+    private func requestGeminiInsight(
+        requestKind: String,
+        widgetMode: Bool,
+        copyToPasteboard: Bool
+    ) {
         guard environment.settings.geminiEnabled else {
             print("Gemini is disabled in Observer settings.")
             return
@@ -1148,16 +1285,34 @@ final class ObserverController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let apiKey, !apiKey.isEmpty else {
+            append(
+                .init(
+                    type: .externalLLMRequest,
+                    payload: [
+                        "provider": "gemini",
+                        "model": environment.settings.geminiModel,
+                        "request_kind": requestKind,
+                        "status": "skipped_missing_key"
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
             print("Gemini API key is not configured. Use Set Gemini API Key first.")
             return
         }
 
         let events = (try? environment.eventStore.recentEvents(limit: 500)) ?? []
         appendDetectorEvents(from: events)
-        let context = ContextPackBuilder(topology: environment.topology).build(events: events, mode: mode)
+        let context = ContextPackBuilder(
+            topology: environment.topology,
+            pseudonymizeEntities: environment.settings.pseudonymizeEntities,
+            entityAggregates: (try? environment.entityStore.aggregates()) ?? [:]
+        ).build(events: events, mode: mode)
         let digest = ResearchDigestBuilder().build(events: events)
         let attention = stateSnapshot.attentionText
-        let prompt = GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
+        let prompt = widgetMode
+            ? GeminiInsightProvider.buildWidgetPrompt(context: context, digest: digest, attention: attention)
+            : GeminiInsightProvider.buildPrompt(context: context, digest: digest, attention: attention)
         let model = environment.settings.geminiModel
         let budgetDecision = GeminiBudgetGuard().evaluate(
             events: events,
@@ -1172,7 +1327,7 @@ final class ObserverController {
                     payload: [
                         "provider": "gemini",
                         "model": model,
-                        "request_kind": "work_insight",
+                        "request_kind": requestKind,
                         "status": "blocked_budget",
                         "spent_today_eur": String(format: "%.4f", budgetDecision.spentTodayEUR),
                         "projected_spend_eur": String(format: "%.4f", budgetDecision.projectedSpendEUR),
@@ -1191,7 +1346,7 @@ final class ObserverController {
                 payload: [
                     "provider": "gemini",
                     "model": model,
-                    "request_kind": "work_insight",
+                    "request_kind": requestKind,
                     "status": "started",
                     "prompt_chars": "\(prompt.count)",
                     "request_body": prompt,
@@ -1206,26 +1361,38 @@ final class ObserverController {
 
         Task {
             do {
-                let insight = try await GeminiInsightProvider(
+                let provider = GeminiInsightProvider(
                     apiKey: apiKey,
                     model: model
-                ).generateInsight(context: context, digest: digest, attention: attention)
+                )
+                let insight = widgetMode
+                    ? try await provider.generateWidgetInsight(context: context, digest: digest, attention: attention)
+                    : try await provider.generateInsight(context: context, digest: digest, attention: attention)
 
                 await MainActor.run {
+                    var payload: [String: String] = [
+                        "provider": "gemini",
+                        "model": model,
+                        "request_kind": requestKind,
+                        "insight": insight
+                    ]
+                    if widgetMode {
+                        payload["widget_line"] = insight
+                        self.setLatestContextLine(insight)
+                    }
                     self.append(
                         .init(
                             type: .geminiInsight,
-                            payload: [
-                                "provider": "gemini",
-                                "model": model,
-                                "insight": insight
-                            ],
+                            payload: payload,
                             workspaceTopologyVersion: self.environment.topology.version
                         )
                     )
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(insight, forType: .string)
+                    if copyToPasteboard {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(insight, forType: .string)
+                    }
                     print(insight)
+                    self.notifyStateChanged()
                 }
             } catch {
                 await MainActor.run {
@@ -1235,7 +1402,7 @@ final class ObserverController {
                             payload: [
                                 "provider": "gemini",
                                 "model": model,
-                                "request_kind": "work_insight",
+                                "request_kind": requestKind,
                                 "status": "failed",
                                 "error": String(describing: error)
                             ],
@@ -2284,17 +2451,33 @@ final class ObserverController {
         if let lastActivityInsight {
             payload["activity_insight"] = lastActivityInsight
         }
+        if let latestContent = ((try? environment.eventStore.recentEvents(limit: 40)) ?? [])
+            .reversed()
+            .first(where: { event in
+                event.type == .contentContext
+                    && now.timeIntervalSince(event.timestamp) <= 45
+                    && ["message", "email"].contains(event.payload["content_kind"])
+            }) {
+            payload["content_kind"] = latestContent.payload["content_kind"] ?? "message"
+            payload["content_topic"] = latestContent.payload["topic"]
+            payload["content_sentiment"] = latestContent.payload["sentiment"]
+            if payload["interpretation"] == "smile_in_current_context" {
+                payload["interpretation"] = "smile_in_communication_context"
+            }
+        }
+
+        let isCommunicationSmile = payload["interpretation"] == "smile_in_communication_context"
 
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
             confidence: 0.58,
             payload: payload,
-            displayText: currentFocus?.isCommunicationContext == true
-                ? "Коммуникация: улыбнулся на сообщение"
-                : "Позитивная реакция: улыбка в текущем контексте",
-            displayEligible: true,
-            surfaceAsContext: true,
+            displayText: isCommunicationSmile
+                ? "Переписка: позитивная реакция на контекст"
+                : "Позитивная реакция: кандидат улыбки",
+            displayEligible: isCommunicationSmile,
+            surfaceAsContext: false,
             now: now
         )
         notifyStateChanged()
@@ -2305,6 +2488,16 @@ final class ObserverController {
             return
         }
         guard attention.yawnCandidate == true else {
+            mouthOpenCandidateStartedAt = nil
+            return
+        }
+
+        if mouthOpenCandidateStartedAt == nil {
+            mouthOpenCandidateStartedAt = now
+            return
+        }
+
+        guard now.timeIntervalSince(mouthOpenCandidateStartedAt ?? now) >= 2.0 else {
             return
         }
 
@@ -2338,11 +2531,11 @@ final class ObserverController {
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
-            confidence: 0.56,
+            confidence: 0.34,
             payload: payload,
-            displayText: "Энергия просела: зевок в текущем контексте",
-            displayEligible: true,
-            surfaceAsContext: true,
+            displayText: "Камера: кандидат зевка",
+            displayEligible: false,
+            surfaceAsContext: false,
             now: now
         )
         notifyStateChanged()
@@ -2441,6 +2634,7 @@ final class ObserverController {
         sessionStartedAt = nil
         sensor?.stop()
         stopSummaryTimer()
+        stopGeminiInsightTimer()
         stopMediaTimer()
         stopPredictionTimer()
         if cameraAttentionService.isActive {
@@ -2643,6 +2837,52 @@ final class ObserverController {
     private func stopSummaryTimer() {
         summaryTimer?.invalidate()
         summaryTimer = nil
+    }
+
+    private func startGeminiInsightTimer() {
+        stopGeminiInsightTimer()
+        guard environment.settings.geminiEnabled, environment.settings.geminiAutoInsightEnabled else {
+            return
+        }
+        let interval = ProcessInfo.processInfo.environment["OBSERVER_GEMINI_WIDGET_INTERVAL_SECONDS"]
+            .flatMap(TimeInterval.init) ?? environment.settings.geminiAutoInsightIntervalSeconds
+        guard interval > 0 else {
+            return
+        }
+
+        geminiInsightTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.mode == .observing else {
+                    return
+                }
+                self.requestGeminiInsight(
+                    requestKind: "widget_sensemaking",
+                    widgetMode: true,
+                    copyToPasteboard: false
+                )
+            }
+        }
+
+        Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.mode == .observing else {
+                    return
+                }
+                guard self.latestExternalWidgetInsightLine() == nil else {
+                    return
+                }
+                self.requestGeminiInsight(
+                    requestKind: "widget_sensemaking",
+                    widgetMode: true,
+                    copyToPasteboard: false
+                )
+            }
+        }
+    }
+
+    private func stopGeminiInsightTimer() {
+        geminiInsightTimer?.invalidate()
+        geminiInsightTimer = nil
     }
 
     private func startPredictionTimer() {
