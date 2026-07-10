@@ -10,6 +10,16 @@ struct HintEngineTests {
         )
 
         let hint = HintEngine().hint(for: detection)
-        #expect(hint?.contains("same context") == true)
+        #expect(hint?.contains("возвращается") == true)
+    }
+
+    @Test func doesNotSurfaceGenericQuietMode() {
+        let detection = DetectorEngine.Detection(
+            name: "reading_or_thinking",
+            confidence: 0.8,
+            payload: ["detector": "reading_or_thinking"]
+        )
+
+        #expect(HintEngine().hint(for: detection) == nil)
     }
 }

@@ -15,6 +15,13 @@ struct ActivityInsightBuilder {
         let intent = currentFocus.map(AppIntent.init(focus:)) ?? .unknown
         let workspace = workspaceSignal(input: input, currentFocus: currentFocus)
 
+        if intent == .lockScreen {
+            if presence == .away || attention?.facePresent == false {
+                return "Защита: похоже, отошел и прикрыл экран"
+            }
+            return "Защита: экран заблокирован"
+        }
+
         if focusChangesLastMinute >= 4 {
             return "Поиск / сравнение: много переключений"
         }
@@ -123,6 +130,7 @@ private enum AppIntent {
     case communication
     case meeting
     case service
+    case lockScreen
     case unknown
 
     init(focus: AppFocusSnapshot) {
@@ -132,7 +140,9 @@ private enum AppIntent {
             focus.windowTitle ?? ""
         ].joined(separator: " ").lowercased()
 
-        if haystack.contains("chatgpt") || haystack.contains("openai") || haystack.contains("claude") || haystack.contains("gemini") {
+        if haystack.contains("loginwindow") || haystack.contains("lock screen") {
+            self = .lockScreen
+        } else if haystack.contains("chatgpt") || haystack.contains("openai") || haystack.contains("claude") || haystack.contains("gemini") {
             self = .aiAssistant
         } else if haystack.contains("figma") || haystack.contains("sketch") {
             self = .design
@@ -167,6 +177,8 @@ private enum AppIntent {
             return "Встреча"
         case .service:
             return "Сервисная настройка"
+        case .lockScreen:
+            return "Защита"
         case .unknown:
             return "Рабочий контекст"
         }
@@ -188,6 +200,8 @@ private enum AppIntent {
             return "Встреча: активное участие"
         case .service:
             return "Сервисная настройка"
+        case .lockScreen:
+            return "Защита: экран заблокирован"
         case .unknown:
             return "Рабочий контекст: активные действия"
         }
@@ -209,6 +223,8 @@ private enum AppIntent {
             return "Встреча"
         case .service:
             return "Сервисная настройка"
+        case .lockScreen:
+            return "Защита"
         case .unknown:
             return "Работа"
         }
@@ -230,6 +246,8 @@ private enum AppIntent {
             return "Встреча: слушает"
         case .service:
             return "Сервисная настройка: пауза"
+        case .lockScreen:
+            return "Защита: экран заблокирован"
         case .unknown:
             return "Глубокое чтение"
         }

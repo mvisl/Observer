@@ -51,7 +51,11 @@ struct TextAffectCueBuilder {
             markers.append("visual_design_friction")
         }
 
-        guard !markers.isEmpty else {
+        let hasStrongEvidence = markers.contains("strong_negative_language")
+            || markers.contains("visual_design_friction")
+            || (markers.contains("rule_violation_context") && markers.count >= 2)
+            || (markers.contains("repeated_punctuation") && markers.contains("uppercase_emphasis"))
+        guard hasStrongEvidence else {
             return nil
         }
 

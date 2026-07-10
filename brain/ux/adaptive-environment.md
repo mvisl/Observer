@@ -14,6 +14,7 @@ Initial interpretation rules:
 - Prefer evidence fusion over publishing single-channel candidates. Camera, text, media, input rhythm, and task context should accumulate evidence into a hypothesis; confidence rises when independent channels agree.
 - Treat single-channel posture or camera reactions as internal evidence by default, not widget text.
 - Give AI-chat writing context high weight for task understanding. Prompts written into Codex, ChatGPT, Claude, or Gemini are usually the user's own distilled description of the current task or blocker.
+- Treat `loginwindow`, display topology changes, absent face, lowered-camera frames, and recent terminal/system commands as protection/away evidence, not reading/thinking evidence.
 - Do not infer "likes music" from a single face frame.
 - Do not infer a definitive emotion from the face. Use weak labels such as focus, friction, or strong reaction candidate.
 - Treat "irritation" as a possible friction pattern only after repeated evidence: rapid switches, short skips, abrupt input rhythm, or user confirmation.
@@ -30,6 +31,8 @@ First useful product behavior:
 - Observe currently playing track locally from available media sources.
 - Auto-pause known media sources when the user is repeatedly absent and input is idle.
 - Auto-resume only sources that Observer itself paused, only shortly after return, and only when the output looks like headphones.
+- If the audio output changes from headphones to non-headphones, pause known media immediately. If the source appears to have been paused by the system before Observer can pause it, remember the previously playing source as an inferred Observer pause for later resume.
+- If the output changes back to headphones shortly after an Observer/inferred pause and the user is present, resume the remembered source.
 - Treat Apple Music as the primary music source for preference learning.
 - Treat YouTube as a flexible media source: sometimes music, sometimes learning, sometimes entertainment.
 - Record quick skips as weak negative candidates only when the user appears present.
@@ -52,4 +55,5 @@ Privacy and protection behavior:
 - Do not take hidden screenshots, hidden camera captures, or hidden microphone recordings of other people.
 - Record safe metadata first: time, current allowed app/window metadata, presence signal, input idle duration, and whether identity is unverified.
 - Any future screenshot/audio capture for security must be explicit, visible, local-first, and clearly labeled as protective monitoring.
+- A future protection microphone layer may use local speech-to-text only in visible protect mode and record compact mention events for user-defined words such as the user's name or role. It must not keep continuous raw audio by default.
 - If sensitive content is open while the user is away, prefer reversible protective actions such as pausing media, hiding the widget detail, or suggesting/triggering lock-screen behavior.

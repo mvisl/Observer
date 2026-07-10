@@ -31,4 +31,12 @@ struct MediaPlaybackServiceTests {
         #expect(snapshot.album == "YouTube")
         #expect(snapshot.volume == 76)
     }
+
+    @Test func resumeSourceIsOnlySetForPlayingKnownSources() throws {
+        let playing = try #require(MediaPlaybackService.parseOutput("Music|playing|Track|Artist|Album|50"))
+        let paused = try #require(MediaPlaybackService.parseOutput("Music|paused|Track|Artist|Album|50"))
+
+        #expect(playing.sourceForObserverResume == "Music")
+        #expect(paused.sourceForObserverResume == nil)
+    }
 }

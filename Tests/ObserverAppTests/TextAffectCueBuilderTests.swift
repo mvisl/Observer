@@ -25,6 +25,16 @@ struct TextAffectCueBuilderTests {
         #expect(cue == nil)
     }
 
+    @Test func ignoresUppercaseWithoutNegativeContext() {
+        let cue = TextAffectCueBuilder().build(
+            text: "GOOGLE CHROME TELEGRAM WHATSAPP FIGMA LIBERTEX ASK GEMINI",
+            appName: "Google Chrome",
+            activityInsight: "Веб-контекст: основной экран"
+        )
+
+        #expect(cue == nil)
+    }
+
     @Test func detectsVisualDesignCause() throws {
         let cue = try #require(TextAffectCueBuilder().build(
             text: "злюсь, потому что смотрю на дизайн и вижу абсолютную какафонию",

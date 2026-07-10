@@ -24,6 +24,7 @@ final class ObserverController {
     private var latestInputActivity: InputActivitySnapshot?
     private var latestHint: String?
     private var latestContextLine: String?
+    private var latestContextLineAt: Date?
     private var lastHintAt: Date?
     private var focusChangeTimestamps: [Date] = []
     private var lastActivityInsight: String?
@@ -87,11 +88,33 @@ final class ObserverController {
         ObserverViewState(
             mode: mode,
             appName: currentFocus?.appName,
-            contextText: latestContextLine ?? currentFocus?.shortContextText ?? "No active context yet",
+            contextText: currentWidgetContextText(),
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
-            hintText: latestHint
+            hintText: currentWidgetHintText()
         )
+    }
+
+    private func currentWidgetContextText(now: Date = Date()) -> String {
+        if let latestContextLine,
+           let latestContextLineAt,
+           now.timeIntervalSince(latestContextLineAt) <= 150 {
+            return latestContextLine
+        }
+
+        return currentFocus?.shortContextText ?? "No active context yet"
+    }
+
+    private func currentWidgetHintText(now: Date = Date()) -> String? {
+        guard let latestHint, let lastHintAt else {
+            return nil
+        }
+        return now.timeIntervalSince(lastHintAt) <= 150 ? latestHint : nil
+    }
+
+    private func setLatestContextLine(_ line: String?, now: Date = Date()) {
+        latestContextLine = line
+        latestContextLineAt = line == nil ? nil : now
     }
 
     private var smoothedAttentionForDisplay: AttentionSnapshot? {
@@ -841,7 +864,7 @@ final class ObserverController {
             closeCurrentFocusInterval(reason: "focus_changed")
             currentFocus = focus
             currentFocusStartedAt = Date()
-            latestContextLine = nil
+            setLatestContextLine(nil)
             append(
                 .init(
                     type: .appFocus,
@@ -872,7 +895,7 @@ final class ObserverController {
             notifyStateChanged()
 
         case .screenContext(let context):
-            latestContextLine = context.shortDisplayLine(prefix: "Контекст")
+            setLatestContextLine(context.shortDisplayLine(prefix: "Контекст"))
             append(
                 .init(
                     type: .screenContext,
@@ -888,7 +911,7 @@ final class ObserverController {
             var payload = context.eventPayload
             payload["context_kind"] = "active_writing"
             lastWritingContextAt = Date()
-            latestContextLine = context.shortDisplayLine(prefix: "Пишет")
+            setLatestContextLine(context.shortDisplayLine(prefix: "Пишет"))
             recordTextAffectCueIfNeeded(
                 text: context.focusedElementValue ?? context.selectedText,
                 appName: context.appName
@@ -979,7 +1002,7 @@ final class ObserverController {
 
         lastTextAffectCueKey = key
         lastTextAffectCueAt = now
-        latestContextLine = cue.insight
+        setLatestContextLine(cue.insight, now: now)
         append(
             .init(
                 type: .behaviorCue,
@@ -1266,7 +1289,7 @@ final class ObserverController {
     }
 
     private func sampleMediaPlayback() {
-        pauseMediaIfHeadphonesWereRemoved()
+        handleAudioOutputTransition()
 
         guard let snapshot = MediaPlaybackService().currentPlayback() else {
             return
@@ -1345,7 +1368,7 @@ final class ObserverController {
             && (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 45
     }
 
-    private func pauseMediaIfHeadphonesWereRemoved() {
+    private func handleAudioOutputTransition() {
         guard environment.settings.autoPauseMediaWhenAway else {
             return
         }
@@ -1360,6 +1383,11 @@ final class ObserverController {
             lastAudioOutputLooksLikeHeadphones = outputLooksLikeHeadphones
         }
 
+        if lastAudioOutputLooksLikeHeadphones == false, outputLooksLikeHeadphones == true {
+            resumeMediaIfHeadphonesReturned(outputName: outputName)
+            return
+        }
+
         guard lastAudioOutputLooksLikeHeadphones == true, outputLooksLikeHeadphones == false else {
             return
         }
@@ -1369,12 +1397,21 @@ final class ObserverController {
             return
         }
 
-        let pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let inferredPausedBySystem = pausedSources.isEmpty
+            ? lastMediaPlaybackSnapshot?.sourceForObserverResume
+            : nil
+        if let inferredPausedBySystem {
+            pausedSources = [inferredPausedBySystem]
+        }
+
         lastHeadphonesAutoPauseAt = now
         if !pausedSources.isEmpty {
             lastAutoPauseAt = now
             autoPausedSources = pausedSources
-            latestHint = "Медиа: снял наушники, поставил на паузу"
+            latestHint = inferredPausedBySystem == nil
+                ? "Медиа: снял наушники, поставил на паузу"
+                : "Медиа: снял наушники, запомнил паузу"
         } else {
             latestHint = "Медиа: снял наушники, уже тихо"
         }
@@ -1384,9 +1421,49 @@ final class ObserverController {
             .init(
                 type: .mediaPlayback,
                 payload: [
-                    "action": pausedSources.isEmpty ? "auto_pause_skipped" : "auto_pause",
+                    "action": pausedSources.isEmpty
+                        ? "auto_pause_skipped"
+                        : (inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred"),
                     "reason": "headphones_removed",
                     "paused_sources": pausedSources.joined(separator: ", "),
+                    "audio_output": outputName ?? "unknown"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
+    }
+
+    private func resumeMediaIfHeadphonesReturned(outputName: String?) {
+        guard environment.settings.autoResumeMediaWhenBack else {
+            return
+        }
+        guard !autoPausedSources.isEmpty else {
+            return
+        }
+        guard latestAttention?.facePresent == true else {
+            return
+        }
+        guard let lastAutoPauseAt, Date().timeIntervalSince(lastAutoPauseAt) <= 1800 else {
+            autoPausedSources = []
+            return
+        }
+
+        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
+        guard !resumedSources.isEmpty else {
+            return
+        }
+
+        autoPausedSources = []
+        latestHint = "Медиа: наушники вернулись, продолжил"
+        lastHintAt = Date()
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "auto_resume",
+                    "reason": "headphones_returned",
+                    "resumed_sources": resumedSources.joined(separator: ", "),
                     "audio_output": outputName ?? "unknown"
                 ],
                 workspaceTopologyVersion: environment.topology.version

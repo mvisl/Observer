@@ -134,6 +134,36 @@ struct ActivityInsightBuilderTests {
         #expect(text == "Дизайн: основной экран")
     }
 
+    @Test func loginWindowMeansProtectiveAwayState() {
+        let text = ActivityInsightBuilder().build(
+            attention: AttentionSnapshot(
+                facePresent: false,
+                attentionZone: .offScreen,
+                facePosition: .unknown,
+                confidence: 0.3,
+                faceCount: 0,
+                faceCenterX: nil,
+                faceCenterY: nil,
+                faceArea: nil,
+                yaw: nil,
+                pitch: nil,
+                roll: nil
+            ),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 180,
+                secondsSinceMouseMove: 180,
+                secondsSinceClick: 180,
+                secondsSinceAnyInput: 180
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "loginwindow", appID: "com.apple.loginwindow"),
+            currentFocusStartedAt: Date().addingTimeInterval(-180),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Защита: похоже, отошел и прикрыл экран")
+    }
+
     private func face(
         yaw: Double,
         position: AttentionSnapshot.FacePosition

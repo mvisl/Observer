@@ -47,6 +47,18 @@ struct MediaPlaybackSnapshot: Equatable {
         }
         return payload
     }
+
+    var sourceForObserverResume: String? {
+        guard state == "playing" else {
+            return nil
+        }
+        switch source {
+        case "Music", "Spotify", "YouTube Chrome", "YouTube Safari":
+            return source
+        default:
+            return nil
+        }
+    }
 }
 
 struct MediaPlaybackService {
