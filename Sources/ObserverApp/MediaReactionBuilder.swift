@@ -82,7 +82,7 @@ struct MediaReactionBuilder {
             name: "quick_skip",
             preference: "negative_candidate",
             insight: current.isYouTube
-                ? "Контент: быстро переключил, возможно не зашло"
+                ? "Контент: быстро переключил, не удержал внимание"
                 : "Музыка: быстрый скип, трек не зашел",
             confidence: adjusted,
             payload: payload
@@ -128,7 +128,7 @@ struct MediaReactionBuilder {
             preference: "positive_candidate",
             insight: current.isYouTube
                 ? "Контент: прибавил громкость, стоит запомнить"
-                : "Музыка: прибавил громкость, возможно зашло",
+                : "Музыка: прибавил громкость, трек зашел",
             confidence: adjusted,
             payload: payload
         )

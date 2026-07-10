@@ -22,18 +22,29 @@ struct GazeCalibrationBuilder {
             return nil
         }
 
+        let pointerContext = PointerContext(focus: currentFocus)
+
         if input.secondsSinceKeyboard <= 3,
            currentFocus?.displayRole != nil || currentFocus?.screenIndex != nil {
+            let touchTypingLikely = input.secondsSinceMouseMove > 4 && input.secondsSinceClick > 4
             return sample(
                 targetSource: "typing_caret_proxy",
                 targetDisplayRole: currentFocus?.displayRole,
                 targetScreenIndex: currentFocus?.screenIndex,
-                confidence: 0.68,
+                confidence: touchTypingLikely ? 0.78 : 0.64,
+                assumption: touchTypingLikely
+                    ? "caret_end_if_touch_typing"
+                    : "caret_or_active_field",
+                pointerContext: pointerContext,
                 attention: attention,
                 input: input,
                 currentFocus: currentFocus,
                 activityInsight: activityInsight
             )
+        }
+
+        guard pointerContext != .abstractPointer else {
+            return nil
         }
 
         if input.secondsSinceClick <= 2,
@@ -43,6 +54,8 @@ struct GazeCalibrationBuilder {
                 targetDisplayRole: input.mouseDisplayRole,
                 targetScreenIndex: input.mouseScreenIndex,
                 confidence: 0.72,
+                assumption: "clicked_screen_target",
+                pointerContext: pointerContext,
                 attention: attention,
                 input: input,
                 currentFocus: currentFocus,
@@ -57,6 +70,8 @@ struct GazeCalibrationBuilder {
                 targetDisplayRole: input.mouseDisplayRole,
                 targetScreenIndex: input.mouseScreenIndex,
                 confidence: 0.52,
+                assumption: "pointer_region_attention",
+                pointerContext: pointerContext,
                 attention: attention,
                 input: input,
                 currentFocus: currentFocus,
@@ -72,6 +87,8 @@ struct GazeCalibrationBuilder {
         targetDisplayRole: WorkspaceTopology.DisplayRole?,
         targetScreenIndex: Int?,
         confidence: Double,
+        assumption: String,
+        pointerContext: PointerContext,
         attention: AttentionSnapshot,
         input: InputActivitySnapshot,
         currentFocus: AppFocusSnapshot?,
@@ -79,6 +96,8 @@ struct GazeCalibrationBuilder {
     ) -> GazeCalibrationSample {
         var payload: [String: String] = [
             "target_source": targetSource,
+            "target_assumption": assumption,
+            "pointer_context": pointerContext.rawValue,
             "face_position": attention.facePosition.rawValue,
             "seconds_since_keyboard": String(format: "%.1f", input.secondsSinceKeyboard),
             "seconds_since_mouse_move": String(format: "%.1f", input.secondsSinceMouseMove),
@@ -129,5 +148,38 @@ struct GazeCalibrationBuilder {
             confidence: confidence,
             payload: payload
         )
+    }
+}
+
+private enum PointerContext: String {
+    case screenTarget
+    case abstractPointer
+
+    init(focus: AppFocusSnapshot?) {
+        let haystack = [
+            focus?.appID ?? "",
+            focus?.appName ?? "",
+            focus?.windowTitle ?? ""
+        ].joined(separator: " ").lowercased()
+
+        if [
+            "steam",
+            "battle.net",
+            "epic games",
+            "unity",
+            "unreal",
+            "minecraft",
+            "counter-strike",
+            "valorant",
+            "dota",
+            "league of legends",
+            "rpg",
+            "shooter",
+            "game"
+        ].contains(where: { haystack.contains($0) }) {
+            self = .abstractPointer
+        } else {
+            self = .screenTarget
+        }
     }
 }

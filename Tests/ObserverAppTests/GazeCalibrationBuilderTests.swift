@@ -13,6 +13,7 @@ struct GazeCalibrationBuilderTests {
         #expect(sample.targetSource == "typing_caret_proxy")
         #expect(sample.targetDisplayRole == .mainWorkbench)
         #expect(sample.payload["head_yaw"] == "0.2000")
+        #expect(sample.payload["target_assumption"] == "caret_end_if_touch_typing")
     }
 
     @Test func usesClickAsPointerProxy() throws {
@@ -25,6 +26,27 @@ struct GazeCalibrationBuilderTests {
 
         #expect(sample.targetSource == "mouse_click_proxy")
         #expect(sample.targetDisplayRole == .productivity)
+        #expect(sample.payload["target_assumption"] == "clicked_screen_target")
+        #expect(sample.payload["pointer_context"] == "screenTarget")
+    }
+
+    @Test func ignoresMouseProxyInAbstractPointerContext() {
+        let sample = GazeCalibrationBuilder().build(
+            attention: face(yaw: 0.1),
+            input: input(keyboard: 20, mouse: 0, click: 1, mouseRole: .mainWorkbench),
+            currentFocus: AppFocusSnapshot(
+                appID: "com.valvesoftware.steam",
+                appName: "Steam Game",
+                processID: 1,
+                windowTitle: "Shooter",
+                screenIndex: 0,
+                displayRole: .mainWorkbench,
+                contentAllowed: false
+            ),
+            activityInsight: nil
+        )
+
+        #expect(sample == nil)
     }
 
     @Test func ignoresMissingFace() {

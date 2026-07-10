@@ -60,7 +60,7 @@ struct ActivityInsightBuilder {
             return "\(intent.prefix): долго в одном контексте"
         }
 
-        return "\(intent.prefix): возможно читает"
+        return "\(intent.prefix): читает"
     }
 
     private func workspaceSignal(

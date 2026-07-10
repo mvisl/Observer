@@ -72,10 +72,12 @@ Away presence incident payloads:
 Gaze calibration sample payloads:
 
 - `target_source`: `typing_caret_proxy`, `mouse_click_proxy`, or `mouse_motion_proxy`
+- `target_assumption`: why the target is useful, for example `caret_end_if_touch_typing`, `clicked_screen_target`, or `pointer_region_attention`
+- `pointer_context`: `screenTarget` for ordinary UI work, `abstractPointer` contexts are excluded from mouse-based gaze calibration
 - `target_display_role`, `target_screen_index`: inferred target display from typing focus or pointer location
 - head/face measurements: `head_yaw`, `head_pitch`, `head_roll`, `face_center_x`, `face_center_y`
 - context metadata: `app_name`, `app_id`, `activity_insight`, optional `mouse_display_role`
-- samples calibrate rough gaze/head mapping over time; they are not exact eye-tracking points
+- samples calibrate rough gaze/head mapping over time. Clicks are strongest, touch-typing caret proxy is strong when the mouse is idle, mouse movement is weaker. They are not exact eye-tracking points.
 
 External LLM request payloads:
 

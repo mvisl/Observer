@@ -242,9 +242,10 @@ struct ContextPackBuilder {
         return samples.map { event in
             let source = event.payload["target_source"] ?? "unknown"
             let role = event.payload["target_display_role"] ?? "unknown_display"
+            let assumption = event.payload["target_assumption"].map { " · \($0)" } ?? ""
             let yaw = event.payload["head_yaw"].map { " · yaw: \($0)" } ?? ""
             let app = event.payload["app_name"].map { " · \($0)" } ?? ""
-            return "- \(source): target \(role)\(yaw)\(app)"
+            return "- \(source): target \(role)\(assumption)\(yaw)\(app)"
         }.joined(separator: "\n")
     }
 
