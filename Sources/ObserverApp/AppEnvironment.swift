@@ -7,6 +7,7 @@ struct AppEnvironment {
     let entityStore: EntityStore
     let personalBaselineStore: PersonalBaselineStore
     let observationCalendarStore: ObservationCalendarStore
+    let securityIncidentStore: SecurityIncidentStore
     let privacyStore: PrivacyStore
     let settings: ObserverSettings
     let topology: WorkspaceTopology
@@ -29,6 +30,8 @@ struct AppEnvironment {
         let entityStore = try EntityStore(directory: directory)
         let personalBaselineStore = try PersonalBaselineStore(directory: directory)
         let observationCalendarStore = try ObservationCalendarStore(directory: directory)
+        let securityIncidentStore = try SecurityIncidentStore(directory: directory)
+        securityIncidentStore.cleanupExpiredSeenIncidents()
         try eventStore.pruneEvents(olderThanDays: settings.retentionDays, keepingTypes: [.localSummary])
         let privacyStore = try PrivacyStore(directory: directory)
 
@@ -39,6 +42,7 @@ struct AppEnvironment {
             entityStore: entityStore,
             personalBaselineStore: personalBaselineStore,
             observationCalendarStore: observationCalendarStore,
+            securityIncidentStore: securityIncidentStore,
             privacyStore: privacyStore,
             settings: settings,
             topology: topology

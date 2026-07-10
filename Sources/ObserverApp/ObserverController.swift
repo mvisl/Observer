@@ -105,7 +105,8 @@ final class ObserverController {
             contextText: currentWidgetContextText(),
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
-            hintText: currentWidgetHintText()
+            hintText: currentWidgetHintText(),
+            securityIncidentCount: environment.securityIncidentStore.unseenCount()
         )
     }
 
@@ -460,57 +461,199 @@ final class ObserverController {
             return "За этот интервал пока нет наблюдений."
         }
 
-        let signalEvents = events.filter { event in
-            event.type == .boundReaction
-                || event.type == .behaviorCue
-                || event.type == .activityInsight
-                || event.type == .fusionHypothesis
-        }
-        let focusApps = Set(events.compactMap { event -> String? in
-            guard event.type == .appFocus || event.type == .appFocusInterval else {
-                return nil
-            }
-            return cleanInsightFragment(event.payload["app_name"])
-        })
+        let securityLine = securityIncidentInsightLine()
         let state = cleanInsightFragment(events.reversed().first { $0.type == .cognitiveState }?.payload["state"])
-        let content = cleanInsightFragment(
-            events.reversed().first { $0.type == .contentContext }?.payload["topic"],
-            allowShortCodeLikeText: false
-        )
-        let reaction = events.reversed().first { event in
-            event.type == .boundReaction || event.type == .behaviorCue || event.type == .activityInsight
-        }
-        let reactionText = cleanInsightFragment(
-            reaction?.payload["insight"]
-                ?? reaction?.payload["cue"]
-                ?? reaction?.payload["activity_insight"],
-            allowShortCodeLikeText: false
-        )
-        let inputText = events.last { $0.type == .inputActivity }?
-            .payload["seconds_since_any_input"]
-            .flatMap(Double.init)
-            .map { seconds in
-                seconds < 20 ? "ввод активен" : "пауза \(Int(seconds))с"
-            }
         let intervalLabel = insightIntervalLabel(interval)
-        let metricLine = [
-            "\(signalEvents.count) сигналов",
-            focusApps.isEmpty ? nil : "\(focusApps.count) прилож.",
-            inputText
-        ]
-        .compactMap { $0 }
-        .joined(separator: " · ")
 
         return [
-            "\(intervalLabel): \(focusDistributionSummary(events))",
-            metricLine.isEmpty ? nil : metricLine,
-            content.map { "Контекст: \($0)" },
+            securityLine,
+            "\(intervalLabel): \(semanticFocusSummary(events))",
+            contextShiftSummary(events),
+            latestContentSummary(events),
             state.map { "Состояние: \($0)" },
-            reactionText.map { "Сигнал: \($0)" }
+            latestReactionSummary(events)
         ]
         .compactMap { $0 }
         .prefix(5)
         .joined(separator: "\n")
+    }
+
+    func markSecurityIncidentsSeen() {
+        environment.securityIncidentStore.markAllSeen()
+        notifyStateChanged()
+    }
+
+    func latestSecurityIncidentArtifactURL() -> URL? {
+        let incident = environment.securityIncidentStore.latestReviewable()
+        return incident?.photoURL
+            ?? incident?.screenshotURL
+            ?? incident?.transcriptURL
+            ?? environment.securityIncidentStore.directoryURL
+    }
+
+    private func securityIncidentInsightLine() -> String? {
+        guard let incident = environment.securityIncidentStore.latestUnseen() else {
+            return nil
+        }
+        let photo = incident.photoURL == nil ? "фото нет" : "фото сохранено"
+        let screen = incident.screenshotURL == nil ? "скрин нет" : "скрин сохранён"
+        let transcript = incident.transcriptURL == nil ? "транскрипт нет" : "транскрипт сохранён"
+        return "Защита: \(incident.summary) \(screen); \(transcript); аудио пока не записывалось; \(photo)."
+    }
+
+    private func semanticFocusSummary(_ events: [ObserverEvent]) -> String {
+        let topApps = topFocusApps(events, limit: 3)
+        guard !topApps.isEmpty else {
+            return latestContentSummary(events)?.replacingOccurrences(of: "Контекст: ", with: "") ?? "нет устойчивой рабочей линии"
+        }
+
+        let names = topApps.map(\.name)
+        let lowerNames = names.map { $0.lowercased() }
+        let hasAIChat = lowerNames.contains { name in
+            name.contains("chatgpt") || name.contains("claude") || name.contains("gemini") || name.contains("codex")
+        }
+        let hasDesign = lowerNames.contains { name in
+            name.contains("figma") || name.contains("sketch")
+        }
+
+        if hasAIChat, hasDesign {
+            return "связка ИИ + дизайн: уточняешь задачу и сверяешь визуальный результат"
+        }
+
+        if let first = topApps.first {
+            let tail = topApps.dropFirst().first.map { "; рядом \($0.name) \(formatCompactDuration($0.seconds))" } ?? ""
+            return "основная линия \(first.name) \(formatCompactDuration(first.seconds))\(tail)"
+        }
+
+        return names.joined(separator: " + ")
+    }
+
+    private func contextShiftSummary(_ events: [ObserverEvent]) -> String? {
+        let focusEvents = events
+            .filter { $0.type == .appFocus || $0.type == .appFocusInterval }
+            .compactMap { cleanInsightFragment($0.payload["app_name"]) }
+        let uniqueApps = Array(NSOrderedSet(array: focusEvents).compactMap { $0 as? String })
+        guard uniqueApps.count >= 2 else {
+            return nil
+        }
+
+        if uniqueApps.count >= 4 {
+            let route = uniqueApps.prefix(4).joined(separator: " -> ")
+            return "Сдвиг: много переходов (\(route)); похоже, идёт поиск или сверка."
+        }
+
+        let route = uniqueApps.prefix(3).joined(separator: " -> ")
+        return "Сдвиг: \(route); контекст не один, важно удержать главный артефакт."
+    }
+
+    private func latestContentSummary(_ events: [ObserverEvent]) -> String? {
+        guard let event = events.reversed().first(where: { $0.type == .contentContext }) else {
+            return nil
+        }
+        let app = cleanInsightFragment(event.payload["app_name"]) ?? "текущий экран"
+        let kind = event.payload["content_kind"].map(readableContentKind) ?? "контент"
+        let topic = cleanInsightFragment(event.payload["topic"], allowShortCodeLikeText: false)
+        let sentiment = event.payload["sentiment"].flatMap(readableSentiment)
+        let details = [kind, topic, sentiment].compactMap { $0 }.joined(separator: " · ")
+        guard !details.isEmpty else {
+            return "Контекст: \(app)"
+        }
+        return "Контекст: \(app): \(details)"
+    }
+
+    private func latestReactionSummary(_ events: [ObserverEvent]) -> String? {
+        guard let event = events.reversed().first(where: { event in
+            event.type == .boundReaction || event.type == .behaviorCue || event.type == .activityInsight
+        }) else {
+            return nil
+        }
+
+        let raw = event.payload["interpretation"]
+            ?? event.payload["cue"]
+            ?? event.payload["activity_insight"]
+            ?? event.payload["insight"]
+        guard let value = raw else {
+            return nil
+        }
+        return "Реакция: \(readableCue(value))"
+    }
+
+    private func topFocusApps(_ events: [ObserverEvent], limit: Int) -> [(name: String, seconds: Double)] {
+        var durations: [String: Double] = [:]
+        var counts: [String: Int] = [:]
+
+        for event in events where event.type == .appFocusInterval || event.type == .appFocus {
+            guard let app = cleanInsightFragment(event.payload["app_name"]) else {
+                continue
+            }
+            counts[app, default: 0] += 1
+            if event.type == .appFocusInterval {
+                durations[app, default: 0] += Double(event.payload["duration_seconds"] ?? "") ?? 0
+            }
+        }
+
+        if !durations.isEmpty {
+            return durations
+                .sorted { $0.value > $1.value }
+                .prefix(limit)
+                .map { (name: $0.key, seconds: $0.value) }
+        }
+
+        return counts
+            .sorted { $0.value > $1.value }
+            .prefix(limit)
+            .map { (name: $0.key, seconds: Double($0.value * 60)) }
+    }
+
+    private func readableContentKind(_ kind: String) -> String {
+        switch kind {
+        case "prompt":
+            return "диалог с ИИ"
+        case "message":
+            return "сообщения"
+        case "email":
+            return "почта"
+        case "code":
+            return "код"
+        case "doc":
+            return "документ"
+        case "video":
+            return "видео"
+        case "article":
+            return "страница"
+        default:
+            return kind
+        }
+    }
+
+    private func readableSentiment(_ sentiment: String) -> String? {
+        switch sentiment {
+        case "neg":
+            return "негативный тон"
+        case "pos":
+            return "позитивный тон"
+        case "mixed":
+            return "смешанный тон"
+        default:
+            return nil
+        }
+    }
+
+    private func readableCue(_ cue: String) -> String {
+        let lower = cue.lowercased()
+        if lower.contains("positive") || lower.contains("smile") {
+            return "позитивная реакция в текущем контексте"
+        }
+        if lower.contains("yawn") || lower.contains("fatigue") || lower.contains("energy") {
+            return "просадка энергии, стоит снизить размер следующего шага"
+        }
+        if lower.contains("friction") || lower.contains("strong_reaction") || lower.contains("sharp") {
+            return "фрикция: заметный резкий сдвиг поведения"
+        }
+        if lower.contains("context") || lower.contains("switch") {
+            return "переключение контекста"
+        }
+        return cleanInsightFragment(cue, allowShortCodeLikeText: false) ?? cue
     }
 
     private func focusDistributionSummary(_ events: [ObserverEvent]) -> String {
@@ -1124,6 +1267,7 @@ final class ObserverController {
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
             now: now
         )
+        releaseSecurityIncidentsIfOwnerReturned(now: now)
         recordGazeCalibrationSampleIfNeeded(now: now)
         recordCognitiveStateIfNeeded(now: now)
         pauseMediaIfUserAppearsAway()
@@ -1192,6 +1336,7 @@ final class ObserverController {
             updateIdleBoundary(activity)
             recordGazeCalibrationSampleIfNeeded()
             captureOCRWritingFallbackIfNeeded(activity)
+            releaseSecurityIncidentsIfOwnerReturned(input: activity)
             pauseMediaIfUserAppearsAway()
             resumeMediaIfUserReturned()
             notifyStateChanged()
@@ -1632,16 +1777,65 @@ final class ObserverController {
         }
 
         lastAwayPresenceIncidentAt = now
+        var payload = incident.payload
+        if let storedIncident = try? environment.securityIncidentStore.record(
+            payload: payload,
+            jpegData: currentAttention.jpegData
+        ) {
+            payload["security_incident_id"] = storedIncident.id.uuidString
+            payload["security_summary"] = storedIncident.summary
+            payload["photo_path"] = storedIncident.photoURL?.path
+            payload["transcript_status"] = "not_recorded"
+            payload["audio_status"] = "not_recorded"
+        }
+        append(
+            .init(
+                type: .securityIncident,
+                displayRole: currentFocus?.displayRole,
+                appID: currentFocus?.appID,
+                confidence: incident.confidence,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
         append(
             .init(
                 type: .awayPresenceIncident,
                 displayRole: currentFocus?.displayRole,
                 appID: currentFocus?.appID,
                 confidence: incident.confidence,
-                payload: incident.payload,
+                payload: payload,
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        notifyStateChanged()
+    }
+
+    private func releaseSecurityIncidentsIfOwnerReturned(
+        input: InputActivitySnapshot? = nil,
+        now: Date = Date()
+    ) {
+        guard smoothedAttentionForDisplay?.facePresent == true else {
+            return
+        }
+
+        let activity = input ?? latestInputActivity
+        guard (activity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5 else {
+            return
+        }
+
+        let released = environment.securityIncidentStore.releasePendingForReview()
+        guard released > 0 else {
+            return
+        }
+
+        setLatestContextLine(
+            released == 1
+                ? "Защита: 1 событие во время отсутствия"
+                : "Защита: \(released) события во время отсутствия",
+            now: now
+        )
+        notifyStateChanged()
     }
 
     private func recordSmileCueIfNeeded(_ attention: AttentionSnapshot, now: Date = Date()) {
@@ -2457,6 +2651,7 @@ struct ObserverViewState {
     let sessionStartedAt: Date?
     let attentionText: String
     let hintText: String?
+    let securityIncidentCount: Int
 }
 
 extension ObserverController.Mode {

@@ -27,9 +27,9 @@ struct AwayPresenceIncidentBuilder {
             "cue": "presence_detected_after_away",
             "interpretation": "person_seen_after_idle_absence",
             "owner_identity": "unverified",
-            "capture_policy": "no_hidden_screenshot_no_audio",
+            "capture_policy": "local_security_snapshot_only",
             "microphone_capture": "disabled",
-            "screen_image_capture": "disabled",
+            "screen_image_capture": "local_on_incident",
             "visible_notice_required": "true",
             "seconds_since_any_input": String(format: "%.1f", input.secondsSinceAnyInput),
             "missing_face_samples_before_current": "\(missingFaceSamplesBeforeCurrent)"

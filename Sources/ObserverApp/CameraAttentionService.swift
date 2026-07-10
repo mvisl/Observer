@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+@preconcurrency import CoreImage
 @preconcurrency import CoreMedia
 import Foundation
 @preconcurrency import Vision
@@ -98,7 +99,10 @@ final class CameraAttentionService: NSObject {
         do {
             try requestHandler.perform([request])
             let observations = request.results ?? []
-            let snapshot = AttentionSnapshot.from(faceObservations: observations)
+            let snapshot = AttentionSnapshot.from(
+                faceObservations: observations,
+                jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer)
+            )
             let handler = self.handler
             Task { @MainActor in
                 handler?(snapshot)
@@ -178,6 +182,7 @@ struct AttentionSnapshot: Sendable {
     let mouthOpenScore: Double?
     let yawnCandidate: Bool?
     let mouthSignalSource: String?
+    let jpegData: Data?
     let isTemporarilyLostFace: Bool
 
     init(
@@ -205,6 +210,7 @@ struct AttentionSnapshot: Sendable {
         mouthOpenScore: Double? = nil,
         yawnCandidate: Bool? = nil,
         mouthSignalSource: String? = nil,
+        jpegData: Data? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
         self.facePresent = facePresent
@@ -231,10 +237,11 @@ struct AttentionSnapshot: Sendable {
         self.mouthOpenScore = mouthOpenScore
         self.yawnCandidate = yawnCandidate
         self.mouthSignalSource = mouthSignalSource
+        self.jpegData = jpegData
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
-    static func from(faceObservations: [VNFaceObservation]) -> AttentionSnapshot {
+    static func from(faceObservations: [VNFaceObservation], jpegData: Data? = nil) -> AttentionSnapshot {
         guard let largestFace = faceObservations.max(by: { lhs, rhs in
             lhs.boundingBox.width * lhs.boundingBox.height < rhs.boundingBox.width * rhs.boundingBox.height
         }) else {
@@ -303,7 +310,8 @@ struct AttentionSnapshot: Sendable {
             smileSignalSource: smile.source,
             mouthOpenScore: mouth.score,
             yawnCandidate: mouth.isYawnCandidate,
-            mouthSignalSource: mouth.source
+            mouthSignalSource: mouth.source,
+            jpegData: jpegData
         )
     }
 
@@ -333,6 +341,7 @@ struct AttentionSnapshot: Sendable {
             mouthOpenScore: mouthOpenScore,
             yawnCandidate: yawnCandidate,
             mouthSignalSource: mouthSignalSource,
+            jpegData: jpegData,
             isTemporarilyLostFace: true
         )
     }
@@ -482,6 +491,20 @@ private struct MouthOpenEstimator {
             score: score,
             isYawnCandidate: score >= 0.62,
             source: "outer_lips_open_ratio"
+        )
+    }
+}
+
+private enum CameraFrameEncoder {
+    private static let context = CIContext()
+
+    static func jpegData(from pixelBuffer: CVPixelBuffer) -> Data? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        return context.jpegRepresentation(
+            of: image,
+            colorSpace: colorSpace,
+            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.72]
         )
     }
 }

@@ -6,11 +6,17 @@ final class WidgetPanelController {
     private let panel: FloatingWidgetPanel
     private let widgetView: ObserverWidgetView
 
-    init(onInsightRequest: @escaping (TimeInterval) -> String?) {
+    init(
+        onInsightRequest: @escaping (TimeInterval) -> String?,
+        onInsightOpened: @escaping () -> Void,
+        onSecurityArtifactRequest: @escaping () -> URL?
+    ) {
         let size = Self.storedWidgetSize() ?? Self.defaultWidgetSize
         widgetView = ObserverWidgetView(
             frame: NSRect(origin: .zero, size: size),
-            onInsightRequest: onInsightRequest
+            onInsightRequest: onInsightRequest,
+            onInsightOpened: onInsightOpened,
+            onSecurityArtifactRequest: onSecurityArtifactRequest
         )
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
@@ -190,6 +196,7 @@ final class ObserverWidgetView: NSView {
     private let statusDot = NSView()
     private let statusLabel = NSTextField(labelWithString: "Paused")
     private let moreButton = NSButton(title: "...", target: nil, action: nil)
+    private let securityBadgeLabel = NSTextField(labelWithString: "")
     private let appLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "No active context yet")
     private let intervalControl = NSSegmentedControl(
@@ -200,9 +207,12 @@ final class ObserverWidgetView: NSView {
     )
     private let descriptionLabel = NSTextField(labelWithString: "")
     private let recommendationLabel = NSTextField(labelWithString: "")
+    private let securityFolderButton = NSButton(title: "Папка", target: nil, action: nil)
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private let onInsightRequest: (TimeInterval) -> String?
+    private let onInsightOpened: () -> Void
+    private let onSecurityArtifactRequest: () -> URL?
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
@@ -219,8 +229,15 @@ final class ObserverWidgetView: NSView {
         case resize
     }
 
-    init(frame frameRect: NSRect, onInsightRequest: @escaping (TimeInterval) -> String?) {
+    init(
+        frame frameRect: NSRect,
+        onInsightRequest: @escaping (TimeInterval) -> String?,
+        onInsightOpened: @escaping () -> Void,
+        onSecurityArtifactRequest: @escaping () -> URL?
+    ) {
         self.onInsightRequest = onInsightRequest
+        self.onInsightOpened = onInsightOpened
+        self.onSecurityArtifactRequest = onSecurityArtifactRequest
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 16
@@ -264,6 +281,7 @@ final class ObserverWidgetView: NSView {
         hintLabel.stringValue = ""
         metaLabel.isHidden = true
         hintLabel.isHidden = true
+        updateSecurityBadge(count: state.securityIncidentCount)
         if !isInsightExpanded {
             hideInsightControls()
         }
@@ -344,7 +362,20 @@ final class ObserverWidgetView: NSView {
     }
 
     private func configureSubviews() {
-        [statusDot, statusLabel, moreButton, appLabel, contextLabel, intervalControl, descriptionLabel, recommendationLabel, metaLabel, hintLabel].forEach {
+        [
+            statusDot,
+            statusLabel,
+            moreButton,
+            securityBadgeLabel,
+            appLabel,
+            contextLabel,
+            intervalControl,
+            descriptionLabel,
+            recommendationLabel,
+            securityFolderButton,
+            metaLabel,
+            hintLabel
+        ].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -362,6 +393,14 @@ final class ObserverWidgetView: NSView {
         moreButton.contentTintColor = .secondaryLabelColor
         moreButton.target = self
         moreButton.action = #selector(toggleInsightPanel)
+
+        securityBadgeLabel.font = .systemFont(ofSize: 9, weight: .bold)
+        securityBadgeLabel.textColor = .white
+        securityBadgeLabel.alignment = .center
+        securityBadgeLabel.wantsLayer = true
+        securityBadgeLabel.layer?.backgroundColor = NSColor.systemRed.cgColor
+        securityBadgeLabel.layer?.cornerRadius = 7
+        securityBadgeLabel.isHidden = true
 
         appLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         appLabel.textColor = .labelColor
@@ -398,6 +437,13 @@ final class ObserverWidgetView: NSView {
         recommendationLabel.maximumNumberOfLines = 2
         recommendationLabel.isHidden = true
 
+        securityFolderButton.bezelStyle = .rounded
+        securityFolderButton.controlSize = .small
+        securityFolderButton.font = .systemFont(ofSize: 11, weight: .medium)
+        securityFolderButton.target = self
+        securityFolderButton.action = #selector(openSecurityFolder)
+        securityFolderButton.isHidden = true
+
         metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.lineBreakMode = .byTruncatingTail
@@ -425,6 +471,11 @@ final class ObserverWidgetView: NSView {
             moreButton.widthAnchor.constraint(equalToConstant: 28),
             moreButton.heightAnchor.constraint(equalToConstant: 24),
 
+            securityBadgeLabel.centerXAnchor.constraint(equalTo: moreButton.trailingAnchor, constant: -5),
+            securityBadgeLabel.centerYAnchor.constraint(equalTo: moreButton.topAnchor, constant: 5),
+            securityBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+            securityBadgeLabel.heightAnchor.constraint(equalToConstant: 14),
+
             appLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             appLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             appLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
@@ -434,8 +485,8 @@ final class ObserverWidgetView: NSView {
             contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
             intervalControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            intervalControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             intervalControl.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
-            intervalControl.widthAnchor.constraint(equalToConstant: 196),
             intervalControl.heightAnchor.constraint(equalToConstant: 22),
 
             descriptionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
@@ -446,9 +497,14 @@ final class ObserverWidgetView: NSView {
             recommendationLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             recommendationLabel.topAnchor.constraint(equalTo: descriptionLabel.bottomAnchor, constant: 5),
 
+            securityFolderButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            securityFolderButton.topAnchor.constraint(equalTo: recommendationLabel.bottomAnchor, constant: 6),
+            securityFolderButton.widthAnchor.constraint(equalToConstant: 58),
+            securityFolderButton.heightAnchor.constraint(equalToConstant: 22),
+
             metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            metaLabel.topAnchor.constraint(equalTo: recommendationLabel.bottomAnchor, constant: 5),
+            metaLabel.topAnchor.constraint(equalTo: securityFolderButton.bottomAnchor, constant: 5),
 
             hintLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -494,8 +550,9 @@ final class ObserverWidgetView: NSView {
         descriptionLabel.isHidden = false
         recommendationLabel.isHidden = false
         updateInsightContent()
+        onInsightOpened()
         WidgetPanelController.applyWidgetSize(
-            CGSize(width: window.frame.width, height: 184),
+            CGSize(width: window.frame.width, height: 190),
             to: window,
             persist: false,
             anchor: .topRight
@@ -523,6 +580,7 @@ final class ObserverWidgetView: NSView {
         let description = Array(lines.prefix(2)).joined(separator: "\n")
         descriptionLabel.stringValue = description.isEmpty ? "Пока мало наблюдений за выбранный интервал." : description
         recommendationLabel.stringValue = recommendation(for: lines)
+        securityFolderButton.isHidden = onSecurityArtifactRequest() == nil
         updateIntervalControlState()
     }
 
@@ -548,13 +606,27 @@ final class ObserverWidgetView: NSView {
         intervalControl.isHidden = true
         descriptionLabel.isHidden = true
         recommendationLabel.isHidden = true
+        securityFolderButton.isHidden = true
+    }
+
+    private func updateSecurityBadge(count: Int) {
+        securityBadgeLabel.isHidden = count <= 0
+        securityBadgeLabel.stringValue = count > 9 ? "9+" : "\(count)"
     }
 
     private var expandedControlsFrame: CGRect {
         intervalControl.frame
             .union(descriptionLabel.frame)
             .union(recommendationLabel.frame)
+            .union(securityFolderButton.frame)
             .insetBy(dx: -8, dy: -8)
+    }
+
+    @objc private func openSecurityFolder() {
+        guard let url = onSecurityArtifactRequest() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func segmentForMinutes(_ minutes: Int) -> Int {

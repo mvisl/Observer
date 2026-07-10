@@ -40,6 +40,7 @@ enum ObserverEventType: String, Codable {
     case researchDigest
     case resumptionLag
     case scheduleOverride
+    case securityIncident
     case sequencePattern
     case localSummary
     case ocrContext

@@ -189,7 +189,7 @@ struct ActivityInsightBuilderTests {
 
     @Test func classifiesLookingAwayIdleAsPhoneInsteadOfVagueSideAttention() {
         let text = ActivityInsightBuilder().build(
-            attention: face(yaw: 0.72, position: .right),
+            attention: face(yaw: 0.72, position: .right, pitch: -0.32),
             input: InputActivitySnapshot(
                 secondsSinceKeyboard: 38,
                 secondsSinceMouseMove: 38,
@@ -206,9 +206,29 @@ struct ActivityInsightBuilderTests {
         #expect(!text.contains("внимание ушло"))
     }
 
+    @Test func downGazeIdleOnCommunicationAppIsPhoneNotReadingMessages() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0.05, position: .center, pitch: -0.34),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 55,
+                secondsSinceMouseMove: 55,
+                secondsSinceClick: 55,
+                secondsSinceAnyInput: 55
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Rakuten Viber", appID: "com.viber.osx", displayRole: .communication),
+            currentFocusStartedAt: Date().addingTimeInterval(-360),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Коммуникация: смотрит в телефон")
+        #expect(!text.contains("читает"))
+    }
+
     private func face(
         yaw: Double,
-        position: AttentionSnapshot.FacePosition
+        position: AttentionSnapshot.FacePosition,
+        pitch: Double? = nil
     ) -> AttentionSnapshot {
         AttentionSnapshot(
             facePresent: true,
@@ -220,7 +240,7 @@ struct ActivityInsightBuilderTests {
             faceCenterY: 0.28,
             faceArea: 0.04,
             yaw: yaw,
-            pitch: nil,
+            pitch: pitch,
             roll: nil
         )
     }

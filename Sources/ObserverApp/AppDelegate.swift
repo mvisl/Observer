@@ -87,9 +87,17 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     }
 
     private func configureWidget() {
-        let widget = WidgetPanelController { [weak self] interval in
-            self?.controller?.localInsight(forLast: interval)
-        }
+        let widget = WidgetPanelController(
+            onInsightRequest: { [weak self] interval in
+                self?.controller?.localInsight(forLast: interval)
+            },
+            onInsightOpened: { [weak self] in
+                self?.controller?.markSecurityIncidentsSeen()
+            },
+            onSecurityArtifactRequest: { [weak self] in
+                self?.controller?.latestSecurityIncidentArtifactURL()
+            }
+        )
         widgetController = widget
         widget.show()
         if let snapshot = controller?.stateSnapshot {

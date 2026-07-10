@@ -13,7 +13,7 @@ struct AwayPresenceIncidentBuilderTests {
 
         #expect(incident.payload["cue"] == "presence_detected_after_away")
         #expect(incident.payload["owner_identity"] == "unverified")
-        #expect(incident.payload["capture_policy"] == "no_hidden_screenshot_no_audio")
+        #expect(incident.payload["capture_policy"] == "local_security_snapshot_only")
         #expect(incident.payload["microphone_capture"] == "disabled")
     }
 

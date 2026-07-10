@@ -26,6 +26,12 @@ struct ActivityInsightBuilder {
             return "Поиск / сравнение: много переключений"
         }
 
+        if let attention,
+           attention.isPhoneLikeOffscreen,
+           input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude >= 15 {
+            return "\(intent.prefix): смотрит в телефон"
+        }
+
         if let attention, attention.isLookingAway {
             if input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude < 20 {
                 return "\(intent.prefix): отвлекся от экрана"
@@ -157,7 +163,12 @@ private enum AppIntent {
             self = .code
         } else if haystack.contains("chrome") || haystack.contains("safari") || haystack.contains("firefox") {
             self = .browser
-        } else if haystack.contains("slack") || haystack.contains("telegram") || haystack.contains("mail") {
+        } else if haystack.contains("slack")
+            || haystack.contains("telegram")
+            || haystack.contains("viber")
+            || haystack.contains("whatsapp")
+            || haystack.contains("messages")
+            || haystack.contains("mail") {
             self = .communication
         } else if haystack.contains("zoom") || haystack.contains("meet") || haystack.contains("teams") {
             self = .meeting
@@ -276,7 +287,10 @@ private extension AttentionSnapshot {
         guard facePresent else {
             return false
         }
-        if let faceCenterY, faceCenterY <= 0.38 {
+        if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {
+            return true
+        }
+        if let faceCenterY, faceCenterY <= 0.22 {
             return true
         }
         if let pitch, pitch < -0.25 {
