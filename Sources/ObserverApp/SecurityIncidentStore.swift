@@ -56,20 +56,22 @@ struct SecurityIncidentSummary: Codable, Equatable {
 }
 
 final class SecurityIncidentStore {
-    private let directory: URL
+    private let mediaDirectory: URL
     private let metadataDirectory: URL
     private let encoder = JSONEncoder.observerEncoder
     private let decoder = JSONDecoder.observerDecoder
 
     init(directory: URL) throws {
-        self.directory = directory.appendingPathComponent("security-incidents", isDirectory: true)
-        self.metadataDirectory = self.directory.appendingPathComponent("metadata", isDirectory: true)
-        try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
+        self.mediaDirectory = directory.appendingPathComponent("security-media", isDirectory: true)
+        self.metadataDirectory = directory
+            .appendingPathComponent("security-incidents", isDirectory: true)
+            .appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
     }
 
     var directoryURL: URL {
-        directory
+        mediaDirectory
     }
 
     func record(payload: [String: String], jpegData: Data?) throws -> SecurityIncidentSummary {
@@ -77,7 +79,7 @@ final class SecurityIncidentStore {
 
         let id = UUID()
         let now = Date()
-        let dayDirectory = directory.appendingPathComponent(Self.dayKey(for: now), isDirectory: true)
+        let dayDirectory = mediaDirectory.appendingPathComponent(Self.dayKey(for: now), isDirectory: true)
         try FileManager.default.createDirectory(at: dayDirectory, withIntermediateDirectories: true)
 
         let photoURL: URL?

@@ -1,6 +1,15 @@
 import AppKit
 import Foundation
 
+private struct PendingAwayPresenceIncident {
+    let firstSeenAt: Date
+    let payload: [String: String]
+    let jpegData: Data?
+    let displayRole: WorkspaceTopology.DisplayRole?
+    let appID: String?
+    let confidence: Double
+}
+
 @MainActor
 final class ObserverController {
     enum Mode {
@@ -37,6 +46,7 @@ final class ObserverController {
     private var lastGazeCalibrationKey: String?
     private var lastGazeCalibrationAt: Date?
     private var lastAwayPresenceIncidentAt: Date?
+    private var pendingAwayPresenceIncident: PendingAwayPresenceIncident?
     private var lastSmileCueAt: Date?
     private var lastYawnCueAt: Date?
     private var lastWritingContextAt: Date?
@@ -1267,6 +1277,7 @@ final class ObserverController {
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
             now: now
         )
+        commitPendingAwayPresenceIncidentIfNeeded(now: now)
         releaseSecurityIncidentsIfOwnerReturned(now: now)
         recordGazeCalibrationSampleIfNeeded(now: now)
         recordCognitiveStateIfNeeded(now: now)
@@ -1337,6 +1348,7 @@ final class ObserverController {
             recordGazeCalibrationSampleIfNeeded()
             captureOCRWritingFallbackIfNeeded(activity)
             releaseSecurityIncidentsIfOwnerReturned(input: activity)
+            commitPendingAwayPresenceIncidentIfNeeded()
             pauseMediaIfUserAppearsAway()
             resumeMediaIfUserReturned()
             notifyStateChanged()
@@ -1777,26 +1789,13 @@ final class ObserverController {
         }
 
         lastAwayPresenceIncidentAt = now
-        var payload = incident.payload
-        if let storedIncident = try? environment.securityIncidentStore.record(
-            payload: payload,
-            jpegData: currentAttention.jpegData
-        ) {
-            payload["security_incident_id"] = storedIncident.id.uuidString
-            payload["security_summary"] = storedIncident.summary
-            payload["photo_path"] = storedIncident.photoURL?.path
-            payload["transcript_status"] = "not_recorded"
-            payload["audio_status"] = "not_recorded"
-        }
-        append(
-            .init(
-                type: .securityIncident,
-                displayRole: currentFocus?.displayRole,
-                appID: currentFocus?.appID,
-                confidence: incident.confidence,
-                payload: payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
+        pendingAwayPresenceIncident = PendingAwayPresenceIncident(
+            firstSeenAt: now,
+            payload: incident.payload,
+            jpegData: currentAttention.jpegData,
+            displayRole: currentFocus?.displayRole,
+            appID: currentFocus?.appID,
+            confidence: incident.confidence
         )
         append(
             .init(
@@ -1804,11 +1803,70 @@ final class ObserverController {
                 displayRole: currentFocus?.displayRole,
                 appID: currentFocus?.appID,
                 confidence: incident.confidence,
-                payload: payload,
+                payload: incident.payload.merging([
+                    "review_state": "pending_owner_return_gate",
+                    "media_written": "false"
+                ]) { current, _ in current },
                 workspaceTopologyVersion: environment.topology.version
             )
         )
         notifyStateChanged()
+    }
+
+    private func commitPendingAwayPresenceIncidentIfNeeded(now: Date = Date()) {
+        guard let pending = pendingAwayPresenceIncident else {
+            return
+        }
+
+        let recentOwnerInput = (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5
+        if recentOwnerInput {
+            pendingAwayPresenceIncident = nil
+            append(
+                .init(
+                    type: .awayPresenceIncident,
+                    displayRole: pending.displayRole,
+                    appID: pending.appID,
+                    confidence: min(pending.confidence, 0.45),
+                    payload: pending.payload.merging([
+                        "review_state": "dismissed_owner_returned",
+                        "media_written": "false"
+                    ]) { current, _ in current },
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return
+        }
+
+        guard now.timeIntervalSince(pending.firstSeenAt) >= 15 else {
+            return
+        }
+
+        pendingAwayPresenceIncident = nil
+        var payload = pending.payload
+        if let storedIncident = try? environment.securityIncidentStore.record(
+            payload: payload,
+            jpegData: pending.jpegData
+        ) {
+            payload["security_incident_id"] = storedIncident.id.uuidString
+            payload["security_summary"] = storedIncident.summary
+            payload["photo_path"] = storedIncident.photoURL?.path
+            payload["screenshot_path"] = storedIncident.screenshotURL?.path
+            payload["transcript_path"] = storedIncident.transcriptURL?.path
+            payload["transcript_status"] = "placeholder"
+            payload["audio_status"] = "not_recorded"
+        }
+        payload["review_state"] = "committed_waiting_owner_review"
+        payload["media_written"] = "true"
+        append(
+            .init(
+                type: .securityIncident,
+                displayRole: pending.displayRole,
+                appID: pending.appID,
+                confidence: pending.confidence,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func releaseSecurityIncidentsIfOwnerReturned(
@@ -1822,6 +1880,10 @@ final class ObserverController {
         let activity = input ?? latestInputActivity
         guard (activity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5 else {
             return
+        }
+
+        if pendingAwayPresenceIncident != nil {
+            commitPendingAwayPresenceIncidentIfNeeded(now: now)
         }
 
         let released = environment.securityIncidentStore.releasePendingForReview()
