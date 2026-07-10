@@ -20,8 +20,8 @@ struct ObserverSettingsTests {
 
         let settings = try JSONDecoder().decode(ObserverSettings.self, from: data)
         #expect(settings.idleSessionBoundarySeconds == ObserverSettings.defaults.idleSessionBoundarySeconds)
-        #expect(settings.startObservingOnLaunch == false)
-        #expect(settings.startCameraAttentionOnLaunch == false)
+        #expect(settings.startObservingOnLaunch == true)
+        #expect(settings.startCameraAttentionOnLaunch == true)
         #expect(settings.hintDeliveryMode == "quiet")
         #expect(settings.minimumHintIntervalSeconds == 1800)
         #expect(settings.attentionSampleIntervalSeconds == 15)

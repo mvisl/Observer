@@ -65,6 +65,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Reset Local Memory", #selector(resetLocalMemory), to: menu)
         addItem("Request Accessibility Access", #selector(requestAccessibilityAccess), to: menu)
         addItem("Request Camera Access", #selector(requestCameraAccess), to: menu)
+        addItem("Open Camera Privacy Settings", #selector(openCameraPrivacySettings), to: menu)
         addItem("Request Screen Recording Access", #selector(requestScreenRecordingAccess), to: menu)
         addItem("Current Setup", #selector(printCurrentSetup), to: menu)
         addItem("Open Data Folder", #selector(openDataFolder), to: menu)
@@ -278,6 +279,13 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func requestCameraAccess() {
         controller?.requestCameraAccess()
+    }
+
+    @objc private func openCameraPrivacySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func requestScreenRecordingAccess() {

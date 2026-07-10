@@ -20,6 +20,7 @@ Core event families:
 - focus: `appFocus`, `appFocusInterval`
 - context: `screenContext`, `ocrContext`
 - attention: `attention`
+- camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
 - memory: `localSummary`, `researchDigest`, `userNote`
 - external reasoning: `externalLLMRequest`, `geminiInsight`, `localInsight`
 - secrets: `geminiKeyUpdated`, `geminiKeyDeleted` record only key lifecycle metadata, never key material

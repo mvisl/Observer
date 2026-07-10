@@ -69,6 +69,7 @@ GitHub CI is included under `.github/workflows/ci.yml` and runs `swift test` on 
 - `Reset Local Memory`: deletes all Observer events after confirmation.
 - `Request Accessibility Access`: asks macOS for Accessibility permission so Observer can read active window titles.
 - `Request Camera Access`: asks macOS for camera permission used by local attention sampling.
+- `Open Camera Privacy Settings`: opens macOS camera privacy settings if the system prompt did not surface.
 - `Request Screen Recording Access`: asks macOS for permission needed by OCR/window capture.
 - `Current Setup`: prints the workspace topology.
 - `Open Data Folder`: opens the local data directory.
@@ -97,13 +98,14 @@ Files:
 
 While observing, Observer also writes quiet local summaries on a timer. The default interval is 15 minutes.
 Local deterministic detectors run during summary generation and can add `detectorFired` events for frequent app switching, return loops, and reading/thinking pauses.
+Observation and camera attention now start on launch by default for this prototype. Camera frames are still processed in memory only and are not stored.
 
 ## Current Limits
 
 - Screen capture is manual-only for OCR and only for allowlisted current apps.
 - OCR uses local Apple Vision and stores recognized text snippets, not images.
 - Camera attention is coarse: face present/off-screen, face position in frame, confidence. It is not eye tracking.
-- The floating widget translates camera/input signals into soft states such as `активно работает`, `думает / читает`, `не у экрана`.
+- The floating widget translates camera/input signals into soft states such as `активно работает`, `думает / читает`, `не у экрана`, and shows camera startup/permission states.
 - External model calls are manual-only. `Generate Gemini Insight` sends a compact context packet only when explicitly triggered.
 - Optional local LLM insight uses local Ollama at `127.0.0.1:11434` only.
 - SQLite is not encrypted yet; SQLCipher is the intended durable backend later.

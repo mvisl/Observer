@@ -15,6 +15,7 @@ final class ObserverController {
     private var currentFocus: AppFocusSnapshot?
     private var currentFocusStartedAt: Date?
     private var latestAttention: AttentionSnapshot?
+    private var latestCameraStatus: String?
     private var latestInputActivity: InputActivitySnapshot?
     private var latestHint: String?
     private var lastHintAt: Date?
@@ -59,7 +60,7 @@ final class ObserverController {
             mode: mode,
             contextText: currentFocus?.shortContextText ?? "No active context yet",
             sessionStartedAt: sessionStartedAt,
-            attentionText: AttentionStateBuilder().build(
+            attentionText: latestCameraStatus ?? AttentionStateBuilder().build(
                 attention: latestAttention,
                 input: latestInputActivity,
                 settings: environment.settings
@@ -131,23 +132,53 @@ final class ObserverController {
     }
 
     func startCameraAttention() {
+        latestCameraStatus = "Контекст: запрашиваю камеру"
+        append(
+            .init(
+                type: .cameraPermission,
+                payload: ["status": PermissionAdvisor.currentStatus().camera],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
+
         PermissionAdvisor.requestCameraAccess { [weak self] granted in
             guard let self else {
                 return
             }
 
             guard granted else {
+                self.latestCameraStatus = "Контекст: камера запрещена"
+                self.append(
+                    .init(
+                        type: .cameraPermission,
+                        payload: ["status": PermissionAdvisor.currentStatus().camera],
+                        workspaceTopologyVersion: self.environment.topology.version
+                    )
+                )
+                self.notifyStateChanged()
                 print("Camera access not granted.")
                 return
             }
 
             do {
+                self.latestCameraStatus = "Контекст: камера включается"
                 try self.cameraAttentionService.start(
                     minimumEmitInterval: self.environment.settings.attentionSampleIntervalSeconds
                 ) { [weak self] snapshot in
                     self?.handleAttentionSnapshot(snapshot)
                 }
+                self.append(
+                    .init(
+                        type: .cameraAttentionStarted,
+                        payload: ["sample_interval_seconds": "\(Int(self.environment.settings.attentionSampleIntervalSeconds))"],
+                        workspaceTopologyVersion: self.environment.topology.version
+                    )
+                )
+                self.notifyStateChanged()
             } catch {
+                self.latestCameraStatus = "Контекст: камера не запустилась"
+                self.notifyStateChanged()
                 print("Camera attention failed to start: \(error)")
             }
         }
@@ -156,6 +187,13 @@ final class ObserverController {
     func stopCameraAttention() {
         cameraAttentionService.stop()
         latestAttention = nil
+        latestCameraStatus = nil
+        append(
+            .init(
+                type: .cameraAttentionStopped,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
         notifyStateChanged()
     }
 
@@ -591,6 +629,7 @@ final class ObserverController {
 
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         latestAttention = snapshot
+        latestCameraStatus = nil
         append(
             .init(
                 type: .attention,

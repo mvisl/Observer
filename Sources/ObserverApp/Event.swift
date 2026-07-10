@@ -6,6 +6,9 @@ enum ObserverEventType: String, Codable {
     case attention
     case appFocus
     case appFocusInterval
+    case cameraAttentionStarted
+    case cameraAttentionStopped
+    case cameraPermission
     case detectorFired
     case displayInventory
     case hintCandidate
