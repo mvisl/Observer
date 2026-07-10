@@ -48,6 +48,7 @@ final class ObserverController {
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
     private var currentMediaTrackKey: String?
     private var currentMediaTrackStartedAt: Date?
+    private var lastMediaProbeFailureAt: Date?
     private var lastAutoPauseAt: Date?
     private var lastHeadphonesAutoPauseAt: Date?
     private var lastAudioOutputLooksLikeHeadphones: Bool?
@@ -1346,7 +1347,9 @@ final class ObserverController {
     private func sampleMediaPlayback() {
         handleAudioOutputTransition()
 
-        guard let snapshot = MediaPlaybackService().currentPlayback() else {
+        let probe = MediaPlaybackService().currentPlaybackProbe()
+        guard let snapshot = probe.snapshot else {
+            recordMediaProbeFailureIfNeeded(probe.failures)
             return
         }
 
@@ -1416,6 +1419,30 @@ final class ObserverController {
         }
         lastMediaPlaybackKey = snapshot.identityKey
         lastMediaPlaybackSnapshot = snapshot
+    }
+
+    private func recordMediaProbeFailureIfNeeded(_ failures: [String], now: Date = Date()) {
+        guard !failures.isEmpty else {
+            return
+        }
+        guard lastMediaProbeFailureAt.map({ now.timeIntervalSince($0) >= 120 }) ?? true else {
+            return
+        }
+
+        lastMediaProbeFailureAt = now
+        latestHint = "Медиа: не вижу Music, нужна проверка доступа"
+        lastHintAt = now
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "media_probe_failed",
+                    "failures": failures.prefix(4).joined(separator: " | ")
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
     }
 
     private func userAppearsAwayForMediaPreference() -> Bool {

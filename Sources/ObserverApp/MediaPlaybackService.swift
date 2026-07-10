@@ -62,15 +62,28 @@ struct MediaPlaybackSnapshot: Equatable {
 }
 
 struct MediaPlaybackService {
+    struct ProbeResult {
+        let snapshot: MediaPlaybackSnapshot?
+        let failures: [String]
+    }
+
     func currentPlayback() -> MediaPlaybackSnapshot? {
+        currentPlaybackProbe().snapshot
+    }
+
+    func currentPlaybackProbe() -> ProbeResult {
+        var failures: [String] = []
         let snapshots = [
-            currentAppleMusicPlayback(),
-            currentYouTubePlaybackInChrome(),
-            currentYouTubePlaybackInSafari(),
-            currentSpotifyPlayback()
+            currentAppleMusicPlayback(failures: &failures),
+            currentYouTubePlaybackInChrome(failures: &failures),
+            currentYouTubePlaybackInSafari(failures: &failures),
+            currentSpotifyPlayback(failures: &failures)
         ].compactMap { $0 }
 
-        return snapshots.first { $0.state == "playing" } ?? snapshots.first
+        return ProbeResult(
+            snapshot: snapshots.first { $0.state == "playing" } ?? snapshots.first,
+            failures: failures
+        )
     }
 
     func pauseAllKnownSources() -> [String] {
@@ -99,7 +112,7 @@ struct MediaPlaybackService {
         }
     }
 
-    private func currentAppleMusicPlayback() -> MediaPlaybackSnapshot? {
+    private func currentAppleMusicPlayback(failures: inout [String]) -> MediaPlaybackSnapshot? {
         let script = """
         tell application "System Events"
             if not (exists process "Music") then return ""
@@ -119,10 +132,10 @@ struct MediaPlaybackService {
             return "Music|" & playerState & "|" & trackName & "|" & trackArtist & "|" & trackAlbum & "|" & playerVolume
         end tell
         """
-        return runPlaybackScript(script)
+        return runPlaybackScript(script, label: "Music playback", failures: &failures)
     }
 
-    private func currentSpotifyPlayback() -> MediaPlaybackSnapshot? {
+    private func currentSpotifyPlayback(failures: inout [String]) -> MediaPlaybackSnapshot? {
         let script = """
         tell application "System Events"
             if not (exists process "Spotify") then return ""
@@ -137,10 +150,10 @@ struct MediaPlaybackService {
             return "Spotify|" & playerState & "|" & trackName & "|" & trackArtist & "|" & trackAlbum & "|" & playerVolume
         end tell
         """
-        return runPlaybackScript(script)
+        return runPlaybackScript(script, label: "Spotify playback", failures: &failures)
     }
 
-    private func currentYouTubePlaybackInChrome() -> MediaPlaybackSnapshot? {
+    private func currentYouTubePlaybackInChrome(failures: inout [String]) -> MediaPlaybackSnapshot? {
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return ""
@@ -157,10 +170,10 @@ struct MediaPlaybackService {
         end tell
         return ""
         """
-        return runPlaybackScript(script)
+        return runPlaybackScript(script, label: "YouTube Chrome playback", failures: &failures)
     }
 
-    private func currentYouTubePlaybackInSafari() -> MediaPlaybackSnapshot? {
+    private func currentYouTubePlaybackInSafari(failures: inout [String]) -> MediaPlaybackSnapshot? {
         let script = """
         tell application "System Events"
             if not (exists process "Safari") then return ""
@@ -177,12 +190,15 @@ struct MediaPlaybackService {
         end tell
         return ""
         """
-        return runPlaybackScript(script)
+        return runPlaybackScript(script, label: "YouTube Safari playback", failures: &failures)
     }
 
-    private func runPlaybackScript(_ source: String) -> MediaPlaybackSnapshot? {
-        var error: NSDictionary?
-        guard let output = NSAppleScript(source: source)?.executeAndReturnError(&error).stringValue else {
+    private func runPlaybackScript(
+        _ source: String,
+        label: String,
+        failures: inout [String]
+    ) -> MediaPlaybackSnapshot? {
+        guard let output = runScript(source, label: label, failures: &failures) else {
             return nil
         }
 
@@ -340,10 +356,68 @@ struct MediaPlaybackService {
     }
 
     private func runActionScript(_ source: String) -> String? {
-        var error: NSDictionary?
-        let output = NSAppleScript(source: source)?.executeAndReturnError(&error).stringValue
-        let trimmed = output?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var failures: [String] = []
+        guard let output = runScript(source, label: "media action", failures: &failures) else {
+            return nil
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func runScript(
+        _ source: String,
+        label: String,
+        failures: inout [String]
+    ) -> String? {
+        var error: NSDictionary?
+        if let output = NSAppleScript(source: source)?.executeAndReturnError(&error).stringValue {
+            return output
+        }
+
+        if let error {
+            failures.append("\(label): NSAppleScript \(Self.errorSummary(error))")
+        } else {
+            failures.append("\(label): NSAppleScript returned no output")
+        }
+
+        if let output = runOSAScript(source) {
+            return output
+        }
+
+        failures.append("\(label): osascript fallback returned no output")
+        return nil
+    }
+
+    private func runOSAScript(_ source: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", source]
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? nil : text
+    }
+
+    private static func errorSummary(_ error: NSDictionary) -> String {
+        let number = error[NSAppleScript.errorNumber] ?? "unknown"
+        let message = error[NSAppleScript.errorMessage] ?? "unknown"
+        return "\(number) \(message)"
     }
 
     static func parseOutput(_ output: String) -> MediaPlaybackSnapshot? {
