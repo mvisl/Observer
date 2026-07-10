@@ -6,9 +6,12 @@ final class WidgetPanelController {
     private let panel: FloatingWidgetPanel
     private let widgetView: ObserverWidgetView
 
-    init() {
+    init(onInsightRequest: @escaping (TimeInterval) -> String?) {
         let size = Self.storedWidgetSize() ?? Self.defaultWidgetSize
-        widgetView = ObserverWidgetView(frame: NSRect(origin: .zero, size: size))
+        widgetView = ObserverWidgetView(
+            frame: NSRect(origin: .zero, size: size),
+            onInsightRequest: onInsightRequest
+        )
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -102,12 +105,14 @@ final class WidgetPanelController {
         defaults.set(clamped.height, forKey: "widget.height")
     }
 
-    fileprivate static func applyWidgetSize(_ size: CGSize, to window: NSWindow) {
+    fileprivate static func applyWidgetSize(_ size: CGSize, to window: NSWindow, persist: Bool = true) {
         let clampedSize = clampedSize(size)
         let clampedOrigin = clampedOrigin(window.frame.origin, size: clampedSize)
         window.setFrame(NSRect(origin: clampedOrigin, size: clampedSize), display: true)
-        saveWidgetOrigin(clampedOrigin)
-        saveWidgetSize(clampedSize)
+        if persist {
+            saveWidgetOrigin(clampedOrigin)
+            saveWidgetSize(clampedSize)
+        }
     }
 
     fileprivate static func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
@@ -151,7 +156,7 @@ final class WidgetPanelController {
     private static func clampedSize(_ size: CGSize) -> CGSize {
         CGSize(
             width: min(max(size.width, 190), 360),
-            height: min(max(size.height, 68), 86)
+            height: min(max(size.height, 68), 190)
         )
     }
 }
@@ -164,23 +169,30 @@ final class FloatingWidgetPanel: NSPanel {
 final class ObserverWidgetView: NSView {
     private let statusDot = NSView()
     private let statusLabel = NSTextField(labelWithString: "Paused")
+    private let moreButton = NSButton(title: "...", target: nil, action: nil)
     private let appLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "No active context yet")
+    private let insightLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
+    private let onInsightRequest: (TimeInterval) -> String?
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
     private var dragMode: DragMode?
     private var state: ObserverViewState?
     private var refreshTimer: Timer?
+    private var trackingArea: NSTrackingArea?
+    private var previousSizeBeforeInsight: CGSize?
+    private var isInsightExpanded = false
 
     private enum DragMode {
         case move
         case resize
     }
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, onInsightRequest: @escaping (TimeInterval) -> String?) {
+        self.onInsightRequest = onInsightRequest
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 16
@@ -200,6 +212,21 @@ final class ObserverWidgetView: NSView {
         nil
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
     func update(_ state: ObserverViewState) {
         self.state = state
         statusLabel.stringValue = state.mode.displayText
@@ -209,11 +236,18 @@ final class ObserverWidgetView: NSView {
         hintLabel.stringValue = ""
         metaLabel.isHidden = true
         hintLabel.isHidden = true
+        if !isInsightExpanded {
+            insightLabel.isHidden = true
+        }
         statusDot.layer?.backgroundColor = dotColor(for: state.mode).cgColor
         refreshSessionDuration()
     }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if moreButton.frame.insetBy(dx: -8, dy: -8).contains(point) {
+            return
+        }
         dragStartMouseLocation = NSEvent.mouseLocation
         dragStartWindowOrigin = window?.frame.origin
         dragStartWindowSize = window?.frame.size
@@ -266,6 +300,10 @@ final class ObserverWidgetView: NSView {
         dragStartWindowSize = nil
     }
 
+    override func mouseExited(with event: NSEvent) {
+        collapseInsight()
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
         menu.addItem(menuItem("Small", action: #selector(setCompactSize)))
@@ -275,7 +313,7 @@ final class ObserverWidgetView: NSView {
     }
 
     private func configureSubviews() {
-        [statusDot, statusLabel, appLabel, contextLabel, metaLabel, hintLabel].forEach {
+        [statusDot, statusLabel, moreButton, appLabel, contextLabel, insightLabel, metaLabel, hintLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -287,6 +325,13 @@ final class ObserverWidgetView: NSView {
         statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         statusLabel.textColor = .labelColor
 
+        moreButton.bezelStyle = .regularSquare
+        moreButton.isBordered = false
+        moreButton.font = .systemFont(ofSize: 14, weight: .bold)
+        moreButton.contentTintColor = .secondaryLabelColor
+        moreButton.target = self
+        moreButton.action = #selector(showInsightMenu)
+
         appLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         appLabel.textColor = .labelColor
         appLabel.lineBreakMode = .byTruncatingTail
@@ -296,6 +341,12 @@ final class ObserverWidgetView: NSView {
         contextLabel.textColor = .labelColor
         contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
+
+        insightLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        insightLabel.textColor = .secondaryLabelColor
+        insightLabel.lineBreakMode = .byTruncatingTail
+        insightLabel.maximumNumberOfLines = 5
+        insightLabel.isHidden = true
 
         metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         metaLabel.textColor = .secondaryLabelColor
@@ -317,7 +368,12 @@ final class ObserverWidgetView: NSView {
 
             statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 8),
             statusLabel.centerYAnchor.constraint(equalTo: statusDot.centerYAnchor),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -8),
+
+            moreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            moreButton.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
+            moreButton.widthAnchor.constraint(equalToConstant: 28),
+            moreButton.heightAnchor.constraint(equalToConstant: 24),
 
             appLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             appLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -327,9 +383,13 @@ final class ObserverWidgetView: NSView {
             contextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
+            insightLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            insightLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            insightLabel.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
+
             metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            metaLabel.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 5),
+            metaLabel.topAnchor.constraint(equalTo: insightLabel.bottomAnchor, constant: 5),
 
             hintLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -346,6 +406,59 @@ final class ObserverWidgetView: NSView {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
+    }
+
+    @objc private func showInsightMenu() {
+        let menu = NSMenu()
+        [
+            ("Insight: 30 min", 30),
+            ("Insight: 1 hour", 60),
+            ("Insight: 2 hours", 120),
+            ("Insight: today", 0)
+        ].forEach { title, minutes in
+            let item = menuItem(title, action: #selector(selectInsightInterval(_:)))
+            item.representedObject = minutes
+            menu.addItem(item)
+        }
+        if let event = NSApp.currentEvent {
+            NSMenu.popUpContextMenu(menu, with: event, for: moreButton)
+        }
+    }
+
+    @objc private func selectInsightInterval(_ sender: NSMenuItem) {
+        let minutes = sender.representedObject as? Int ?? 30
+        let interval = minutes == 0 ? 0 : TimeInterval(minutes * 60)
+        let title = minutes == 0 ? "Сегодня" : "\(minutes) мин"
+        let text = onInsightRequest(interval) ?? "Инсайт недоступен."
+        expandInsight(title: title, text: text)
+    }
+
+    private func expandInsight(title: String, text: String) {
+        guard let window else {
+            return
+        }
+        if !isInsightExpanded {
+            previousSizeBeforeInsight = window.frame.size
+        }
+        isInsightExpanded = true
+        insightLabel.stringValue = "\(title)\n\(text)"
+        insightLabel.isHidden = false
+        WidgetPanelController.applyWidgetSize(
+            CGSize(width: window.frame.width, height: 168),
+            to: window,
+            persist: false
+        )
+    }
+
+    private func collapseInsight() {
+        guard isInsightExpanded, let window else {
+            return
+        }
+        isInsightExpanded = false
+        insightLabel.isHidden = true
+        let target = previousSizeBeforeInsight ?? WidgetPanelController.defaultWidgetSize
+        previousSizeBeforeInsight = nil
+        WidgetPanelController.applyWidgetSize(target, to: window, persist: false)
     }
 
     @objc private func setCompactSize() {
@@ -423,6 +536,8 @@ final class ObserverWidgetView: NSView {
 
     private func dotColor(for mode: ObserverController.Mode) -> NSColor {
         switch mode {
+        case .offHours:
+            return .systemGray
         case .paused:
             return .systemYellow
         case .observing:

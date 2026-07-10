@@ -5,6 +5,8 @@ struct AppEnvironment {
     let configStore: ConfigStore
     let eventStore: EventStore
     let entityStore: EntityStore
+    let personalBaselineStore: PersonalBaselineStore
+    let observationCalendarStore: ObservationCalendarStore
     let privacyStore: PrivacyStore
     let settings: ObserverSettings
     let topology: WorkspaceTopology
@@ -25,6 +27,8 @@ struct AppEnvironment {
         let settings = try configStore.loadOrCreateSettings()
         let eventStore = try EventStore(directory: directory)
         let entityStore = try EntityStore(directory: directory)
+        let personalBaselineStore = try PersonalBaselineStore(directory: directory)
+        let observationCalendarStore = try ObservationCalendarStore(directory: directory)
         try eventStore.pruneEvents(olderThanDays: settings.retentionDays, keepingTypes: [.localSummary])
         let privacyStore = try PrivacyStore(directory: directory)
 
@@ -33,6 +37,8 @@ struct AppEnvironment {
             configStore: configStore,
             eventStore: eventStore,
             entityStore: entityStore,
+            personalBaselineStore: personalBaselineStore,
+            observationCalendarStore: observationCalendarStore,
             privacyStore: privacyStore,
             settings: settings,
             topology: topology

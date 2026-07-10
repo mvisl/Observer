@@ -14,8 +14,10 @@ enum ObserverEventType: String, Codable {
     case cameraAttentionStarted
     case cameraAttentionStopped
     case cameraPermission
+    case cognitiveState
     case detectorFired
     case displayInventory
+    case experiment
     case hintCandidate
     case inputActivity
     case typingRhythm
@@ -32,13 +34,20 @@ enum ObserverEventType: String, Codable {
     case localInsight
     case mediaPlayback
     case mediaReaction
+    case personalBaseline
+    case prediction
+    case predictorCalibration
     case researchDigest
+    case resumptionLag
+    case scheduleOverride
+    case sequencePattern
     case localSummary
     case ocrContext
     case screenContext
     case sessionBoundary
     case observingStarted
     case observingPaused
+    case observationGap
     case contextPackGenerated
     case contentContext
     case privacyAllowlistAdded
@@ -47,6 +56,7 @@ enum ObserverEventType: String, Codable {
     case userLabel
     case writingContext
     case workspaceTopologyLoaded
+    case weeklyReport
 }
 
 struct ObserverEvent: Codable, Identifiable {

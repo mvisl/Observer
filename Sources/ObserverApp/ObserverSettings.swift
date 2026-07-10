@@ -9,6 +9,40 @@ struct ObserverSettings: Codable {
         var readingPauseSeconds: Double
     }
 
+    struct CognitiveSettings: Codable {
+        var flowMinimumSeconds: Double
+        var flowMaximumFocusChanges: Int
+        var activeInputMaximumIdleSeconds: Double
+        var readingIdleSeconds: Double
+        var wanderingIdleSeconds: Double
+        var awayIdleSeconds: Double
+        var avoidanceCycles: Int
+        var avoidanceWindowSeconds: Double
+        var taskFocusShortSeconds: Double
+        var overloadDeletionRatioMultiplier: Double
+        var predictionIntervalSeconds: Double
+        var acceptableBrierScore: Double
+        var sequenceMinimumSupport: Int
+        var sequenceMinimumConfidence: Double
+        var proactiveBlockedStates: [String]
+    }
+
+    struct WorkScheduleSettings: Codable {
+        var enabled: Bool
+        var weekdays: [Int]
+        var startHour: Int
+        var startMinute: Int
+        var endHour: Int
+        var endMinute: Int
+        var daysOff: [String]
+        var gracePeriodSeconds: Double
+        var nightlyJobLeadSeconds: Double
+        var includeOverridesInBaselines: Bool
+        var morningTailMinutes: Double
+        var predictionSuppressionBeforeEndSeconds: Double
+        var boundaryTruncationMarginSeconds: Double
+    }
+
     var summaryIntervalSeconds: TimeInterval
     var retentionDays: Int
     var idleSessionBoundarySeconds: Double
@@ -29,6 +63,8 @@ struct ObserverSettings: Codable {
     var pillVerbosity: String
     var pseudonymizeEntities: Bool
     var detectorSettings: DetectorSettings
+    var cognitiveSettings: CognitiveSettings
+    var workSchedule: WorkScheduleSettings
 
     init(
         summaryIntervalSeconds: TimeInterval,
@@ -50,7 +86,9 @@ struct ObserverSettings: Codable {
         rawContextStorageKinds: [String],
         pillVerbosity: String,
         pseudonymizeEntities: Bool,
-        detectorSettings: DetectorSettings
+        detectorSettings: DetectorSettings,
+        cognitiveSettings: CognitiveSettings,
+        workSchedule: WorkScheduleSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
         self.retentionDays = retentionDays
@@ -72,6 +110,8 @@ struct ObserverSettings: Codable {
         self.pillVerbosity = pillVerbosity
         self.pseudonymizeEntities = pseudonymizeEntities
         self.detectorSettings = detectorSettings
+        self.cognitiveSettings = cognitiveSettings
+        self.workSchedule = workSchedule
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +137,8 @@ struct ObserverSettings: Codable {
         self.pillVerbosity = try container.decodeIfPresent(String.self, forKey: .pillVerbosity) ?? defaults.pillVerbosity
         self.pseudonymizeEntities = try container.decodeIfPresent(Bool.self, forKey: .pseudonymizeEntities) ?? defaults.pseudonymizeEntities
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
+        self.cognitiveSettings = try container.decodeIfPresent(CognitiveSettings.self, forKey: .cognitiveSettings) ?? defaults.cognitiveSettings
+        self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
     }
 
     static let defaults = ObserverSettings(
@@ -125,6 +167,38 @@ struct ObserverSettings: Codable {
             returnLoopMinimumEvents: 5,
             returnLoopMinimumReturns: 3,
             readingPauseSeconds: 180
+        ),
+        cognitiveSettings: CognitiveSettings(
+            flowMinimumSeconds: 600,
+            flowMaximumFocusChanges: 0,
+            activeInputMaximumIdleSeconds: 15,
+            readingIdleSeconds: 30,
+            wanderingIdleSeconds: 60,
+            awayIdleSeconds: 45,
+            avoidanceCycles: 3,
+            avoidanceWindowSeconds: 900,
+            taskFocusShortSeconds: 90,
+            overloadDeletionRatioMultiplier: 2,
+            predictionIntervalSeconds: 300,
+            acceptableBrierScore: 0.20,
+            sequenceMinimumSupport: 3,
+            sequenceMinimumConfidence: 0.60,
+            proactiveBlockedStates: ["flow"]
+        ),
+        workSchedule: WorkScheduleSettings(
+            enabled: true,
+            weekdays: [2, 3, 4, 5, 6],
+            startHour: 9,
+            startMinute: 0,
+            endHour: 18,
+            endMinute: 0,
+            daysOff: [],
+            gracePeriodSeconds: 300,
+            nightlyJobLeadSeconds: 3600,
+            includeOverridesInBaselines: false,
+            morningTailMinutes: 10,
+            predictionSuppressionBeforeEndSeconds: 1800,
+            boundaryTruncationMarginSeconds: 300
         )
     )
 }

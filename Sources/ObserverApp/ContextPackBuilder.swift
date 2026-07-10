@@ -471,6 +471,8 @@ private extension ObserverController.Mode {
             return "paused"
         case .observing:
             return "observing"
+        case .offHours:
+            return "off_hours"
         }
     }
 }

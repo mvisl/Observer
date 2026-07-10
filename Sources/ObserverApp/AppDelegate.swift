@@ -40,6 +40,8 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         addItem("Start Observing", #selector(startObserving), to: menu)
         addItem("Pause", #selector(pauseObserving), to: menu)
+        addItem("Observe +1h", #selector(observeOneMoreHour), to: menu)
+        addItem("Observe +2h", #selector(observeTwoMoreHours), to: menu)
         addItem("Start Camera Attention", #selector(startCameraAttention), to: menu)
         addItem("Stop Camera Attention", #selector(stopCameraAttention), to: menu)
         menu.addItem(.separator())
@@ -85,7 +87,9 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     }
 
     private func configureWidget() {
-        let widget = WidgetPanelController()
+        let widget = WidgetPanelController { [weak self] interval in
+            self?.controller?.localInsight(forLast: interval)
+        }
         widgetController = widget
         widget.show()
         if let snapshot = controller?.stateSnapshot {
@@ -101,6 +105,16 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     @objc private func pauseObserving() {
         controller?.pauseObserving()
         statusItem?.button?.title = "Observer: Paused"
+    }
+
+    @objc private func observeOneMoreHour() {
+        controller?.extendObservation(hours: 1)
+        statusItem?.button?.title = "Observer: Watching"
+    }
+
+    @objc private func observeTwoMoreHours() {
+        controller?.extendObservation(hours: 2)
+        statusItem?.button?.title = "Observer: Watching"
     }
 
     @objc private func startCameraAttention() {
@@ -385,6 +399,14 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func startScheduleReconciliation() {
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.controller?.reconcileScheduleGate()
+            }
+        }
+    }
+
     private func startConfiguredServices() {
         guard let controller else {
             return
@@ -397,6 +419,8 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         if controller.settings.startCameraAttentionOnLaunch {
             startCameraAttention()
         }
+
+        startScheduleReconciliation()
     }
 
     private func startPermissionReconciliation() {

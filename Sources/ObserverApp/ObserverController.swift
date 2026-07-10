@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class ObserverController {
     enum Mode {
+        case offHours
         case paused
         case observing
     }
@@ -45,6 +46,7 @@ final class ObserverController {
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
     private var mediaTimer: Timer?
+    private var predictionTimer: Timer?
     private var lastMediaPlaybackKey: String?
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
     private var currentMediaTrackKey: String?
@@ -54,6 +56,11 @@ final class ObserverController {
     private var lastHeadphonesAutoPauseAt: Date?
     private var lastAudioOutputLooksLikeHeadphones: Bool?
     private var autoPausedSources: [String] = []
+    private var scheduleOverride: ScheduleOverride?
+    private var currentObservationIntervalStartedAt: Date?
+    private var currentObservationOutsideDefaultSchedule = false
+    private var latestCognitiveState: String?
+    private var latestCognitiveStateStartedAt: Date?
 
     var onStateChanged: ((ObserverViewState) -> Void)?
 
@@ -98,6 +105,13 @@ final class ObserverController {
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
             hintText: currentWidgetHintText()
+        )
+    }
+
+    private var scheduleGate: ScheduleGate {
+        ScheduleGate(
+            settings: environment.settings.workSchedule,
+            override: scheduleOverride
         )
     }
 
@@ -181,8 +195,16 @@ final class ObserverController {
         guard mode != .observing else {
             return
         }
+        guard scheduleGate.status().sensorAllowed else {
+            enterOffHours()
+            return
+        }
         mode = .observing
-        sessionStartedAt = Date()
+        let now = Date()
+        let scheduleStatus = scheduleGate.status(at: now)
+        sessionStartedAt = now
+        currentObservationIntervalStartedAt = now
+        currentObservationOutsideDefaultSchedule = scheduleStatus.outsideDefaultSchedule
         append(.init(type: .observingStarted, workspaceTopologyVersion: environment.topology.version))
         append(
             .init(
@@ -196,6 +218,8 @@ final class ObserverController {
         }
         startSummaryTimer()
         startMediaTimer()
+        startPredictionTimer()
+        applyMorningTailIfNeeded(now: now)
         notifyStateChanged()
     }
 
@@ -205,6 +229,7 @@ final class ObserverController {
         }
         mode = .paused
         sessionStartedAt = nil
+        closeObservationInterval(reason: "manual_pause")
         append(.init(type: .observingPaused, workspaceTopologyVersion: environment.topology.version))
         closeCurrentFocusInterval(reason: "paused")
         append(
@@ -217,10 +242,54 @@ final class ObserverController {
         sensor?.stop()
         stopSummaryTimer()
         stopMediaTimer()
+        stopPredictionTimer()
         notifyStateChanged()
     }
 
+    func reconcileScheduleGate(now: Date = Date()) {
+        let status = scheduleGate.status(at: now)
+        if status.sensorAllowed {
+            if mode == .offHours, environment.settings.startObservingOnLaunch {
+                startObserving()
+            }
+            return
+        }
+
+        guard mode == .observing else {
+            enterOffHours()
+            return
+        }
+
+        closeForScheduleEnd(now: now)
+    }
+
+    func extendObservation(hours: Int) {
+        let now = Date()
+        let until = now.addingTimeInterval(Double(hours) * 3600)
+        scheduleOverride = ScheduleOverride(until: until, reason: "manual_+\(hours)h")
+        append(
+            .init(
+                type: .scheduleOverride,
+                payload: [
+                    "action": "extend",
+                    "hours": "\(hours)",
+                    "until": ISO8601DateFormatter().string(from: until),
+                    "outside_default_schedule": scheduleGate.isInsideDefaultSchedule(now) ? "false" : "true"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        if mode != .observing {
+            startObserving()
+        }
+    }
+
     func startCameraAttention() {
+        guard scheduleGate.status().sensorAllowed else {
+            latestCameraStatus = nil
+            enterOffHours()
+            return
+        }
         let status = PermissionAdvisor.currentStatus().camera
         recordCameraPermissionStatus(status)
 
@@ -286,6 +355,14 @@ final class ObserverController {
     }
 
     func reconcileCameraPermissionAndStartIfNeeded() {
+        guard scheduleGate.status().sensorAllowed else {
+            latestCameraStatus = nil
+            if cameraAttentionService.isActive {
+                stopCameraAttention()
+            }
+            notifyStateChanged()
+            return
+        }
         let status = PermissionAdvisor.currentStatus().camera
         recordCameraPermissionStatus(status)
 
@@ -353,6 +430,7 @@ final class ObserverController {
     func generateLocalSummary() -> String {
         let events = (try? environment.eventStore.recentEvents(limit: 250)) ?? []
         appendDetectorEvents(from: events)
+        updatePersonalBaselines(from: events)
         let summary = LocalSummaryBuilder().build(events: events)
         append(
             .init(
@@ -365,6 +443,47 @@ final class ObserverController {
             )
         )
         return summary
+    }
+
+    func localInsight(forLast interval: TimeInterval) -> String {
+        let now = Date()
+        let cutoff = interval > 0
+            ? now.addingTimeInterval(-interval)
+            : Calendar.current.startOfDay(for: now)
+        let events = ((try? environment.eventStore.recentEvents(limit: 900)) ?? [])
+            .filter { $0.timestamp >= cutoff }
+        guard !events.isEmpty else {
+            return "За этот интервал пока нет наблюдений."
+        }
+
+        let focus = events.reversed().first { $0.type == .appFocus }?.payload["app_name"]
+            ?? events.reversed().first { $0.type == .appFocusInterval }?.payload["app_name"]
+        let state = events.reversed().first { $0.type == .cognitiveState }?.payload["state"]
+        let content = events.reversed().first { $0.type == .contentContext }?.payload["topic"]
+        let reaction = events.reversed().first { event in
+            event.type == .boundReaction || event.type == .behaviorCue || event.type == .activityInsight
+        }
+        let reactionText = reaction?.payload["insight"]
+            ?? reaction?.payload["cue"]
+            ?? reaction?.payload["activity_insight"]
+        let inputText = events.last { $0.type == .inputActivity }?
+            .payload["seconds_since_any_input"]
+            .flatMap(Double.init)
+            .map { seconds in
+                seconds < 20 ? "ввод активен" : "пауза \(Int(seconds))с"
+            }
+
+        return [
+            focus.map { "Фокус: \($0)" },
+            content.map { "Контекст: \($0)" },
+            state.map { "Состояние: \($0)" },
+            reactionText.map { "Сигнал: \($0)" },
+            inputText,
+            "Событий: \(events.count)"
+        ]
+        .compactMap { $0 }
+        .prefix(5)
+        .joined(separator: "\n")
     }
 
     func generateResearchDigest() -> String {
@@ -729,8 +848,25 @@ final class ObserverController {
     }
 
     private func append(_ event: ObserverEvent) {
+        let status = scheduleGate.status(at: event.timestamp)
+        var payload = event.payload
+        if status.outsideDefaultSchedule {
+            payload["outside_default_schedule"] = "true"
+        }
+        let eventToWrite = ObserverEvent(
+            id: event.id,
+            timestamp: event.timestamp,
+            type: event.type,
+            source: event.source,
+            platform: event.platform,
+            displayRole: event.displayRole,
+            appID: event.appID,
+            confidence: event.confidence,
+            payload: payload,
+            workspaceTopologyVersion: event.workspaceTopologyVersion
+        )
         do {
-            try environment.eventStore.append(event)
+            try environment.eventStore.append(eventToWrite)
         } catch {
             print("Failed to write event: \(error)")
         }
@@ -799,6 +935,7 @@ final class ObserverController {
             if let hint = HintEngine().hint(for: detection) {
                 let shouldSurfaceHint = environment.settings.hintDeliveryMode != "off"
                     && lastHintAt.map { Date().timeIntervalSince($0) >= environment.settings.minimumHintIntervalSeconds } != false
+                    && !proactiveHintsBlocked()
 
                 if shouldSurfaceHint && environment.settings.hintDeliveryMode == "quiet" {
                     latestHint = hint
@@ -859,12 +996,16 @@ final class ObserverController {
             now: now
         )
         recordGazeCalibrationSampleIfNeeded(now: now)
+        recordCognitiveStateIfNeeded(now: now)
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
         notifyStateChanged()
     }
 
     private func handleSensorEvent(_ sensorEvent: SensorEvent) {
+        guard scheduleGate.status().sensorAllowed else {
+            return
+        }
         switch sensorEvent {
         case .displayInventory(let displays):
             append(
@@ -945,6 +1086,58 @@ final class ObserverController {
             recordTextAffectCueIfNeeded(
                 text: context.focusedElementValue ?? context.selectedText,
                 appName: context.appName
+            )
+        }
+        recordCognitiveStateIfNeeded()
+    }
+
+    private func recordCognitiveStateIfNeeded(now: Date = Date()) {
+        guard mode == .observing else {
+            return
+        }
+        let events = (try? environment.eventStore.recentEvents(limit: 260)) ?? []
+        guard let decision = CognitiveStateEvaluator(
+            settings: environment.settings.cognitiveSettings
+        ).evaluate(events: events, now: now) else {
+            return
+        }
+        guard decision.state != latestCognitiveState else {
+            return
+        }
+
+        var payload = decision.payload
+        if let latestCognitiveStateStartedAt {
+            payload["previous_duration_seconds"] = String(format: "%.1f", now.timeIntervalSince(latestCognitiveStateStartedAt))
+        }
+        if let latestCognitiveState, latestCognitiveState == "flow" {
+            payload["flow_exit_reason"] = decision.state == "engaged" ? "natural_end" : "degradation"
+            payload["breakpoint_trigger"] = "true"
+        }
+
+        latestCognitiveState = decision.state
+        latestCognitiveStateStartedAt = now
+        append(
+            .init(
+                type: .cognitiveState,
+                confidence: decision.confidence,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+
+        if payload["breakpoint_trigger"] == "true" {
+            append(
+                .init(
+                    type: .breakpoint,
+                    confidence: decision.confidence,
+                    payload: [
+                        "level": "coarse",
+                        "reason": "flow_exit",
+                        "state": decision.state,
+                        "truncated_by_schedule": "false"
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
             )
         }
     }
@@ -1410,6 +1603,9 @@ final class ObserverController {
         guard displayEligible, decision.surfaceAllowed else {
             return
         }
+        guard !proactiveHintsBlocked() else {
+            return
+        }
 
         if surfaceAsContext {
             setLatestContextLine(displayText, now: now)
@@ -1417,6 +1613,13 @@ final class ObserverController {
             latestHint = displayText
             lastHintAt = now
         }
+    }
+
+    private func proactiveHintsBlocked() -> Bool {
+        guard let latestCognitiveState else {
+            return false
+        }
+        return environment.settings.cognitiveSettings.proactiveBlockedStates.contains(latestCognitiveState)
     }
 
     private func recordBoundReactionIfNeeded(cueEvent: ObserverEvent) {
@@ -1448,6 +1651,98 @@ final class ObserverController {
         )
     }
 
+    private func enterOffHours() {
+        if mode == .observing {
+            closeObservationInterval(reason: "off_hours")
+        }
+        mode = .offHours
+        sessionStartedAt = nil
+        sensor?.stop()
+        stopSummaryTimer()
+        stopMediaTimer()
+        stopPredictionTimer()
+        if cameraAttentionService.isActive {
+            cameraAttentionService.stop()
+        }
+        latestCameraStatus = nil
+        setLatestContextLine("вне рабочих часов")
+        notifyStateChanged()
+    }
+
+    private func closeForScheduleEnd(now: Date) {
+        let summary = generateLocalSummary()
+        _ = summary
+        closeCurrentFocusInterval(reason: "schedule_end")
+        closeObservationInterval(reason: "schedule_end", now: now)
+        append(
+            .init(
+                type: .sessionBoundary,
+                confidence: 0.9,
+                payload: [
+                    "boundary": "schedule_end",
+                    "reason": "work_schedule",
+                    "truncated_by_schedule": "true"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        enterOffHours()
+    }
+
+    private func closeObservationInterval(reason: String, now: Date = Date()) {
+        guard let start = currentObservationIntervalStartedAt else {
+            return
+        }
+        let gate = scheduleGate
+        try? environment.observationCalendarStore.recordInterval(
+            start: start,
+            end: now,
+            plannedStart: gate.workStart(on: start),
+            plannedEnd: gate.workEnd(on: start),
+            outsideDefaultSchedule: currentObservationOutsideDefaultSchedule,
+            offReason: reason == "schedule_end" ? "none" : reason
+        )
+        currentObservationIntervalStartedAt = nil
+        currentObservationOutsideDefaultSchedule = false
+    }
+
+    private func applyMorningTailIfNeeded(now: Date) {
+        let gate = scheduleGate
+        guard let start = gate.workStart(on: now),
+              now.timeIntervalSince(start) <= environment.settings.workSchedule.morningTailMinutes * 60
+        else {
+            return
+        }
+        let events = (try? environment.eventStore.recentEvents(limit: 400)) ?? []
+        guard let previousContext = events.reversed().first(where: { event in
+            event.timestamp < start && (event.type == .contentContext || event.type == .activityInsight)
+        }) else {
+            return
+        }
+        let days = max(1, Calendar.current.dateComponents([.day], from: previousContext.timestamp, to: now).day ?? 1)
+        let label = days >= 2 ? "последняя сессия: \(days)д назад" : "вчера"
+        let topic = previousContext.payload["topic"]
+            ?? previousContext.payload["insight"]
+            ?? previousContext.payload["app_name"]
+            ?? "контекст не найден"
+        setLatestContextLine("\(label): \(topic)", now: now)
+        if days > 1 {
+            append(
+                .init(
+                    type: .observationGap,
+                    confidence: 0.8,
+                    payload: [
+                        "duration_days": "\(days)",
+                        "reason": "non_observed_calendar_gap",
+                        "post_gap_resume": "true",
+                        "previous_event_id": previousContext.id.uuidString
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+    }
+
     private func closeCurrentFocusInterval(reason: String) {
         guard let currentFocus, let currentFocusStartedAt else {
             return
@@ -1463,6 +1758,9 @@ final class ObserverController {
             "duration_seconds": String(format: "%.1f", duration),
             "reason": reason
         ]
+        if scheduleGate.isTruncatedBySchedule(start: currentFocusStartedAt, end: Date()) || reason == "schedule_end" {
+            payload["truncated_by_schedule"] = "true"
+        }
         if let appID = currentFocus.appID {
             payload["app_id"] = appID
         }
@@ -1565,7 +1863,61 @@ final class ObserverController {
         summaryTimer = nil
     }
 
+    private func startPredictionTimer() {
+        stopPredictionTimer()
+        guard scheduleGate.predictionAllowed() else {
+            return
+        }
+        let interval = environment.settings.cognitiveSettings.predictionIntervalSeconds
+        predictionTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.recordPredictionIfAllowed()
+            }
+        }
+    }
+
+    private func stopPredictionTimer() {
+        predictionTimer?.invalidate()
+        predictionTimer = nil
+    }
+
+    private func recordPredictionIfAllowed() {
+        guard mode == .observing, scheduleGate.predictionAllowed() else {
+            return
+        }
+        let events = (try? environment.eventStore.recentEvents(limit: 220)) ?? []
+        append(
+            .init(
+                type: .prediction,
+                confidence: 0.5,
+                payload: PredictionBuilder().build(events: events),
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func updatePersonalBaselines(from events: [ObserverEvent]) {
+        let dates = events.map(\.timestamp)
+        let observedHours: Double?
+        if let start = dates.min(), let end = dates.max() {
+            observedHours = try? environment.observationCalendarStore.observedHours(since: start, until: end)
+        } else {
+            observedHours = nil
+        }
+        let samples = PersonalBaselineBuilder().samples(
+            from: events,
+            observedHours: observedHours,
+            includeOverrides: environment.settings.workSchedule.includeOverridesInBaselines
+        )
+        for sample in samples {
+            try? environment.personalBaselineStore.upsert(sample: sample)
+        }
+    }
+
     private func startMediaTimer() {
+        guard scheduleGate.status().sensorAllowed else {
+            return
+        }
         stopMediaTimer()
         sampleMediaPlayback()
         mediaTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
@@ -1585,6 +1937,9 @@ final class ObserverController {
     }
 
     private func sampleMediaPlayback() {
+        guard scheduleGate.status().sensorAllowed else {
+            return
+        }
         handleAudioOutputTransition()
 
         let probe = MediaPlaybackService().currentPlaybackProbe()
@@ -1929,6 +2284,8 @@ struct ObserverViewState {
 extension ObserverController.Mode {
     var displayText: String {
         switch self {
+        case .offHours:
+            return "Off hours"
         case .paused:
             return "Paused"
         case .observing:
