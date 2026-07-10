@@ -107,6 +107,9 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             },
             onCalibrationAction: { [weak self] action in
                 self?.controller?.recordCalibrationSessionAction(action)
+            },
+            onExitRequest: { [weak self] in
+                self?.quit()
             }
         )
         widgetController = widget

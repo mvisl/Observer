@@ -11,7 +11,8 @@ final class WidgetPanelController {
         onInsightOpened: @escaping () -> Void,
         onSecurityArtifactRequest: @escaping () -> URL?,
         onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
-        onCalibrationAction: @escaping (String) -> Void
+        onCalibrationAction: @escaping (String) -> Void,
+        onExitRequest: @escaping () -> Void
     ) {
         let size = Self.storedWidgetSize() ?? Self.defaultWidgetSize
         widgetView = ObserverWidgetView(
@@ -20,7 +21,8 @@ final class WidgetPanelController {
             onInsightOpened: onInsightOpened,
             onSecurityArtifactRequest: onSecurityArtifactRequest,
             onCalibrationSample: onCalibrationSample,
-            onCalibrationAction: onCalibrationAction
+            onCalibrationAction: onCalibrationAction,
+            onExitRequest: onExitRequest
         )
         panel = FloatingWidgetPanel(
             contentRect: widgetView.frame,
@@ -273,6 +275,9 @@ final class ObserverWidgetView: NSView {
     private let recommendationLabel = NSTextField(labelWithString: "")
     private let securityFolderButton = NSButton(title: "Папка", target: nil, action: nil)
     private let calibrationButton = NSButton(title: "Калибровка", target: nil, action: nil)
+    private let exitButton = NSButton(title: "Exit", target: nil, action: nil)
+    private let exitYesButton = NSButton(title: "Yes", target: nil, action: nil)
+    private let exitNoButton = NSButton(title: "No", target: nil, action: nil)
     private let calibrationContainer = NSView()
     private let finishCalibrationButton = NSButton(title: "Закончить", target: nil, action: nil)
     private let resetCalibrationButton = NSButton(title: "Сбросить", target: nil, action: nil)
@@ -284,6 +289,7 @@ final class ObserverWidgetView: NSView {
     private let onSecurityArtifactRequest: () -> URL?
     private let onCalibrationSample: (Int, Int, Int?, Int?) -> Void
     private let onCalibrationAction: (String) -> Void
+    private let onExitRequest: () -> Void
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
@@ -298,6 +304,7 @@ final class ObserverWidgetView: NSView {
     private var calibrationStartedAppName: String?
     private var calibrationTarget: CalibrationTarget?
     private var calibrationSampleCount = 0
+    private var isExitConfirmationVisible = false
     private var selectedInsightMinutes = UserDefaults.standard.object(forKey: "widget.insight.minutes") as? Int ?? 30
 
     private enum DragMode {
@@ -316,13 +323,15 @@ final class ObserverWidgetView: NSView {
         onInsightOpened: @escaping () -> Void,
         onSecurityArtifactRequest: @escaping () -> URL?,
         onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
-        onCalibrationAction: @escaping (String) -> Void
+        onCalibrationAction: @escaping (String) -> Void,
+        onExitRequest: @escaping () -> Void
     ) {
         self.onInsightRequest = onInsightRequest
         self.onInsightOpened = onInsightOpened
         self.onSecurityArtifactRequest = onSecurityArtifactRequest
         self.onCalibrationSample = onCalibrationSample
         self.onCalibrationAction = onCalibrationAction
+        self.onExitRequest = onExitRequest
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 16
@@ -486,6 +495,9 @@ final class ObserverWidgetView: NSView {
             recommendationLabel,
             securityFolderButton,
             calibrationButton,
+            exitButton,
+            exitYesButton,
+            exitNoButton,
             calibrationContainer,
             finishCalibrationButton,
             resetCalibrationButton,
@@ -575,6 +587,19 @@ final class ObserverWidgetView: NSView {
         calibrationButton.action = #selector(startCalibrationMode)
         calibrationButton.isHidden = true
 
+        [exitButton, exitYesButton, exitNoButton].forEach {
+            $0.bezelStyle = .rounded
+            $0.controlSize = .small
+            $0.font = .systemFont(ofSize: 11, weight: .medium)
+            $0.isHidden = true
+        }
+        exitButton.target = self
+        exitButton.action = #selector(requestExitConfirmation)
+        exitYesButton.target = self
+        exitYesButton.action = #selector(confirmExit)
+        exitNoButton.target = self
+        exitNoButton.action = #selector(cancelExitConfirmation)
+
         calibrationContainer.wantsLayer = true
         calibrationContainer.isHidden = true
 
@@ -654,6 +679,21 @@ final class ObserverWidgetView: NSView {
             calibrationButton.widthAnchor.constraint(equalToConstant: 92),
             calibrationButton.heightAnchor.constraint(equalToConstant: 22),
 
+            exitButton.leadingAnchor.constraint(equalTo: calibrationButton.trailingAnchor, constant: 8),
+            exitButton.centerYAnchor.constraint(equalTo: securityFolderButton.centerYAnchor),
+            exitButton.widthAnchor.constraint(equalToConstant: 44),
+            exitButton.heightAnchor.constraint(equalToConstant: 22),
+
+            exitYesButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            exitYesButton.topAnchor.constraint(equalTo: recommendationLabel.bottomAnchor, constant: 6),
+            exitYesButton.widthAnchor.constraint(equalToConstant: 48),
+            exitYesButton.heightAnchor.constraint(equalToConstant: 22),
+
+            exitNoButton.leadingAnchor.constraint(equalTo: exitYesButton.trailingAnchor, constant: 8),
+            exitNoButton.centerYAnchor.constraint(equalTo: exitYesButton.centerYAnchor),
+            exitNoButton.widthAnchor.constraint(equalToConstant: 48),
+            exitNoButton.heightAnchor.constraint(equalToConstant: 22),
+
             calibrationContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             calibrationContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             calibrationContainer.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 10),
@@ -728,7 +768,7 @@ final class ObserverWidgetView: NSView {
         intervalControl.isHidden = false
         descriptionLabel.isHidden = false
         recommendationLabel.isHidden = false
-        calibrationButton.isHidden = false
+        isExitConfirmationVisible = false
         hideCalibrationControls()
         updateInsightContent()
         layoutSubtreeIfNeeded()
@@ -749,6 +789,7 @@ final class ObserverWidgetView: NSView {
         (window as? FloatingWidgetPanel)?.setLockedWidth(WidgetPanelController.normalWidgetWidth, keepingTopRight: true)
         isInsightExpanded = false
         isCalibrationMode = false
+        isExitConfirmationVisible = false
         hideInsightControls()
         hideCalibrationControls()
         let target = previousSizeBeforeInsight ?? WidgetPanelController.defaultWidgetSize
@@ -768,8 +809,7 @@ final class ObserverWidgetView: NSView {
         let recommendation = recommendation(for: lines)
         recommendationLabel.stringValue = recommendation
         recommendationLabel.isHidden = recommendation.isEmpty
-        securityFolderButton.isHidden = onSecurityArtifactRequest() == nil
-        calibrationButton.isHidden = false
+        updateActionButtonVisibility()
         updateIntervalControlState()
     }
 
@@ -800,6 +840,27 @@ final class ObserverWidgetView: NSView {
         recommendationLabel.isHidden = true
         securityFolderButton.isHidden = true
         calibrationButton.isHidden = true
+        exitButton.isHidden = true
+        exitYesButton.isHidden = true
+        exitNoButton.isHidden = true
+        isExitConfirmationVisible = false
+    }
+
+    private func updateActionButtonVisibility() {
+        if isExitConfirmationVisible {
+            securityFolderButton.isHidden = true
+            calibrationButton.isHidden = true
+            exitButton.isHidden = true
+            exitYesButton.isHidden = false
+            exitNoButton.isHidden = false
+            return
+        }
+
+        securityFolderButton.isHidden = onSecurityArtifactRequest() == nil
+        calibrationButton.isHidden = false
+        exitButton.isHidden = false
+        exitYesButton.isHidden = true
+        exitNoButton.isHidden = true
     }
 
     private func updateSecurityBadge(count: Int) {
@@ -813,6 +874,9 @@ final class ObserverWidgetView: NSView {
             .union(recommendationLabel.frame)
             .union(securityFolderButton.frame)
             .union(calibrationButton.frame)
+            .union(exitButton.frame)
+            .union(exitYesButton.frame)
+            .union(exitNoButton.frame)
             .union(calibrationContainer.frame)
             .union(finishCalibrationButton.frame)
             .union(resetCalibrationButton.frame)
@@ -824,7 +888,7 @@ final class ObserverWidgetView: NSView {
         if isCalibrationMode {
             return 224
         }
-        if !securityFolderButton.isHidden || !calibrationButton.isHidden {
+        if !securityFolderButton.isHidden || !calibrationButton.isHidden || !exitButton.isHidden || isExitConfirmationVisible {
             return recommendationLabel.isHidden ? 218 : 236
         }
         return recommendationLabel.isHidden ? 188 : 214
@@ -842,6 +906,25 @@ final class ObserverWidgetView: NSView {
         )
     }
 
+    @objc private func requestExitConfirmation() {
+        isExitConfirmationVisible = true
+        updateActionButtonVisibility()
+        descriptionLabel.stringValue = "Выключить Observer?"
+        recommendationLabel.stringValue = "Yes завершит приложение. No вернёт кнопки."
+        recommendationLabel.isHidden = false
+        resizeExpandedPanelIfNeeded()
+    }
+
+    @objc private func cancelExitConfirmation() {
+        isExitConfirmationVisible = false
+        updateInsightContent()
+        resizeExpandedPanelIfNeeded()
+    }
+
+    @objc private func confirmExit() {
+        onExitRequest()
+    }
+
     @objc private func startCalibrationMode() {
         guard let window else {
             return
@@ -856,6 +939,10 @@ final class ObserverWidgetView: NSView {
         recommendationLabel.isHidden = true
         securityFolderButton.isHidden = true
         calibrationButton.isHidden = true
+        exitButton.isHidden = true
+        exitYesButton.isHidden = true
+        exitNoButton.isHidden = true
+        isExitConfirmationVisible = false
         calibrationContainer.isHidden = false
         finishCalibrationButton.isHidden = true
         resetCalibrationButton.isHidden = true
