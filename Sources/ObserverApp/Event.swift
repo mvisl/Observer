@@ -19,6 +19,7 @@ enum ObserverEventType: String, Codable {
     case geminiInsight
     case geminiKeyDeleted
     case geminiKeyUpdated
+    case gazeCalibrationSample
     case localInsight
     case mediaPlayback
     case mediaReaction

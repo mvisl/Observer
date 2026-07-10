@@ -30,6 +30,8 @@ final class ObserverController {
     private var lastActivityInsightAt: Date?
     private var lastBehaviorCueName: String?
     private var lastBehaviorCueAt: Date?
+    private var lastGazeCalibrationKey: String?
+    private var lastGazeCalibrationAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
@@ -806,6 +808,7 @@ final class ObserverController {
             secondsSincePreviousAttention: previousAttentionAt.map { now.timeIntervalSince($0) },
             now: now
         )
+        recordGazeCalibrationSampleIfNeeded(now: now)
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
         notifyStateChanged()
@@ -852,6 +855,7 @@ final class ObserverController {
                 )
             )
             updateIdleBoundary(activity)
+            recordGazeCalibrationSampleIfNeeded()
             captureOCRWritingFallbackIfNeeded(activity)
             pauseMediaIfUserAppearsAway()
             resumeMediaIfUserReturned()
@@ -1039,6 +1043,44 @@ final class ObserverController {
             latestHint = cue.insight
             lastHintAt = now
         }
+    }
+
+    private func recordGazeCalibrationSampleIfNeeded(now: Date = Date()) {
+        guard mode == .observing else {
+            return
+        }
+
+        guard let sample = GazeCalibrationBuilder().build(
+            attention: smoothedAttentionForDisplay,
+            input: latestInputActivity,
+            currentFocus: currentFocus,
+            activityInsight: lastActivityInsight
+        ) else {
+            return
+        }
+
+        let key = [
+            sample.targetSource,
+            sample.targetDisplayRole?.rawValue ?? "no-role",
+            sample.targetScreenIndex.map(String.init) ?? "no-screen"
+        ].joined(separator: "|")
+        let enoughTimePassed = lastGazeCalibrationAt.map { now.timeIntervalSince($0) >= 8 } ?? true
+        guard key != lastGazeCalibrationKey || enoughTimePassed else {
+            return
+        }
+
+        lastGazeCalibrationKey = key
+        lastGazeCalibrationAt = now
+        append(
+            .init(
+                type: .gazeCalibrationSample,
+                displayRole: sample.targetDisplayRole,
+                appID: currentFocus?.appID,
+                confidence: sample.confidence,
+                payload: sample.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func closeCurrentFocusInterval(reason: String) {

@@ -9,6 +9,7 @@ struct ContextPackBuilder {
         let appFocusEvents = events.filter { $0.type == .appFocus }
         let attentionEvents = events.filter { $0.type == .attention }
         let behaviorCueEvents = events.filter { $0.type == .behaviorCue }
+        let gazeCalibrationEvents = events.filter { $0.type == .gazeCalibrationSample }
         let detectorEvents = events.filter { $0.type == .detectorFired }
         let userNotes = events.filter { $0.type == .userNote }
         let screenContexts = events.filter { $0.type == .screenContext }
@@ -69,6 +70,10 @@ struct ContextPackBuilder {
         ## Behavior Cues
 
         \(describeBehaviorCues(behaviorCueEvents))
+
+        ## Gaze Calibration
+
+        \(describeGazeCalibration(gazeCalibrationEvents))
 
         ## Local Detectors
 
@@ -220,6 +225,21 @@ struct ContextPackBuilder {
             let app = event.payload["app_name"].map { " · \($0)" } ?? ""
             let activity = event.payload["activity_insight"].map { " · \($0)" } ?? ""
             return "- \(cue): \(interpretation)\(app)\(activity)"
+        }.joined(separator: "\n")
+    }
+
+    private func describeGazeCalibration(_ gazeCalibrationEvents: [ObserverEvent]) -> String {
+        let samples = gazeCalibrationEvents.suffix(8)
+        guard !samples.isEmpty else {
+            return "- No gaze calibration samples recorded yet."
+        }
+
+        return samples.map { event in
+            let source = event.payload["target_source"] ?? "unknown"
+            let role = event.payload["target_display_role"] ?? "unknown_display"
+            let yaw = event.payload["head_yaw"].map { " · yaw: \($0)" } ?? ""
+            let app = event.payload["app_name"].map { " · \($0)" } ?? ""
+            return "- \(source): target \(role)\(yaw)\(app)"
         }.joined(separator: "\n")
     }
 

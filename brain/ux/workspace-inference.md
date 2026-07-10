@@ -10,6 +10,7 @@ Current cheap local signals:
 - camera-mounted display role
 - input recency
 - face presence/head direction as weak supporting evidence
+- gaze calibration samples from typing, mouse movement, and clicks
 - generated `activityInsight` events for learning over time
 
 Deferred signals:
@@ -23,6 +24,9 @@ Important rule:
 - A missing face frame from a side-mounted camera is not absence.
 - If the pointer is active on the main workbench, assume the user is working there unless repeated evidence says otherwise.
 - Small laptop or camera-adjacent displays may be service/control surfaces.
+- Typing can act as a caret proxy: the user is likely looking near the active text field.
+- Clicks are stronger gaze proxies than mouse motion.
+- Mouse motion is useful for display-level gaze calibration, but weaker for exact intent.
 
 Good widget output:
 

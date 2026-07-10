@@ -20,7 +20,7 @@ Core event families:
 - focus: `appFocus`, `appFocusInterval`
 - context: `screenContext`, `ocrContext`, `writingContext`
 - attention: `attention`
-- interpretation: `activityInsight`, `behaviorCue`
+- interpretation: `activityInsight`, `behaviorCue`, `gazeCalibrationSample`
 - camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
 - memory: `localSummary`, `researchDigest`, `userNote`
 - external reasoning: `externalLLMRequest`, `geminiInsight`, `localInsight`
@@ -48,6 +48,14 @@ Behavior cue payloads:
 - posture metrics when available: `motion_score`, `face_area_ratio`
 - context metadata: `activity_insight`, `app_name`, `app_id`, optional `display_role`
 - cues are behavioral candidates, not definitive emotion labels
+
+Gaze calibration sample payloads:
+
+- `target_source`: `typing_caret_proxy`, `mouse_click_proxy`, or `mouse_motion_proxy`
+- `target_display_role`, `target_screen_index`: inferred target display from typing focus or pointer location
+- head/face measurements: `head_yaw`, `head_pitch`, `head_roll`, `face_center_x`, `face_center_y`
+- context metadata: `app_name`, `app_id`, `activity_insight`, optional `mouse_display_role`
+- samples calibrate rough gaze/head mapping over time; they are not exact eye-tracking points
 
 External LLM request payloads:
 
