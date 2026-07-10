@@ -379,6 +379,7 @@ final class ObserverWidgetView: NSView {
         metaLabel.isHidden = true
         hintLabel.isHidden = true
         updateSecurityBadge(count: state.securityIncidentCount)
+        resizeExpandedPanelIfNeeded()
         if isCalibrationMode {
             if calibrationStartedAppName != nil, calibrationStartedAppName != state.appName {
                 onCalibrationAction("stopped_app_switch")
@@ -764,7 +765,9 @@ final class ObserverWidgetView: NSView {
             .filter { !$0.isEmpty }
         let description = Array(lines.prefix(2)).joined(separator: "\n")
         descriptionLabel.stringValue = description.isEmpty ? "Пока мало наблюдений за выбранный интервал." : description
-        recommendationLabel.stringValue = recommendation(for: lines)
+        let recommendation = recommendation(for: lines)
+        recommendationLabel.stringValue = recommendation
+        recommendationLabel.isHidden = recommendation.isEmpty
         securityFolderButton.isHidden = onSecurityArtifactRequest() == nil
         calibrationButton.isHidden = false
         updateIntervalControlState()
@@ -772,16 +775,19 @@ final class ObserverWidgetView: NSView {
 
     private func recommendation(for lines: [String]) -> String {
         let joined = lines.joined(separator: " ").lowercased()
-        if joined.contains("пауза") || joined.contains("energy") || joined.contains("энерг") {
-            return "Рекомендация: коротко закрыть текущий шаг.\nЕсли энергия просела, лучше маленькое действие, не новый контекст."
+        if joined.contains("защита:") || joined.contains("событи") {
+            return "Действие: проверь событие и медиа.\nПосле просмотра можно очистить защитную папку."
         }
-        if joined.contains("фрикц") || joined.contains("переключ") {
-            return "Рекомендация: выбрать один следующий экран.\nСнизить переключения на ближайшие 10 минут."
+        if joined.contains("много переходов") || joined.contains("сдвиг:") {
+            return "Действие: выбери главный артефакт на 10 минут.\nОставь открытым только экран, где должен появиться результат."
         }
-        if joined.contains("контекст") || joined.contains("фокус") {
-            return "Рекомендация: продолжить текущую линию.\nСледующий шаг лучше делать там же, без смены приложения."
+        if joined.contains("фрикц") && (joined.contains("невер") || joined.contains("ошиб") || joined.contains("какоф")) {
+            return "Действие: зафиксируй один конкретный дефект.\nСледующий запрос к ИИ лучше сузить до него."
         }
-        return "Рекомендация: держать текущий контекст.\nЕсли сомневаешься, сформулировать один следующий шаг."
+        if joined.contains("энерг") || joined.contains("зев") || joined.contains("устал") {
+            return "Действие: уменьши следующий шаг до 2 минут.\nНе начинай новый контекст, пока не закрыт текущий."
+        }
+        return ""
     }
 
     private func updateIntervalControlState() {
@@ -816,12 +822,24 @@ final class ObserverWidgetView: NSView {
 
     private func insightExpandedHeight() -> CGFloat {
         if isCalibrationMode {
-            return 216
+            return 224
         }
         if !securityFolderButton.isHidden || !calibrationButton.isHidden {
-            return 204
+            return recommendationLabel.isHidden ? 218 : 236
         }
-        return 174
+        return recommendationLabel.isHidden ? 188 : 214
+    }
+
+    private func resizeExpandedPanelIfNeeded() {
+        guard isInsightExpanded, let window else {
+            return
+        }
+        WidgetPanelController.applyWidgetSize(
+            CGSize(width: window.frame.width, height: insightExpandedHeight()),
+            to: window,
+            persist: false,
+            anchor: .topRight
+        )
     }
 
     @objc private func startCalibrationMode() {

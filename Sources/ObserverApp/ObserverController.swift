@@ -36,6 +36,7 @@ final class ObserverController {
     private var latestContextLine: String?
     private var latestContextLineAt: Date?
     private var lastHintAt: Date?
+    private var lastWidgetAppName: String?
     private var focusChangeTimestamps: [Date] = []
     private var lastActivityInsight: String?
     private var lastActivityInsightAt: Date?
@@ -111,7 +112,7 @@ final class ObserverController {
     var stateSnapshot: ObserverViewState {
         ObserverViewState(
             mode: mode,
-            appName: currentFocus?.appName,
+            appName: currentWidgetAppName(),
             contextText: currentWidgetContextText(),
             sessionStartedAt: sessionStartedAt,
             attentionText: latestCameraStatus ?? currentActivityInsightText(),
@@ -119,6 +120,19 @@ final class ObserverController {
             securityIncidentCount: environment.securityIncidentStore.unseenCount(),
             calibration: currentWidgetCalibrationState()
         )
+    }
+
+    private func currentWidgetAppName() -> String? {
+        guard let currentFocus else {
+            return lastWidgetAppName
+        }
+
+        if currentFocus.isObserverApp {
+            return lastWidgetAppName ?? currentFocus.appName
+        }
+
+        lastWidgetAppName = currentFocus.appName
+        return currentFocus.appName
     }
 
     private func currentWidgetCalibrationState() -> WidgetCalibrationState {
@@ -252,6 +266,15 @@ final class ObserverController {
     }
 
     private func currentWidgetContextText(now: Date = Date()) -> String {
+        if currentFocus?.isObserverApp == true {
+            if let latestContextLine {
+                return latestContextLine
+            }
+            if let lastActivityInsight {
+                return lastActivityInsight
+            }
+        }
+
         if let latestContextLine,
            let latestContextLineAt,
            now.timeIntervalSince(latestContextLineAt) <= 150 {
@@ -296,7 +319,11 @@ final class ObserverController {
     }
 
     private func currentActivityInsightText() -> String {
-        ActivityInsightBuilder().build(
+        if currentFocus?.isObserverApp == true, let lastActivityInsight {
+            return lastActivityInsight
+        }
+
+        return ActivityInsightBuilder().build(
             attention: smoothedAttentionForDisplay,
             input: latestInputActivity,
             topology: environment.topology,
@@ -1702,10 +1729,38 @@ final class ObserverController {
         annotation: ContentContextAnnotation,
         context: ScreenContextSnapshot
     ) -> String {
-        let kind = readableContentKind(annotation.contentKind)
         let topic = cleanInsightFragment(annotation.topic, allowShortCodeLikeText: false)
         let entity = cleanInsightFragment(annotation.sourceEntityDisplayName, allowShortCodeLikeText: false)
         let app = cleanInsightFragment(context.appName)
+        let compactTopic = topic.map { ": \($0)" } ?? ""
+
+        switch annotation.contentKind {
+        case "prompt":
+            let action = context.hasTextualFocus ? "формулирует задачу" : "читает ответ"
+            return "Диалог с ИИ: \(action)\(compactTopic)"
+        case "message", "email":
+            let channel = annotation.contentKind == "email" ? "Почта" : "Сообщения"
+            let action = annotation.isIncoming ? "читает" : "пишет"
+            if let entity {
+                return "\(channel): \(action) \(entity)\(compactTopic)"
+            }
+            return "\(channel): \(action)\(compactTopic)"
+        case "code":
+            return "Код: работает с фрагментом\(compactTopic)"
+        case "doc":
+            return "Документ: редактирует смысл\(compactTopic)"
+        case "video":
+            return "Видео: смотрит контент\(compactTopic)"
+        case "article":
+            if let topic, looksSearchLike(topic) || looksSearchLike(context.windowTitle ?? "") {
+                return "Веб: ищет по теме: \(topic)"
+            }
+            return "Веб: читает страницу\(compactTopic)"
+        default:
+            break
+        }
+
+        let kind = readableContentKind(annotation.contentKind)
         let subject: String
         if let entity, ["message", "email"].contains(annotation.contentKind) {
             subject = "\(kind) с \(entity)"
@@ -1718,6 +1773,15 @@ final class ObserverController {
             return "\(prefix): \(subject) · \(topic)"
         }
         return "\(prefix): \(subject)"
+    }
+
+    private func looksSearchLike(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("search")
+            || lower.contains("google")
+            || lower.contains("results")
+            || lower.contains("поиск")
+            || lower.contains("найти")
     }
 
     private func captureOCRWritingFallbackIfNeeded(_ activity: InputActivitySnapshot) {
@@ -2945,6 +3009,16 @@ extension ObserverController.Mode {
 }
 
 private extension AppFocusSnapshot {
+    var isObserverApp: Bool {
+        let haystack = [
+            appName,
+            appID ?? ""
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        return haystack.contains("observer")
+    }
+
     var shortContextText: String {
         if let windowTitle, !windowTitle.isEmpty {
             return "\(appName) · \(windowTitle)"
