@@ -185,6 +185,25 @@ struct ActivityInsightBuilderTests {
         #expect(!text.contains("микропауза"))
     }
 
+    @Test func classifiesLookingAwayIdleAsPhoneInsteadOfVagueSideAttention() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0.72, position: .right),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 38,
+                secondsSinceMouseMove: 38,
+                secondsSinceClick: 38,
+                secondsSinceAnyInput: 38
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "ChatGPT", appID: "com.openai.codex", displayRole: .mainWorkbench),
+            currentFocusStartedAt: Date().addingTimeInterval(-360),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Диалог с ИИ: смотрит в телефон")
+        #expect(!text.contains("внимание ушло"))
+    }
+
     private func face(
         yaw: Double,
         position: AttentionSnapshot.FacePosition

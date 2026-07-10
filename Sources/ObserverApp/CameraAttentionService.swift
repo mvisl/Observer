@@ -333,7 +333,9 @@ struct AttentionSnapshot: Sendable {
             "face_present": facePresent ? "true" : "false",
             "attention_zone": attentionZone.rawValue,
             "face_position": facePosition.rawValue,
-            "face_count": "\(faceCount)"
+            "face_count": "\(faceCount)",
+            "calibration_version": "camera-attention-v3",
+            "validity_gate": facePresent ? "valid_face_track" : "no_face_track"
         ]
 
         if let faceCenterX {

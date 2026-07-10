@@ -84,7 +84,7 @@ struct ObserverSettings: Codable {
     }
 
     static let defaults = ObserverSettings(
-        summaryIntervalSeconds: 900,
+        summaryIntervalSeconds: 2700,
         retentionDays: 90,
         idleSessionBoundarySeconds: 300,
         startObservingOnLaunch: true,

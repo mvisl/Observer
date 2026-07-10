@@ -9,6 +9,7 @@ enum ObserverEventType: String, Codable {
     case appFocusInterval
     case awayPresenceIncident
     case behaviorCue
+    case breakpoint
     case cameraAttentionStarted
     case cameraAttentionStopped
     case cameraPermission
@@ -16,7 +17,13 @@ enum ObserverEventType: String, Codable {
     case displayInventory
     case hintCandidate
     case inputActivity
+    case typingRhythm
+    case mouseDynamics
+    case scrollProfile
+    case clipboardRoute
+    case comparisonLayoutCandidate
     case externalLLMRequest
+    case fusionHypothesis
     case geminiInsight
     case geminiKeyDeleted
     case geminiKeyUpdated
@@ -35,6 +42,7 @@ enum ObserverEventType: String, Codable {
     case privacyAllowlistAdded
     case privacyExclusionAdded
     case userNote
+    case userLabel
     case writingContext
     case workspaceTopologyLoaded
 }

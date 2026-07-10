@@ -28,9 +28,12 @@ struct ActivityInsightBuilder {
 
         if let attention, attention.isLookingAway {
             if input?.secondsSinceAnyInput ?? .greatestFiniteMagnitude < 20 {
-                return "\(intent.prefix): работа рывками"
+                return "\(intent.prefix): отвлекся от экрана"
             }
-            return "\(intent.prefix): внимание ушло в сторону"
+            if attention.isPhoneLikeOffscreen {
+                return "\(intent.prefix): смотрит в телефон"
+            }
+            return "\(intent.prefix): смотрит вне экрана"
         }
 
         if let input, input.secondsSinceAnyInput >= 120 {
@@ -259,10 +262,26 @@ private enum AppIntent {
 
 private extension AttentionSnapshot {
     var isLookingAway: Bool {
-        guard let yaw else {
+        guard facePresent else {
             return false
         }
-        return abs(yaw) > 0.55
+        if let yaw, abs(yaw) > 0.55 {
+            return true
+        }
+        return attentionZone == .offScreen
+    }
+
+    var isPhoneLikeOffscreen: Bool {
+        guard facePresent else {
+            return false
+        }
+        if let faceCenterY, faceCenterY <= 0.38 {
+            return true
+        }
+        if let pitch, pitch < -0.25 {
+            return true
+        }
+        return false
     }
 
     var readingZoneHint: String {

@@ -173,6 +173,8 @@ struct AttentionStateBuilderTests {
         #expect(attention.eventPayload["eye_contact_candidate"] == "true")
         #expect(attention.eventPayload["eye_signal_source"] == "pupil_landmarks")
         #expect(attention.eventPayload["left_pupil_x"] == "0.510")
+        #expect(attention.eventPayload["calibration_version"] == "camera-attention-v3")
+        #expect(attention.eventPayload["validity_gate"] == "valid_face_track")
     }
 
     @Test func includesSmilePayloadWhenAvailable() {

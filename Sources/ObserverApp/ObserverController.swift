@@ -41,6 +41,7 @@ final class ObserverController {
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
     private var isIdleBoundaryOpen = false
+    private var isFineInputPauseOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
     private var mediaTimer: Timer?
@@ -862,6 +863,7 @@ final class ObserverController {
             )
 
         case .appFocus(let focus):
+            let previousAppName = currentFocus?.appName
             focusChangeTimestamps.append(Date())
             focusChangeTimestamps = focusChangeTimestamps.suffix(20)
             closeCurrentFocusInterval(reason: "focus_changed")
@@ -878,6 +880,19 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+            append(
+                .init(
+                    type: .breakpoint,
+                    displayRole: focus.displayRole,
+                    appID: focus.appID,
+                    confidence: 0.8,
+                    payload: BreakpointBuilder().mediumFocusChange(
+                        previousAppName: previousAppName,
+                        nextFocus: focus
+                    ),
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
             notifyStateChanged()
 
         case .inputActivity(let activity):
@@ -890,6 +905,7 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+            updateFineInputPauseBreakpoint(activity)
             updateIdleBoundary(activity)
             recordGazeCalibrationSampleIfNeeded()
             captureOCRWritingFallbackIfNeeded(activity)
@@ -1005,14 +1021,13 @@ final class ObserverController {
 
         lastTextAffectCueKey = key
         lastTextAffectCueAt = now
-        setLatestContextLine(cue.insight, now: now)
-        append(
-            .init(
-                type: .behaviorCue,
-                confidence: cue.confidence,
-                payload: cue.payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
+        appendBehaviorCueForFusion(
+            confidence: cue.confidence,
+            payload: cue.payload,
+            displayText: cue.insight,
+            displayEligible: true,
+            surfaceAsContext: true,
+            now: now
         )
     }
 
@@ -1102,20 +1117,15 @@ final class ObserverController {
 
         lastBehaviorCueName = cue.name
         lastBehaviorCueAt = now
-        append(
-            .init(
-                type: .behaviorCue,
-                confidence: cue.confidence,
-                payload: cue.payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
-        )
-
         let displayEligible = cue.payload["display_eligible"] != "false"
-        if displayEligible, cue.name != "steady_focus" {
-            latestHint = cue.insight
-            lastHintAt = now
-        }
+        appendBehaviorCueForFusion(
+            confidence: cue.confidence,
+            payload: cue.payload,
+            displayText: cue.insight,
+            displayEligible: displayEligible && cue.name != "steady_focus",
+            surfaceAsContext: false,
+            now: now
+        )
     }
 
     private func recordGazeCalibrationSampleIfNeeded(now: Date = Date()) {
@@ -1209,8 +1219,6 @@ final class ObserverController {
         }
 
         lastSmileCueAt = now
-        latestHint = "Коммуникация: улыбнулся на сообщение"
-        lastHintAt = now
 
         var payload: [String: String] = [
             "cue": "positive_reaction_candidate",
@@ -1232,17 +1240,62 @@ final class ObserverController {
             payload["activity_insight"] = lastActivityInsight
         }
 
+        appendBehaviorCueForFusion(
+            displayRole: currentFocus?.displayRole,
+            appID: currentFocus?.appID,
+            confidence: 0.58,
+            payload: payload,
+            displayText: "Коммуникация: улыбнулся на сообщение",
+            displayEligible: true,
+            surfaceAsContext: true,
+            now: now
+        )
+        notifyStateChanged()
+    }
+
+    private func appendBehaviorCueForFusion(
+        displayRole: WorkspaceTopology.DisplayRole? = nil,
+        appID: String? = nil,
+        confidence: Double,
+        payload: [String: String],
+        displayText: String,
+        displayEligible: Bool,
+        surfaceAsContext: Bool,
+        now: Date
+    ) {
+        let event = ObserverEvent(
+            type: .behaviorCue,
+            displayRole: displayRole,
+            appID: appID,
+            confidence: confidence,
+            payload: payload,
+            workspaceTopologyVersion: environment.topology.version
+        )
+        append(event)
+
+        let recentEvents = (try? environment.eventStore.recentEvents(limit: 160)) ?? []
+        let decision = FusionEngine().decide(candidate: event, recentEvents: recentEvents)
         append(
             .init(
-                type: .behaviorCue,
-                displayRole: currentFocus?.displayRole,
-                appID: currentFocus?.appID,
-                confidence: 0.58,
-                payload: payload,
+                type: .fusionHypothesis,
+                displayRole: displayRole,
+                appID: appID,
+                confidence: decision.confidence,
+                payload: decision.payload,
                 workspaceTopologyVersion: environment.topology.version
             )
         )
-        notifyStateChanged()
+
+        guard displayEligible, decision.surfaceAllowed else {
+            return
+        }
+
+        if surfaceAsContext {
+            setLatestContextLine(displayText, now: now)
+        } else {
+            latestHint = displayText
+            lastHintAt = now
+        }
     }
 
     private func closeCurrentFocusInterval(reason: String) {
@@ -1284,6 +1337,9 @@ final class ObserverController {
         let threshold = environment.settings.idleSessionBoundarySeconds
         if activity.secondsSinceAnyInput >= threshold, !isIdleBoundaryOpen {
             isIdleBoundaryOpen = true
+            let breakpointPayload = BreakpointBuilder().coarseIdleStart(
+                secondsSinceAnyInput: activity.secondsSinceAnyInput
+            )
             append(
                 .init(
                     type: .sessionBoundary,
@@ -1295,6 +1351,15 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+            append(
+                .init(
+                    type: .breakpoint,
+                    confidence: 0.82,
+                    payload: breakpointPayload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            _ = generateLocalSummary()
         } else if activity.secondsSinceAnyInput < 10, isIdleBoundaryOpen {
             isIdleBoundaryOpen = false
             append(
@@ -1306,6 +1371,31 @@ final class ObserverController {
                 )
             )
         }
+    }
+
+    private func updateFineInputPauseBreakpoint(_ activity: InputActivitySnapshot) {
+        if activity.secondsSinceAnyInput < 10 {
+            isFineInputPauseOpen = false
+            return
+        }
+
+        guard !isFineInputPauseOpen,
+              let payload = BreakpointBuilder().fineInputPause(
+                secondsSinceAnyInput: activity.secondsSinceAnyInput
+              )
+        else {
+            return
+        }
+
+        isFineInputPauseOpen = true
+        append(
+            .init(
+                type: .breakpoint,
+                confidence: 0.7,
+                payload: payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func startSummaryTimer() {
