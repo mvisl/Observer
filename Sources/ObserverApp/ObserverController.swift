@@ -451,16 +451,27 @@ final class ObserverController {
         let cutoff = interval > 0
             ? now.addingTimeInterval(-interval)
             : Calendar.current.startOfDay(for: now)
-        let events = ((try? environment.eventStore.recentEvents(limit: 900)) ?? [])
+        let sourceEvents = interval <= 0
+            ? ((try? environment.eventStore.allEvents()) ?? [])
+            : ((try? environment.eventStore.recentEvents(limit: 5_000)) ?? [])
+        let events = sourceEvents
             .filter { $0.timestamp >= cutoff }
         guard !events.isEmpty else {
             return "За этот интервал пока нет наблюдений."
         }
 
-        let focus = cleanInsightFragment(
-            events.reversed().first { $0.type == .appFocus }?.payload["app_name"]
-                ?? events.reversed().first { $0.type == .appFocusInterval }?.payload["app_name"]
-        )
+        let signalEvents = events.filter { event in
+            event.type == .boundReaction
+                || event.type == .behaviorCue
+                || event.type == .activityInsight
+                || event.type == .fusionHypothesis
+        }
+        let focusApps = Set(events.compactMap { event -> String? in
+            guard event.type == .appFocus || event.type == .appFocusInterval else {
+                return nil
+            }
+            return cleanInsightFragment(event.payload["app_name"])
+        })
         let state = cleanInsightFragment(events.reversed().first { $0.type == .cognitiveState }?.payload["state"])
         let content = cleanInsightFragment(
             events.reversed().first { $0.type == .contentContext }?.payload["topic"],
@@ -481,18 +492,77 @@ final class ObserverController {
             .map { seconds in
                 seconds < 20 ? "ввод активен" : "пауза \(Int(seconds))с"
             }
+        let intervalLabel = insightIntervalLabel(interval)
+        let metricLine = [
+            "\(signalEvents.count) сигналов",
+            focusApps.isEmpty ? nil : "\(focusApps.count) прилож.",
+            inputText
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
 
         return [
-            focus.map { "Фокус: \($0)" },
+            "\(intervalLabel): \(focusDistributionSummary(events))",
+            metricLine.isEmpty ? nil : metricLine,
             content.map { "Контекст: \($0)" },
             state.map { "Состояние: \($0)" },
-            reactionText.map { "Сигнал: \($0)" },
-            inputText,
-            "Событий: \(events.count)"
+            reactionText.map { "Сигнал: \($0)" }
         ]
         .compactMap { $0 }
         .prefix(5)
         .joined(separator: "\n")
+    }
+
+    private func focusDistributionSummary(_ events: [ObserverEvent]) -> String {
+        var durations: [String: Double] = [:]
+        var counts: [String: Int] = [:]
+
+        for event in events where event.type == .appFocusInterval || event.type == .appFocus {
+            guard let app = cleanInsightFragment(event.payload["app_name"]) else {
+                continue
+            }
+            counts[app, default: 0] += 1
+            if event.type == .appFocusInterval {
+                durations[app, default: 0] += Double(event.payload["duration_seconds"] ?? "") ?? 0
+            }
+        }
+
+        if !durations.isEmpty {
+            let top = durations
+                .sorted { $0.value > $1.value }
+                .prefix(2)
+                .map { "\($0.key) \(formatCompactDuration($0.value))" }
+                .joined(separator: " · ")
+            if !top.isEmpty {
+                return top
+            }
+        }
+
+        let top = counts
+            .sorted { $0.value > $1.value }
+            .prefix(2)
+            .map { "\($0.key) ×\($0.value)" }
+            .joined(separator: " · ")
+        return top.isEmpty ? "контекст неясен" : top
+    }
+
+    private func formatCompactDuration(_ seconds: Double) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        if minutes < 60 {
+            return "\(minutes)м"
+        }
+        return "\(minutes / 60)ч\(minutes % 60 == 0 ? "" : " \(minutes % 60)м")"
+    }
+
+    private func insightIntervalLabel(_ interval: TimeInterval) -> String {
+        if interval <= 0 {
+            return "За сегодня"
+        }
+        let minutes = Int(interval / 60)
+        if minutes < 60 {
+            return "За \(minutes)м"
+        }
+        return "За \(minutes / 60)ч"
     }
 
     private func cleanInsightFragment(_ value: String?, allowShortCodeLikeText: Bool = true) -> String? {
@@ -506,6 +576,12 @@ final class ObserverController {
             return nil
         }
         if trimmed.count > 80 {
+            return nil
+        }
+        if !allowShortCodeLikeText, looksLikeScrapedChromeTitle(trimmed) {
+            return nil
+        }
+        if !allowShortCodeLikeText, trimmed.contains("•") {
             return nil
         }
         let letters = trimmed.filter(\.isLetter).count
@@ -522,6 +598,20 @@ final class ObserverController {
             return nil
         }
         return trimmed
+    }
+
+    private func looksLikeScrapedChromeTitle(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        if lower.contains("google inbox") || lower.contains("whatc") || lower.contains("telegram") {
+            return true
+        }
+        if value.contains(" | "), value.contains(" - ") {
+            return true
+        }
+        if value.hasPrefix("("), value.contains(":") {
+            return true
+        }
+        return false
     }
 
     func generateResearchDigest() -> String {

@@ -110,7 +110,7 @@ struct ActivityInsightBuilderTests {
         #expect(text == "Дизайн: правит макет")
     }
 
-    @Test func usesMouseDisplayAsWorkspaceSignal() {
+    @Test func avoidsGenericScreenRoleAsInsight() {
         let text = ActivityInsightBuilder().build(
             attention: face(yaw: 0, position: .right),
             input: InputActivitySnapshot(
@@ -131,7 +131,9 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Дизайн: основной экран")
+        #expect(text == "Дизайн: правит макет")
+        #expect(!text.contains("основной экран"))
+        #expect(!text.contains("рабочий экран"))
     }
 
     @Test func loginWindowMeansProtectiveAwayState() {

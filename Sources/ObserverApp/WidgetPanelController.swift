@@ -105,9 +105,29 @@ final class WidgetPanelController {
         defaults.set(clamped.height, forKey: "widget.height")
     }
 
-    fileprivate static func applyWidgetSize(_ size: CGSize, to window: NSWindow, persist: Bool = true) {
+    fileprivate enum ResizeAnchor {
+        case origin
+        case topRight
+    }
+
+    fileprivate static func applyWidgetSize(
+        _ size: CGSize,
+        to window: NSWindow,
+        persist: Bool = true,
+        anchor: ResizeAnchor = .origin
+    ) {
         let clampedSize = clampedSize(size)
-        let clampedOrigin = clampedOrigin(window.frame.origin, size: clampedSize)
+        let proposedOrigin: CGPoint
+        switch anchor {
+        case .origin:
+            proposedOrigin = window.frame.origin
+        case .topRight:
+            proposedOrigin = CGPoint(
+                x: window.frame.maxX - clampedSize.width,
+                y: window.frame.maxY - clampedSize.height
+            )
+        }
+        let clampedOrigin = clampedOrigin(proposedOrigin, size: clampedSize)
         window.setFrame(NSRect(origin: clampedOrigin, size: clampedSize), display: true)
         if persist {
             saveWidgetOrigin(clampedOrigin)
@@ -353,14 +373,17 @@ final class ObserverWidgetView: NSView {
         contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
 
-        intervalControl.segmentStyle = .rounded
+        intervalControl.segmentStyle = .automatic
+        intervalControl.controlSize = .small
+        intervalControl.font = .systemFont(ofSize: 11, weight: .medium)
         intervalControl.target = self
         intervalControl.action = #selector(selectInsightInterval(_:))
+        intervalControl.sendAction(on: [.leftMouseUp])
         intervalControl.isHidden = true
-        intervalControl.setWidth(0, forSegment: 0)
-        intervalControl.setWidth(0, forSegment: 1)
-        intervalControl.setWidth(0, forSegment: 2)
-        intervalControl.setWidth(0, forSegment: 3)
+        intervalControl.setWidth(48, forSegment: 0)
+        intervalControl.setWidth(44, forSegment: 1)
+        intervalControl.setWidth(44, forSegment: 2)
+        intervalControl.setWidth(56, forSegment: 3)
         updateIntervalControlState()
 
         descriptionLabel.font = .systemFont(ofSize: 11, weight: .medium)
@@ -411,9 +434,9 @@ final class ObserverWidgetView: NSView {
             contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
             intervalControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            intervalControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             intervalControl.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
-            intervalControl.heightAnchor.constraint(equalToConstant: 24),
+            intervalControl.widthAnchor.constraint(equalToConstant: 196),
+            intervalControl.heightAnchor.constraint(equalToConstant: 22),
 
             descriptionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             descriptionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
@@ -474,7 +497,8 @@ final class ObserverWidgetView: NSView {
         WidgetPanelController.applyWidgetSize(
             CGSize(width: window.frame.width, height: 184),
             to: window,
-            persist: false
+            persist: false,
+            anchor: .topRight
         )
     }
 
@@ -486,7 +510,7 @@ final class ObserverWidgetView: NSView {
         hideInsightControls()
         let target = previousSizeBeforeInsight ?? WidgetPanelController.defaultWidgetSize
         previousSizeBeforeInsight = nil
-        WidgetPanelController.applyWidgetSize(target, to: window, persist: false)
+        WidgetPanelController.applyWidgetSize(target, to: window, persist: false, anchor: .topRight)
     }
 
     private func updateInsightContent() {

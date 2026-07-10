@@ -57,7 +57,8 @@ struct ActivityInsightBuilder {
 
         if let input, input.secondsSinceAnyInput < 75 {
             if let attention, attention.facePresent || attention.isTemporarilyLostFace {
-                return "\(intent.readingPrefix): \(attention.readingZoneHint)"
+                let zone = attention.readingZoneHint
+                return zone == "экран" ? intent.readingPrefix : "\(intent.readingPrefix): \(zone)"
             }
             return "\(intent.prefix): микропауза \(formatDuration(input.secondsSinceAnyInput))"
         }
@@ -80,9 +81,9 @@ struct ActivityInsightBuilder {
         let activeRole = input.mouseDisplayRole ?? currentFocus?.displayRole
         switch activeRole {
         case .mainWorkbench:
-            return "основной экран"
+            return nil
         case .productivity:
-            return "рабочий экран"
+            return nil
         case .reference:
             return "референсы"
         case .communication:
