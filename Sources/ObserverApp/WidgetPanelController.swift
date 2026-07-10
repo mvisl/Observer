@@ -172,10 +172,13 @@ final class ObserverWidgetView: NSView {
     private let moreButton = NSButton(title: "...", target: nil, action: nil)
     private let appLabel = NSTextField(labelWithString: "")
     private let contextLabel = NSTextField(labelWithString: "No active context yet")
-    private let insightLabel = NSTextField(labelWithString: "")
+    private let intervalStack = NSStackView()
+    private let descriptionLabel = NSTextField(labelWithString: "")
+    private let recommendationLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private let onInsightRequest: (TimeInterval) -> String?
+    private var intervalButtons: [Int: NSButton] = [:]
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin: NSPoint?
     private var dragStartWindowSize: CGSize?
@@ -185,6 +188,7 @@ final class ObserverWidgetView: NSView {
     private var trackingArea: NSTrackingArea?
     private var previousSizeBeforeInsight: CGSize?
     private var isInsightExpanded = false
+    private var selectedInsightMinutes = UserDefaults.standard.object(forKey: "widget.insight.minutes") as? Int ?? 30
 
     private enum DragMode {
         case move
@@ -237,7 +241,7 @@ final class ObserverWidgetView: NSView {
         metaLabel.isHidden = true
         hintLabel.isHidden = true
         if !isInsightExpanded {
-            insightLabel.isHidden = true
+            hideInsightControls()
         }
         statusDot.layer?.backgroundColor = dotColor(for: state.mode).cgColor
         refreshSessionDuration()
@@ -246,6 +250,9 @@ final class ObserverWidgetView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if moreButton.frame.insetBy(dx: -8, dy: -8).contains(point) {
+            return
+        }
+        if isInsightExpanded, expandedControlsFrame.contains(point) {
             return
         }
         dragStartMouseLocation = NSEvent.mouseLocation
@@ -313,7 +320,7 @@ final class ObserverWidgetView: NSView {
     }
 
     private func configureSubviews() {
-        [statusDot, statusLabel, moreButton, appLabel, contextLabel, insightLabel, metaLabel, hintLabel].forEach {
+        [statusDot, statusLabel, moreButton, appLabel, contextLabel, intervalStack, descriptionLabel, recommendationLabel, metaLabel, hintLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -330,7 +337,7 @@ final class ObserverWidgetView: NSView {
         moreButton.font = .systemFont(ofSize: 14, weight: .bold)
         moreButton.contentTintColor = .secondaryLabelColor
         moreButton.target = self
-        moreButton.action = #selector(showInsightMenu)
+        moreButton.action = #selector(toggleInsightPanel)
 
         appLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         appLabel.textColor = .labelColor
@@ -342,11 +349,24 @@ final class ObserverWidgetView: NSView {
         contextLabel.lineBreakMode = .byTruncatingTail
         contextLabel.maximumNumberOfLines = 1
 
-        insightLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        insightLabel.textColor = .secondaryLabelColor
-        insightLabel.lineBreakMode = .byTruncatingTail
-        insightLabel.maximumNumberOfLines = 5
-        insightLabel.isHidden = true
+        intervalStack.orientation = .horizontal
+        intervalStack.alignment = .centerY
+        intervalStack.distribution = .fillEqually
+        intervalStack.spacing = 4
+        intervalStack.isHidden = true
+        configureIntervalButtons()
+
+        descriptionLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        descriptionLabel.textColor = .labelColor
+        descriptionLabel.lineBreakMode = .byTruncatingTail
+        descriptionLabel.maximumNumberOfLines = 2
+        descriptionLabel.isHidden = true
+
+        recommendationLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        recommendationLabel.textColor = .secondaryLabelColor
+        recommendationLabel.lineBreakMode = .byTruncatingTail
+        recommendationLabel.maximumNumberOfLines = 2
+        recommendationLabel.isHidden = true
 
         metaLabel.font = .systemFont(ofSize: 11, weight: .medium)
         metaLabel.textColor = .secondaryLabelColor
@@ -383,18 +403,46 @@ final class ObserverWidgetView: NSView {
             contextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             contextLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 4),
 
-            insightLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            insightLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            insightLabel.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
+            intervalStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            intervalStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            intervalStack.topAnchor.constraint(equalTo: contextLabel.bottomAnchor, constant: 8),
+            intervalStack.heightAnchor.constraint(equalToConstant: 24),
+
+            descriptionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            descriptionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            descriptionLabel.topAnchor.constraint(equalTo: intervalStack.bottomAnchor, constant: 8),
+
+            recommendationLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            recommendationLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            recommendationLabel.topAnchor.constraint(equalTo: descriptionLabel.bottomAnchor, constant: 5),
 
             metaLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             metaLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            metaLabel.topAnchor.constraint(equalTo: insightLabel.bottomAnchor, constant: 5),
+            metaLabel.topAnchor.constraint(equalTo: recommendationLabel.bottomAnchor, constant: 5),
 
             hintLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             hintLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             hintLabel.topAnchor.constraint(equalTo: metaLabel.bottomAnchor, constant: 3)
         ])
+    }
+
+    private func configureIntervalButtons() {
+        [
+            (30, "30м"),
+            (60, "1ч"),
+            (120, "2ч"),
+            (0, "день")
+        ].forEach { minutes, title in
+            let button = NSButton(title: title, target: self, action: #selector(selectInsightInterval(_:)))
+            button.bezelStyle = .rounded
+            button.font = .systemFont(ofSize: 10, weight: .semibold)
+            button.setButtonType(.toggle)
+            button.tag = minutes
+            button.translatesAutoresizingMaskIntoConstraints = false
+            intervalButtons[minutes] = button
+            intervalStack.addArrangedSubview(button)
+        }
+        updateIntervalButtonState()
     }
 
     private func isResizeHotspot(_ event: NSEvent) -> Bool {
@@ -408,32 +456,22 @@ final class ObserverWidgetView: NSView {
         return item
     }
 
-    @objc private func showInsightMenu() {
-        let menu = NSMenu()
-        [
-            ("Insight: 30 min", 30),
-            ("Insight: 1 hour", 60),
-            ("Insight: 2 hours", 120),
-            ("Insight: today", 0)
-        ].forEach { title, minutes in
-            let item = menuItem(title, action: #selector(selectInsightInterval(_:)))
-            item.representedObject = minutes
-            menu.addItem(item)
-        }
-        if let event = NSApp.currentEvent {
-            NSMenu.popUpContextMenu(menu, with: event, for: moreButton)
+    @objc private func toggleInsightPanel() {
+        if isInsightExpanded {
+            collapseInsight()
+        } else {
+            expandInsight()
         }
     }
 
-    @objc private func selectInsightInterval(_ sender: NSMenuItem) {
-        let minutes = sender.representedObject as? Int ?? 30
-        let interval = minutes == 0 ? 0 : TimeInterval(minutes * 60)
-        let title = minutes == 0 ? "Сегодня" : "\(minutes) мин"
-        let text = onInsightRequest(interval) ?? "Инсайт недоступен."
-        expandInsight(title: title, text: text)
+    @objc private func selectInsightInterval(_ sender: NSButton) {
+        let minutes = sender.tag
+        selectedInsightMinutes = minutes
+        UserDefaults.standard.set(minutes, forKey: "widget.insight.minutes")
+        updateInsightContent()
     }
 
-    private func expandInsight(title: String, text: String) {
+    private func expandInsight() {
         guard let window else {
             return
         }
@@ -441,10 +479,12 @@ final class ObserverWidgetView: NSView {
             previousSizeBeforeInsight = window.frame.size
         }
         isInsightExpanded = true
-        insightLabel.stringValue = "\(title)\n\(text)"
-        insightLabel.isHidden = false
+        intervalStack.isHidden = false
+        descriptionLabel.isHidden = false
+        recommendationLabel.isHidden = false
+        updateInsightContent()
         WidgetPanelController.applyWidgetSize(
-            CGSize(width: window.frame.width, height: 168),
+            CGSize(width: window.frame.width, height: 184),
             to: window,
             persist: false
         )
@@ -455,10 +495,58 @@ final class ObserverWidgetView: NSView {
             return
         }
         isInsightExpanded = false
-        insightLabel.isHidden = true
+        hideInsightControls()
         let target = previousSizeBeforeInsight ?? WidgetPanelController.defaultWidgetSize
         previousSizeBeforeInsight = nil
         WidgetPanelController.applyWidgetSize(target, to: window, persist: false)
+    }
+
+    private func updateInsightContent() {
+        let interval = selectedInsightMinutes == 0 ? 0 : TimeInterval(selectedInsightMinutes * 60)
+        let text = onInsightRequest(interval) ?? "Инсайт недоступен."
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let description = Array(lines.prefix(2)).joined(separator: "\n")
+        descriptionLabel.stringValue = description.isEmpty ? "Пока мало наблюдений за выбранный интервал." : description
+        recommendationLabel.stringValue = recommendation(for: lines)
+        updateIntervalButtonState()
+    }
+
+    private func recommendation(for lines: [String]) -> String {
+        let joined = lines.joined(separator: " ").lowercased()
+        if joined.contains("пауза") || joined.contains("energy") || joined.contains("энерг") {
+            return "Рекомендация: коротко закрыть текущий шаг.\nЕсли энергия просела, лучше маленькое действие, не новый контекст."
+        }
+        if joined.contains("фрикц") || joined.contains("переключ") {
+            return "Рекомендация: выбрать один следующий экран.\nСнизить переключения на ближайшие 10 минут."
+        }
+        if joined.contains("контекст") || joined.contains("фокус") {
+            return "Рекомендация: продолжить текущую линию.\nСледующий шаг лучше делать там же, без смены приложения."
+        }
+        return "Рекомендация: держать текущий контекст.\nЕсли сомневаешься, сформулировать один следующий шаг."
+    }
+
+    private func updateIntervalButtonState() {
+        intervalButtons.forEach { minutes, button in
+            let selected = minutes == selectedInsightMinutes
+            button.state = selected ? .on : .off
+            button.contentTintColor = selected ? .controlAccentColor : .secondaryLabelColor
+        }
+    }
+
+    private func hideInsightControls() {
+        intervalStack.isHidden = true
+        descriptionLabel.isHidden = true
+        recommendationLabel.isHidden = true
+    }
+
+    private var expandedControlsFrame: CGRect {
+        intervalStack.frame
+            .union(descriptionLabel.frame)
+            .union(recommendationLabel.frame)
+            .insetBy(dx: -8, dy: -8)
     }
 
     @objc private func setCompactSize() {

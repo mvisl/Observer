@@ -1524,9 +1524,6 @@ final class ObserverController {
         guard attention.smileCandidate == true else {
             return
         }
-        guard currentFocus?.isCommunicationContext == true || lastActivityInsight?.contains("Коммуникация") == true else {
-            return
-        }
 
         let enoughTimePassed = lastSmileCueAt.map { now.timeIntervalSince($0) >= 90 } ?? true
         guard enoughTimePassed else {
@@ -1537,7 +1534,9 @@ final class ObserverController {
 
         var payload: [String: String] = [
             "cue": "positive_reaction_candidate",
-            "interpretation": "smile_in_communication_context"
+            "interpretation": currentFocus?.isCommunicationContext == true
+                ? "smile_in_communication_context"
+                : "smile_in_current_context"
         ]
         if let score = attention.smileScore {
             payload["smile_score"] = String(format: "%.3f", score)
@@ -1560,7 +1559,9 @@ final class ObserverController {
             appID: currentFocus?.appID,
             confidence: 0.58,
             payload: payload,
-            displayText: "Коммуникация: улыбнулся на сообщение",
+            displayText: currentFocus?.isCommunicationContext == true
+                ? "Коммуникация: улыбнулся на сообщение"
+                : "Позитивная реакция: улыбка в текущем контексте",
             displayEligible: true,
             surfaceAsContext: true,
             now: now
