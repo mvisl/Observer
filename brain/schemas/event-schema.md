@@ -61,3 +61,4 @@ Writing context payloads:
 - `focused_element_value` or `selected_text`: compact redacted text from the active field
 - emitted only for content-allowlisted apps, while keyboard input is recent, and only when the text changes
 - intended for task understanding, not keystroke logging
+- if Accessibility cannot expose the active field, an `ocrContext` may be emitted with `context_kind=writing_fallback`

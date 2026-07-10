@@ -111,6 +111,7 @@ Observation and camera attention now start on launch by default for this prototy
 - The floating widget translates camera/input signals into soft states such as `активно работает`, `думает / читает`, `не у экрана`, and shows camera startup/permission states.
 - External model calls are manual-only. `Generate Gemini Insight` sends a compact context packet only when explicitly triggered.
 - Active writing context is captured only for content-allowlisted apps, redacted locally, and sampled on meaningful text changes rather than every keystroke.
+- If an allowlisted app hides its text field from Accessibility, Observer can fall back to a throttled OCR context while typing.
 - Optional local LLM insight uses local Ollama at `127.0.0.1:11434` only.
 - SQLite is not encrypted yet; SQLCipher is the intended durable backend later.
 

@@ -29,6 +29,9 @@ final class ObserverController {
     private var lastActivityInsightAt: Date?
     private var lastBehaviorCueName: String?
     private var lastBehaviorCueAt: Date?
+    private var lastWritingContextAt: Date?
+    private var lastOCRWritingFallbackAt: Date?
+    private var lastOCRWritingFallbackKey: String?
     private var isIdleBoundaryOpen = false
     private var sessionStartedAt: Date?
     private var summaryTimer: Timer?
@@ -847,6 +850,7 @@ final class ObserverController {
                 )
             )
             updateIdleBoundary(activity)
+            captureOCRWritingFallbackIfNeeded(activity)
             pauseMediaIfUserAppearsAway()
             resumeMediaIfUserReturned()
             notifyStateChanged()
@@ -866,6 +870,7 @@ final class ObserverController {
         case .writingContext(let context):
             var payload = context.eventPayload
             payload["context_kind"] = "active_writing"
+            lastWritingContextAt = Date()
             append(
                 .init(
                     type: .writingContext,
@@ -876,6 +881,57 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
+        }
+    }
+
+    private func captureOCRWritingFallbackIfNeeded(_ activity: InputActivitySnapshot) {
+        guard activity.secondsSinceKeyboard <= 8 else {
+            return
+        }
+        guard let currentFocus, let appID = currentFocus.appID else {
+            return
+        }
+        guard environment.privacyStore.isContentAllowed(appID) else {
+            return
+        }
+
+        let now = Date()
+        if let lastWritingContextAt, now.timeIntervalSince(lastWritingContextAt) < 20 {
+            return
+        }
+        guard lastOCRWritingFallbackAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
+            return
+        }
+
+        do {
+            guard let result = try ScreenOCRService().recognizeText(for: currentFocus) else {
+                lastOCRWritingFallbackAt = now
+                return
+            }
+
+            let key = [result.appID ?? "", result.text].joined(separator: "|")
+            guard key != lastOCRWritingFallbackKey else {
+                lastOCRWritingFallbackAt = now
+                return
+            }
+
+            lastOCRWritingFallbackAt = now
+            lastOCRWritingFallbackKey = key
+            var payload = result.eventPayload
+            payload["context_kind"] = "writing_fallback"
+            payload["fallback_reason"] = "accessibility_text_unavailable"
+            append(
+                .init(
+                    type: .ocrContext,
+                    displayRole: currentFocus.displayRole,
+                    appID: result.appID,
+                    confidence: min(result.confidence, 0.55),
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        } catch {
+            lastOCRWritingFallbackAt = now
         }
     }
 

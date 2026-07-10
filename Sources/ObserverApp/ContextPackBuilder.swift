@@ -191,7 +191,8 @@ struct ContextPackBuilder {
         return contexts.map { event in
             let app = event.payload["app_name"] ?? event.appID ?? "unknown"
             let text = event.payload["text"] ?? ""
-            return "- \(app) · OCR: \(text)"
+            let kind = event.payload["context_kind"].map { " · \($0)" } ?? ""
+            return "- \(app)\(kind) · OCR: \(text)"
         }.joined(separator: "\n")
     }
 
