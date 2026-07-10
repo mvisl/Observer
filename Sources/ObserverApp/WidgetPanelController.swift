@@ -1118,7 +1118,7 @@ final class ObserverWidgetView: NSView {
         let attention = state.attentionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hint = state.hintText?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if context.isHighSignalWidgetContext {
+        if context.isHighSignalWidgetContext, !context.isSanitaryWidgetLine {
             return context
         }
 
@@ -1186,6 +1186,9 @@ private extension String {
         guard !normalized.isEmpty else {
             return false
         }
+        guard !normalized.isSanitaryWidgetLine else {
+            return false
+        }
 
         let hiddenPrefixes = [
             "Реакция: заметный резкий сдвиг"
@@ -1195,13 +1198,19 @@ private extension String {
 
     var isWidgetWorthyAttention: Bool {
         let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
-        return !normalized.isEmpty && normalized != "No active context yet"
+        return !normalized.isEmpty
+            && normalized != "No active context yet"
+            && !normalized.isSanitaryWidgetLine
     }
 
     var displayAppOnlyFallback: String {
         let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            return "Наблюдаю контекст"
+            return ""
+        }
+
+        if normalized.isSanitaryWidgetLine {
+            return ""
         }
 
         if let separator = normalized.range(of: " · ") {
@@ -1211,5 +1220,18 @@ private extension String {
             return "Наблюдаю контекст"
         }
         return normalized
+    }
+
+    var isSanitaryWidgetLine: Bool {
+        let normalized = trimmingCharacters(in: .whitespacesAndNewlines)
+        return [
+            "Диалог с ИИ: формулирует задачу",
+            "Диалог с ИИ",
+            "Веб-контекст: просматривает страницу",
+            "Веб-контекст: читает",
+            "Рабочий контекст: активные действия",
+            "Рабочий контекст",
+            "Наблюдаю контекст"
+        ].contains(normalized)
     }
 }

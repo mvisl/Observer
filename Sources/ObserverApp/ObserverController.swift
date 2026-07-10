@@ -1728,7 +1728,7 @@ final class ObserverController {
         prefix: String,
         annotation: ContentContextAnnotation,
         context: ScreenContextSnapshot
-    ) -> String {
+    ) -> String? {
         let topic = cleanInsightFragment(annotation.topic, allowShortCodeLikeText: false)
         let entity = cleanInsightFragment(annotation.sourceEntityDisplayName, allowShortCodeLikeText: false)
         let app = cleanInsightFragment(context.appName)
@@ -1736,9 +1736,15 @@ final class ObserverController {
 
         switch annotation.contentKind {
         case "prompt":
+            guard topic != nil else {
+                return nil
+            }
             let action = context.hasTextualFocus ? "формулирует задачу" : "читает ответ"
             return "Диалог с ИИ: \(action)\(compactTopic)"
         case "message", "email":
+            guard topic != nil || entity != nil else {
+                return nil
+            }
             let channel = annotation.contentKind == "email" ? "Почта" : "Сообщения"
             let action = annotation.isIncoming ? "читает" : "пишет"
             if let entity {
@@ -1746,13 +1752,25 @@ final class ObserverController {
             }
             return "\(channel): \(action)\(compactTopic)"
         case "code":
+            guard topic != nil else {
+                return nil
+            }
             return "Код: работает с фрагментом\(compactTopic)"
         case "doc":
+            guard topic != nil else {
+                return nil
+            }
             return "Документ: редактирует смысл\(compactTopic)"
         case "video":
+            guard topic != nil else {
+                return nil
+            }
             return "Видео: смотрит контент\(compactTopic)"
         case "article":
-            if let topic, looksSearchLike(topic) || looksSearchLike(context.windowTitle ?? "") {
+            guard let topic else {
+                return nil
+            }
+            if looksSearchLike(topic) || looksSearchLike(context.windowTitle ?? "") {
                 return "Веб: ищет по теме: \(topic)"
             }
             return "Веб: читает страницу\(compactTopic)"

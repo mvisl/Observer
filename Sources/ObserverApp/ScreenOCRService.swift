@@ -19,7 +19,8 @@ struct ScreenOCRService {
         }
 
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["ru-RU", "en-US"]
         request.usesLanguageCorrection = true
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
