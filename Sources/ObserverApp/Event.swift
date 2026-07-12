@@ -7,6 +7,8 @@ enum ObserverEventType: String, Codable {
     case attention
     case appFocus
     case appFocusInterval
+    case actionItem
+    case audioCaptureState
     case attentionSpan
     case awayPresenceIncident
     case behaviorCue
@@ -46,6 +48,7 @@ enum ObserverEventType: String, Codable {
     case interventionCandidate
     case interventionDecision
     case interventionOutcome
+    case objectPresence
     case mediaPlayback
     case mediaReaction
     case personalBaseline
@@ -121,6 +124,7 @@ extension ObserverEventType {
              .localInsight,
              .localSummary,
              .mediaReaction,
+             .objectPresence,
              .personalBaseline,
              .personalCausalPattern,
              .prediction,

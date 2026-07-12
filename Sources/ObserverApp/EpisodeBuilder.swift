@@ -26,7 +26,7 @@ struct EpisodeBuilder {
                 + focusEvents.compactMap { $0.payload["app_name"] ?? $0.appID })
                 .filter { !$0.isEmpty }
         )
-        let kind = inferKind(spans: spans, apps: apps)
+        let kind = inferKind(events: episodeEvents, spans: spans, apps: apps)
         let dominant = dominantContext(spans: spans, apps: apps)
         let topic = inferTopic(events: episodeEvents, dominant: dominant)
         let stage = inferStage(events: episodeEvents, outcome: outcome)
@@ -77,7 +77,13 @@ struct EpisodeBuilder {
         return apps.first ?? "unknown"
     }
 
-    private func inferKind(spans: [ObserverEvent], apps: [String]) -> String {
+    private func inferKind(events: [ObserverEvent], spans: [ObserverEvent], apps: [String]) -> String {
+        if events.contains(where: { $0.payload["episode_kind_hint"] == "meeting" || $0.payload["content_kind"] == "meeting" || $0.payload["content_kind"] == "meeting_captions" }) {
+            return "meeting"
+        }
+        if events.contains(where: { $0.payload["episode_kind_hint"] == "call" || $0.payload["content_kind"] == "call_distilled" }) {
+            return "call"
+        }
         if let latestSpanKind = spans.last?.payload["span_kind"] {
             switch latestSpanKind {
             case "ai_assisted_design":
@@ -141,6 +147,13 @@ struct EpisodeBuilder {
 
     private func singleContextKind(apps: [String]) -> String {
         let joined = apps.joined(separator: " ").lowercased()
+        if joined.contains("google meet") || joined.contains("meet.google.com") || joined.contains("zoom") || joined.contains("teams") || joined.contains("webex") {
+            return "meeting"
+        }
+        if (joined.contains("telegram") || joined.contains("whatsapp") || joined.contains("viber") || joined.contains("facetime"))
+            && (joined.contains("call") || joined.contains("звон") || joined.contains("вызов")) {
+            return "call"
+        }
         if joined.contains("chatgpt") || joined.contains("claude") || joined.contains("gemini") || joined.contains("codex") {
             return "ai_assisted_work"
         }

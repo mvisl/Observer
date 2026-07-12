@@ -13,6 +13,10 @@ struct DailyActivityReportBuilder {
         let assignments = dayEvents.filter { $0.type == .episodeThreadAssignment }
         let threads = dayEvents.filter { $0.type == .activityThread }
         let episodes = dayEvents.filter { $0.type == .episode }
+        let meetingEpisodes = episodes.filter { $0.payload["episode_kind"] == "meeting" }
+        let callEpisodes = episodes.filter { $0.payload["episode_kind"] == "call" }
+        let actionItems = dayEvents.filter { $0.type == .actionItem }
+        let objectPresenceEvents = dayEvents.filter { $0.type == .objectPresence }
 
         let observedSeconds = observedTime(from: dayEvents)
         let activeSeconds = sum(slices, key: "active_seconds")
@@ -31,7 +35,11 @@ struct DailyActivityReportBuilder {
             "date": dateString(startOfDay),
             "observations": "\(observations.count)",
             "camera_evidence": "\(dayEvents.filter { $0.type == .cameraEvidence }.count)",
+            "object_presence": "\(objectPresenceEvents.count)",
             "episodes": "\(episodes.count)",
+            "meeting_episodes": "\(meetingEpisodes.count)",
+            "call_episodes": "\(callEpisodes.count)",
+            "action_items": "\(actionItems.count)",
             "activity_threads": "\(threads.count)",
             "assigned_intervals": "\(slices.filter { $0.payload["assignment_state"] == "assigned" }.count)",
             "unassigned_intervals": "\(slices.filter { $0.payload["assignment_state"] != "assigned" }.count)",
@@ -63,6 +71,7 @@ struct DailyActivityReportBuilder {
         - Unassigned active time: \(formatDuration(unassignedSeconds))
         - Coverage: \(Int((coverage * 100).rounded()))%
         - Activity threads: \(threads.count)
+        - Meetings: \(meetingEpisodes.count); calls: \(callEpisodes.count); action items: \(actionItems.count)
         - Confidence: high \(confidenceBuckets.high), medium \(confidenceBuckets.medium), low \(confidenceBuckets.low)
 
         ## Activity Threads
@@ -73,6 +82,10 @@ struct DailyActivityReportBuilder {
 
         \(timeline.isEmpty ? "- No context slices yet." : timeline)
 
+        ## Meetings And Calls
+
+        \(meetingCallLines(episodes: meetingEpisodes + callEpisodes, actionItems: actionItems))
+
         ## Unassigned
 
         \(unassigned.isEmpty ? "- No unassigned active time in current slices." : unassigned)
@@ -81,6 +94,7 @@ struct DailyActivityReportBuilder {
 
         - Observations: \(observations.count)
         - Camera evidence: \(dayEvents.filter { $0.type == .cameraEvidence }.count)
+        - Object presence evidence: \(objectPresenceEvents.count)
         - Episodes: \(episodes.count)
         - Assignments: \(assignments.count)
         - Double-count guard: context slices are episode-bounded and non-overlapping.
@@ -121,6 +135,22 @@ struct DailyActivityReportBuilder {
             let state = slice.payload["assignment_state"] == "assigned" ? "assigned" : "unassigned"
             return "- \(timeRange(slice)): \(state), \(slice.payload["activity_kind"] ?? "unknown"), \(formatDuration(Double(slice.payload["active_seconds"] ?? "") ?? 0))"
         }.joined(separator: "\n")
+    }
+
+    private func meetingCallLines(episodes: [ObserverEvent], actionItems: [ObserverEvent]) -> String {
+        guard !episodes.isEmpty || !actionItems.isEmpty else {
+            return "- No meeting or call episodes yet."
+        }
+        let episodeLines = episodes.sorted { $0.timestamp < $1.timestamp }.map { episode in
+            let kind = episode.payload["episode_kind"] ?? "communication"
+            let topic = safeReportText(episode.payload["topic"] ?? episode.payload["dominant_context"] ?? "unknown")
+            let duration = formatDuration(Double(episode.payload["duration_seconds"] ?? "") ?? 0)
+            return "- \(kind): \(topic), \(duration)"
+        }
+        let itemLines = actionItems.prefix(8).map { item in
+            "- action: \(safeReportText(item.payload["text"] ?? "follow up")), addressee \(item.payload["addressee"] ?? "?")"
+        }
+        return (episodeLines + itemLines).joined(separator: "\n")
     }
 
     private func unassignedLines(slices: [ObserverEvent]) -> String {

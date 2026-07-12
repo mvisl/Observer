@@ -53,6 +53,40 @@ struct DailyActivityReportBuilderTests {
         #expect(fixtures.contains { $0.name == "idempotent_rebuild" })
     }
 
+    @Test func reportsMeetingsCallsActionItemsAndObjectEvidence() {
+        let now = Date()
+        let meeting = event(.episode, at: now.addingTimeInterval(60), confidence: 0.8, payload: [
+            "episode_kind": "meeting",
+            "topic": "weekly onboarding sync",
+            "duration_seconds": "1800"
+        ])
+        let call = event(.episode, at: now.addingTimeInterval(120), confidence: 0.8, payload: [
+            "episode_kind": "call",
+            "topic": "family logistics",
+            "duration_seconds": "900"
+        ])
+        let item = event(.actionItem, at: now.addingTimeInterval(130), confidence: 0.8, payload: [
+            "text": "send onboarding summary",
+            "addressee": "me"
+        ])
+        let object = event(.objectPresence, at: now.addingTimeInterval(140), confidence: 0.8, payload: [
+            "object_class": "cell phone",
+            "display_eligible": "false"
+        ])
+
+        let result = DailyActivityReportBuilder().build(
+            events: [meeting, call, item, object],
+            day: now
+        )
+
+        #expect(result.diagnostics["meeting_episodes"] == "1")
+        #expect(result.diagnostics["call_episodes"] == "1")
+        #expect(result.diagnostics["action_items"] == "1")
+        #expect(result.diagnostics["object_presence"] == "1")
+        #expect(result.markdown.contains("Meetings And Calls"))
+        #expect(result.markdown.contains("family logistics"))
+    }
+
     private func event(
         _ type: ObserverEventType,
         at date: Date,

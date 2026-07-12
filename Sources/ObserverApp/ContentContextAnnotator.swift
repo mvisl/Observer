@@ -68,6 +68,15 @@ struct ContentContextAnnotator {
         ].joined(separator: " ").lowercased()
         let haystack = [appSurface, contentSurface].joined(separator: " ")
 
+        if isMeetingSurface(appSurface, contentSurface) {
+            if haystack.contains("caption") || haystack.contains("captions") || haystack.contains("subtitles") || haystack.contains("субтит") {
+                return "meeting_captions"
+            }
+            return "meeting"
+        }
+        if isCallSurface(appSurface, contentSurface) {
+            return "call_distilled"
+        }
         if haystack.contains("xcode") || haystack.contains("visual studio code") || haystack.contains("cursor") || haystack.contains("terminal") {
             return "code"
         }
@@ -103,7 +112,7 @@ struct ContentContextAnnotator {
     }
 
     private func sourceEntityName(context: ScreenContextSnapshot, kind: String) -> String? {
-        guard ["message", "email"].contains(kind) else {
+        guard ["message", "email", "call_distilled", "meeting", "meeting_captions"].contains(kind) else {
             return nil
         }
         let title = (context.windowTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -115,6 +124,33 @@ struct ContentContextAnnotator {
             .replacingOccurrences(of: " - Telegram", with: "")
             .replacingOccurrences(of: " — Slack", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isMeetingSurface(_ appSurface: String, _ contentSurface: String) -> Bool {
+        let haystack = [appSurface, contentSurface].joined(separator: " ")
+        return haystack.contains("meet.google.com")
+            || haystack.contains("google meet")
+            || haystack.contains("zoom meeting")
+            || haystack.contains("zoom.us/j/")
+            || haystack.contains("microsoft teams")
+            || haystack.contains("teams.microsoft.com")
+            || haystack.contains("webex")
+    }
+
+    private func isCallSurface(_ appSurface: String, _ contentSurface: String) -> Bool {
+        let haystack = [appSurface, contentSurface].joined(separator: " ")
+        let communicator = appSurface.contains("viber")
+            || appSurface.contains("whatsapp")
+            || appSurface.contains("telegram")
+            || appSurface.contains("facetime")
+        let callMarker = haystack.contains("call")
+            || haystack.contains("calling")
+            || haystack.contains("audio call")
+            || haystack.contains("video call")
+            || haystack.contains("звонок")
+            || haystack.contains("вызов")
+            || haystack.contains("разговор")
+        return communicator && callMarker
     }
 
     private func topicPhrase(from text: String, fallback: String) -> String {
@@ -179,7 +215,7 @@ struct ContentContextAnnotator {
     }
 
     private func isIncoming(context: ScreenContextSnapshot, kind: String) -> Bool {
-        guard ["message", "email"].contains(kind) else {
+        guard ["message", "email", "meeting_captions", "call_distilled"].contains(kind) else {
             return false
         }
         return context.hasTextualFocus == false

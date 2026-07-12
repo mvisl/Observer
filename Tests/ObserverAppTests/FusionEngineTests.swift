@@ -72,6 +72,34 @@ struct FusionEngineTests {
         #expect(decision.channels.contains("input"))
     }
 
+    @Test func objectPresenceCanSupportFusionWithoutSurfacingAlone() {
+        let now = Date()
+        let candidate = event(
+            type: .behaviorCue,
+            timestamp: now,
+            confidence: 0.42,
+            payload: [
+                "cue": "wandering_candidate",
+                "interpretation": "screen_static_input_idle"
+            ]
+        )
+        let objectEvidence = event(
+            type: .objectPresence,
+            timestamp: now.addingTimeInterval(-10),
+            payload: [
+                "object_class": "cell phone",
+                "in_hand": "true",
+                "display_eligible": "false"
+            ]
+        )
+
+        let decision = FusionEngine().decide(candidate: candidate, recentEvents: [objectEvidence, candidate])
+
+        #expect(decision.publicationState == "publishable")
+        #expect(decision.channels.contains("input"))
+        #expect(decision.channels.contains("object"))
+    }
+
     private func event(
         type: ObserverEventType,
         timestamp: Date,

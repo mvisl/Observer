@@ -170,6 +170,14 @@ struct ObserverSettings: Codable {
         var activityTrackerUIEnabled: Bool
         var activityThreadRelinkerEnabled: Bool
         var causalLayerShadowMode: Bool
+        var meetingCallUnderstandingEnabled: Bool
+        var meetingAppPatterns: [String]
+        var callAppPatterns: [String]
+        var callSystemAudioEnabledByDefault: Bool
+        var objectPresenceShadowMode: Bool
+        var objectPresenceFPS: Double
+        var objectPresenceBatteryFPS: Double
+        var objectPresenceDisabledDuringMeeting: Bool
 
         init(
             contextFabricEnabled: Bool,
@@ -181,7 +189,15 @@ struct ObserverSettings: Codable {
             activityTrackerShadowMode: Bool,
             activityTrackerUIEnabled: Bool,
             activityThreadRelinkerEnabled: Bool,
-            causalLayerShadowMode: Bool
+            causalLayerShadowMode: Bool,
+            meetingCallUnderstandingEnabled: Bool,
+            meetingAppPatterns: [String],
+            callAppPatterns: [String],
+            callSystemAudioEnabledByDefault: Bool,
+            objectPresenceShadowMode: Bool,
+            objectPresenceFPS: Double,
+            objectPresenceBatteryFPS: Double,
+            objectPresenceDisabledDuringMeeting: Bool
         ) {
             self.contextFabricEnabled = contextFabricEnabled
             self.cameraEvidenceEnabled = cameraEvidenceEnabled
@@ -193,6 +209,14 @@ struct ObserverSettings: Codable {
             self.activityTrackerUIEnabled = activityTrackerUIEnabled
             self.activityThreadRelinkerEnabled = activityThreadRelinkerEnabled
             self.causalLayerShadowMode = causalLayerShadowMode
+            self.meetingCallUnderstandingEnabled = meetingCallUnderstandingEnabled
+            self.meetingAppPatterns = meetingAppPatterns
+            self.callAppPatterns = callAppPatterns
+            self.callSystemAudioEnabledByDefault = callSystemAudioEnabledByDefault
+            self.objectPresenceShadowMode = objectPresenceShadowMode
+            self.objectPresenceFPS = objectPresenceFPS
+            self.objectPresenceBatteryFPS = objectPresenceBatteryFPS
+            self.objectPresenceDisabledDuringMeeting = objectPresenceDisabledDuringMeeting
         }
 
         init(from decoder: Decoder) throws {
@@ -208,6 +232,14 @@ struct ObserverSettings: Codable {
             self.activityTrackerUIEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityTrackerUIEnabled) ?? defaults.activityTrackerUIEnabled
             self.activityThreadRelinkerEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityThreadRelinkerEnabled) ?? defaults.activityThreadRelinkerEnabled
             self.causalLayerShadowMode = try container.decodeIfPresent(Bool.self, forKey: .causalLayerShadowMode) ?? defaults.causalLayerShadowMode
+            self.meetingCallUnderstandingEnabled = try container.decodeIfPresent(Bool.self, forKey: .meetingCallUnderstandingEnabled) ?? defaults.meetingCallUnderstandingEnabled
+            self.meetingAppPatterns = try container.decodeIfPresent([String].self, forKey: .meetingAppPatterns) ?? defaults.meetingAppPatterns
+            self.callAppPatterns = try container.decodeIfPresent([String].self, forKey: .callAppPatterns) ?? defaults.callAppPatterns
+            self.callSystemAudioEnabledByDefault = try container.decodeIfPresent(Bool.self, forKey: .callSystemAudioEnabledByDefault) ?? defaults.callSystemAudioEnabledByDefault
+            self.objectPresenceShadowMode = try container.decodeIfPresent(Bool.self, forKey: .objectPresenceShadowMode) ?? defaults.objectPresenceShadowMode
+            self.objectPresenceFPS = try container.decodeIfPresent(Double.self, forKey: .objectPresenceFPS) ?? defaults.objectPresenceFPS
+            self.objectPresenceBatteryFPS = try container.decodeIfPresent(Double.self, forKey: .objectPresenceBatteryFPS) ?? defaults.objectPresenceBatteryFPS
+            self.objectPresenceDisabledDuringMeeting = try container.decodeIfPresent(Bool.self, forKey: .objectPresenceDisabledDuringMeeting) ?? defaults.objectPresenceDisabledDuringMeeting
         }
     }
 
@@ -412,7 +444,15 @@ struct ObserverSettings: Codable {
             activityTrackerShadowMode: true,
             activityTrackerUIEnabled: true,
             activityThreadRelinkerEnabled: true,
-            causalLayerShadowMode: true
+            causalLayerShadowMode: true,
+            meetingCallUnderstandingEnabled: true,
+            meetingAppPatterns: ["meet.google.com", "google meet", "zoom", "teams.microsoft.com", "microsoft teams", "webex"],
+            callAppPatterns: ["viber", "whatsapp", "telegram", "facetime"],
+            callSystemAudioEnabledByDefault: true,
+            objectPresenceShadowMode: true,
+            objectPresenceFPS: 1.0,
+            objectPresenceBatteryFPS: 0.5,
+            objectPresenceDisabledDuringMeeting: true
         )
     )
 }

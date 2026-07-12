@@ -71,4 +71,49 @@ struct ContentContextAnnotatorTests {
         #expect(annotation?.contentKind == "message")
         #expect(annotation?.topic == "хакатон: роль, польза и ощущение бессмысленности")
     }
+
+    @Test func classifiesMeetCaptionsAsMeetingContext() {
+        let context = ScreenContextSnapshot(
+            appID: "com.google.Chrome",
+            appName: "Google Chrome",
+            windowTitle: "Weekly Sync - Google Meet",
+            windowRole: nil,
+            document: "https://meet.google.com/abc-defg-hij",
+            focusedElementRole: nil,
+            focusedElementTitle: "Captions",
+            focusedElementValue: "Captions Андрей says let's review onboarding flow",
+            selectedText: nil,
+            screenIndex: nil,
+            displayRole: nil,
+            confidence: 0.8
+        )
+
+        let annotation = ContentContextAnnotator().annotate(context: context, allowRawKinds: [])
+
+        #expect(annotation?.contentKind == "meeting_captions")
+        #expect(annotation?.rawFragment == nil)
+    }
+
+    @Test func classifiesCommunicatorCallAsCallDistilledContext() {
+        let context = ScreenContextSnapshot(
+            appID: "com.viber",
+            appName: "Rakuten Viber",
+            windowTitle: "Mother - audio call",
+            windowRole: nil,
+            document: nil,
+            focusedElementRole: nil,
+            focusedElementTitle: nil,
+            focusedElementValue: "Call in progress",
+            selectedText: nil,
+            screenIndex: nil,
+            displayRole: nil,
+            confidence: 0.8
+        )
+
+        let annotation = ContentContextAnnotator().annotate(context: context, allowRawKinds: [])
+
+        #expect(annotation?.contentKind == "call_distilled")
+        #expect(annotation?.sourceEntityDisplayName?.contains("Mother") == true)
+        #expect(annotation?.rawFragment == nil)
+    }
 }

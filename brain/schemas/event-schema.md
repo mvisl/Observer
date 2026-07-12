@@ -20,7 +20,8 @@ Core event families:
 - focus: `appFocus`, `appFocusInterval`
 - context: `contentContext`, plus legacy `screenContext`, `ocrContext`, `writingContext` when full-context mode is off
 - attention: `attention`
-- interpretation: `activityInsight`, `behaviorCue`, `boundReaction`, `fusionHypothesis`, `gazeCalibrationSample`
+- interpretation: `activityInsight`, `behaviorCue`, `boundReaction`, `fusionHypothesis`, `gazeCalibrationSample`, `objectPresence`
+- meetings/calls: `audioCaptureState`, `actionItem`, plus `episode` with `episode_kind=meeting|call`
 - protection: `awayPresenceIncident`
 - camera lifecycle: `cameraPermission`, `cameraAttentionStarted`, `cameraAttentionStopped`
 - memory: `localSummary`, `researchDigest`, `userNote`
@@ -42,7 +43,7 @@ Full context rules:
 
 Content context payloads:
 
-- `content_kind`: `message`, `email`, `article`, `doc`, `code`, `prompt`, `feed`, or `video`
+- `content_kind`: `message`, `email`, `article`, `doc`, `code`, `prompt`, `feed`, `video`, `meeting`, `meeting_captions`, or `call_distilled`
 - `topic`: short local semantic phrase
 - `sentiment`: `pos`, `neg`, `neutral`, or `mixed`
 - `language`: short language code such as `ru` or `en`
@@ -55,6 +56,25 @@ Bound reaction payloads:
 - `entity_id`: optional local entity id
 - `topic`: content topic
 - `evidence_event_ids`: behavior/content event ids
+
+Meeting and call rules:
+
+- Meetings and calls are ordinary `episode` rows with `episode_kind=meeting` or `episode_kind=call`; do not build a parallel tracker.
+- `audioCaptureState` records only capture policy: microphone/system audio on/off, captions available, visible indicator, chunk window, and `raw_audio_retained=false`.
+- `contentContext.content_kind=meeting_captions` stores only semantic caption annotations, speaker and topic metadata, not raw transcript.
+- `contentContext.content_kind=call_distilled` stores only distilled topic/task/action metadata from local transcription; raw audio chunks and raw transcripts are destroyed before persistence.
+- `actionItem` stores paraphrased follow-up text, requester/addressee/due hints, and evidence ids. It must not store raw meeting/call quotes.
+
+Object presence payloads:
+
+- `object_class`: COCO-like class such as `cell phone`, `cup`, `bottle`, or food classes.
+- `in_hand`: boolean string from hand/object overlap when hand landmarks are available.
+- `duration_seconds`: anti-debounced object-presence episode duration.
+- `confidence`: detector confidence.
+- `display_eligible=false`: object detections are shadow evidence and never surface alone.
+- `frame_retained=false`: frames are destroyed after inference.
+- `evidence_role`: `screen_break_or_wandering_disambiguation`, `refuel_break_candidate`, or `contextual_object_presence`.
+- Headphones are intentionally excluded from camera object detection; audio route is the source of truth.
 
 Media reaction payloads:
 

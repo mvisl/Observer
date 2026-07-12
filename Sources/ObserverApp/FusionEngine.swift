@@ -87,6 +87,8 @@ struct FusionEngine {
             return "scroll"
         case .mediaPlayback, .mediaReaction:
             return "media"
+        case .objectPresence:
+            return "object"
         default:
             return nil
         }
