@@ -13,6 +13,8 @@ final class CameraAttentionService: NSObject {
     private var isRunning = false
     private var lastEmittedAt = Date.distantPast
     private var minimumEmitInterval: TimeInterval = 15
+    private var smileCandidateThreshold: Double = 0.62
+    private var mouthOpenCandidateThreshold: Double = 0.62
 
     var isActive: Bool {
         isRunning
@@ -20,10 +22,14 @@ final class CameraAttentionService: NSObject {
 
     func start(
         minimumEmitInterval: TimeInterval,
+        smileCandidateThreshold: Double = 0.62,
+        mouthOpenCandidateThreshold: Double = 0.62,
         handler: @escaping @MainActor (AttentionSnapshot) -> Void
     ) throws {
         self.handler = handler
         self.minimumEmitInterval = minimumEmitInterval
+        self.smileCandidateThreshold = smileCandidateThreshold
+        self.mouthOpenCandidateThreshold = mouthOpenCandidateThreshold
 
         if !isConfigured {
             try configure()
@@ -101,7 +107,9 @@ final class CameraAttentionService: NSObject {
             let observations = request.results ?? []
             let snapshot = AttentionSnapshot.from(
                 faceObservations: observations,
-                jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer)
+                jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer),
+                smileCandidateThreshold: smileCandidateThreshold,
+                mouthOpenCandidateThreshold: mouthOpenCandidateThreshold
             )
             let handler = self.handler
             Task { @MainActor in
@@ -241,7 +249,12 @@ struct AttentionSnapshot: Sendable {
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
-    static func from(faceObservations: [VNFaceObservation], jpegData: Data? = nil) -> AttentionSnapshot {
+    static func from(
+        faceObservations: [VNFaceObservation],
+        jpegData: Data? = nil,
+        smileCandidateThreshold: Double = 0.62,
+        mouthOpenCandidateThreshold: Double = 0.62
+    ) -> AttentionSnapshot {
         guard let largestFace = faceObservations.max(by: { lhs, rhs in
             lhs.boundingBox.width * lhs.boundingBox.height < rhs.boundingBox.width * rhs.boundingBox.height
         }) else {
@@ -273,8 +286,8 @@ struct AttentionSnapshot: Sendable {
             pitch: pitch,
             roll: roll
         )
-        let smile = SmileEstimator().estimate(landmarks: largestFace.landmarks)
-        let mouth = MouthOpenEstimator().estimate(landmarks: largestFace.landmarks)
+        let smile = SmileEstimator(candidateThreshold: smileCandidateThreshold).estimate(landmarks: largestFace.landmarks)
+        let mouth = MouthOpenEstimator(candidateThreshold: mouthOpenCandidateThreshold).estimate(landmarks: largestFace.landmarks)
         let facePosition: FacePosition
         if centerX < 0.38 {
             facePosition = .left
@@ -435,6 +448,8 @@ private struct SmileEstimate {
 }
 
 private struct SmileEstimator {
+    let candidateThreshold: Double
+
     func estimate(landmarks: VNFaceLandmarks2D?) -> SmileEstimate {
         guard let mouth = landmarks?.outerLips, !mouth.normalizedPoints.isEmpty else {
             return SmileEstimate(score: nil, isCandidate: nil, source: nil)
@@ -456,7 +471,7 @@ private struct SmileEstimator {
         let score = min(1, max(0, (ratio - 2.2) / 1.4))
         return SmileEstimate(
             score: score,
-            isCandidate: score >= 0.62,
+            isCandidate: score >= candidateThreshold,
             source: "outer_lips_aspect_ratio"
         )
     }
@@ -469,6 +484,8 @@ private struct MouthOpenEstimate {
 }
 
 private struct MouthOpenEstimator {
+    let candidateThreshold: Double
+
     func estimate(landmarks: VNFaceLandmarks2D?) -> MouthOpenEstimate {
         guard let mouth = landmarks?.outerLips, !mouth.normalizedPoints.isEmpty else {
             return MouthOpenEstimate(score: nil, isYawnCandidate: nil, source: nil)
@@ -489,7 +506,7 @@ private struct MouthOpenEstimator {
         let score = min(1, max(0, (openness - 0.28) / 0.34))
         return MouthOpenEstimate(
             score: score,
-            isYawnCandidate: score >= 0.62,
+            isYawnCandidate: score >= candidateThreshold,
             source: "outer_lips_open_ratio"
         )
     }

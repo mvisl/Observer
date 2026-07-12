@@ -96,6 +96,7 @@ struct ReadinessReportBuilder {
 
     func readinessReport(events: [ObserverEvent], now: Date = Date()) -> ReadinessReport {
         let metrics = EpisodeReadinessMetrics(events: events, calendar: calendar)
+        let cameraAB = CameraDetectorABReportBuilder().build(events: events)
         let evidenceEvents = events.filter { $0.type == .evidence }
         let situationModels = events.filter { $0.type == .situationModel }
         let interventionDecisions = events.filter { $0.type == .interventionDecision }
@@ -135,6 +136,7 @@ struct ReadinessReportBuilder {
             "lineage_coverage": String(format: "%.3f", metrics.lineageCoverage),
             "episode_content_coverage": String(format: "%.3f", metrics.contentCoverage),
             "unsupported_claim_rate": String(format: "%.3f", metrics.unsupportedClaimRate),
+            "camera_detector_ab_recommendation": cameraAB["recommendation"] ?? "keep_shadow",
             "blockers": blockers.joined(separator: "; ")
         ]
         let markdown = """
@@ -149,6 +151,7 @@ struct ReadinessReportBuilder {
         | Independent days | \(metrics.independentDays) | \(settings.minimumEpisodeDays) | \(episodeReady ? "ok" : "blocked") |
         | Episode content coverage | \(metrics.percent(metrics.contentCoverage)) | \(metrics.percent(settings.minimumEpisodeContentCoverage)) | \(episodeReady ? "ok" : "blocked") |
         | Unsupported claim rate | \(metrics.percent(metrics.unsupportedClaimRate)) | max \(metrics.percent(settings.maximumUnsupportedClaimRate)) | \(semanticReady ? "ok" : "blocked") |
+        | Camera cascade A/B | \(cameraAB["cascade_precision"] ?? "0.000") precision / \(cameraAB["cascade_recall_proxy"] ?? "0.000") recall proxy | 14d labeled improvement | \(cameraAB["recommendation"] == "switch_after_full_window" ? "ok" : "shadow") |
         | Evidence graph | \(evidenceEvents.count) nodes | >0 | \(evidenceEvents.isEmpty ? "blocked" : "ok") |
         | Situation model | \(situationModels.count) models | >0 | \(situationModels.isEmpty ? "blocked" : "ok") |
         | Intervention ledger | \(interventionDecisions.count) decisions | >0 | \(interventionReady ? "ok" : "blocked") |

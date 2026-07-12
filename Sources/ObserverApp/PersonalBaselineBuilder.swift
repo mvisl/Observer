@@ -14,6 +14,7 @@ struct PersonalBaselineBuilder {
         let inputEvents = eligibleEvents.filter { $0.type == .inputActivity }
         let focusIntervals = eligibleEvents.filter { $0.type == .appFocusInterval }
         let appFocusEvents = eligibleEvents.filter { $0.type == .appFocus }
+        let cameraTier2Events = eligibleEvents.filter { $0.type == .cameraTier2Sample && $0.payload["active_camera_cue"] != "true" }
         var samples: [PersonalBaselineSample] = []
 
         if !inputEvents.isEmpty {
@@ -45,6 +46,16 @@ struct PersonalBaselineBuilder {
                 calendar: calendar
             ) { _ in
                 1 / observedHours
+            })
+        }
+
+        for au in OpenFaceTier2Sample.supportedAUs where cameraTier2Events.contains(where: { $0.payload[au] != nil }) {
+            samples.append(contentsOf: groupedSamples(
+                metric: "camera_\(au)_neutral",
+                events: cameraTier2Events,
+                calendar: calendar
+            ) { event in
+                Double(event.payload[au] ?? "") ?? 0
             })
         }
 

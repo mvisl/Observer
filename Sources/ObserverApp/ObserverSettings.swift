@@ -9,6 +9,78 @@ struct ObserverSettings: Codable {
         var readingPauseSeconds: Double
     }
 
+    struct CameraDetectorSettings: Codable {
+        var tier2SidecarEnabled: Bool
+        var tier2SocketPath: String
+        var tier2BackgroundFPS: Double
+        var tier2BatteryFPS: Double
+        var tier2BurstSeconds: Double
+        var tier2BurstPrePostSeconds: Double
+        var tier1SmileCandidateThreshold: Double
+        var tier1MouthOpenCandidateThreshold: Double
+        var tier2ConfirmationZThreshold: Double
+        var temporalOnsetMinimumSeconds: Double
+        var temporalMinimumDurationSeconds: Double
+        var temporalMaximumDurationSeconds: Double
+        var temporalExitThresholdMultiplier: Double
+        var abValidationDays: Int
+        var cascadeShadowMode: Bool
+
+        init(
+            tier2SidecarEnabled: Bool,
+            tier2SocketPath: String,
+            tier2BackgroundFPS: Double,
+            tier2BatteryFPS: Double,
+            tier2BurstSeconds: Double,
+            tier2BurstPrePostSeconds: Double,
+            tier1SmileCandidateThreshold: Double,
+            tier1MouthOpenCandidateThreshold: Double,
+            tier2ConfirmationZThreshold: Double,
+            temporalOnsetMinimumSeconds: Double,
+            temporalMinimumDurationSeconds: Double,
+            temporalMaximumDurationSeconds: Double,
+            temporalExitThresholdMultiplier: Double,
+            abValidationDays: Int,
+            cascadeShadowMode: Bool
+        ) {
+            self.tier2SidecarEnabled = tier2SidecarEnabled
+            self.tier2SocketPath = tier2SocketPath
+            self.tier2BackgroundFPS = tier2BackgroundFPS
+            self.tier2BatteryFPS = tier2BatteryFPS
+            self.tier2BurstSeconds = tier2BurstSeconds
+            self.tier2BurstPrePostSeconds = tier2BurstPrePostSeconds
+            self.tier1SmileCandidateThreshold = tier1SmileCandidateThreshold
+            self.tier1MouthOpenCandidateThreshold = tier1MouthOpenCandidateThreshold
+            self.tier2ConfirmationZThreshold = tier2ConfirmationZThreshold
+            self.temporalOnsetMinimumSeconds = temporalOnsetMinimumSeconds
+            self.temporalMinimumDurationSeconds = temporalMinimumDurationSeconds
+            self.temporalMaximumDurationSeconds = temporalMaximumDurationSeconds
+            self.temporalExitThresholdMultiplier = temporalExitThresholdMultiplier
+            self.abValidationDays = abValidationDays
+            self.cascadeShadowMode = cascadeShadowMode
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.cameraDetectorSettings
+            self.tier2SidecarEnabled = try container.decodeIfPresent(Bool.self, forKey: .tier2SidecarEnabled) ?? defaults.tier2SidecarEnabled
+            self.tier2SocketPath = try container.decodeIfPresent(String.self, forKey: .tier2SocketPath) ?? defaults.tier2SocketPath
+            self.tier2BackgroundFPS = try container.decodeIfPresent(Double.self, forKey: .tier2BackgroundFPS) ?? defaults.tier2BackgroundFPS
+            self.tier2BatteryFPS = try container.decodeIfPresent(Double.self, forKey: .tier2BatteryFPS) ?? defaults.tier2BatteryFPS
+            self.tier2BurstSeconds = try container.decodeIfPresent(Double.self, forKey: .tier2BurstSeconds) ?? defaults.tier2BurstSeconds
+            self.tier2BurstPrePostSeconds = try container.decodeIfPresent(Double.self, forKey: .tier2BurstPrePostSeconds) ?? defaults.tier2BurstPrePostSeconds
+            self.tier1SmileCandidateThreshold = try container.decodeIfPresent(Double.self, forKey: .tier1SmileCandidateThreshold) ?? defaults.tier1SmileCandidateThreshold
+            self.tier1MouthOpenCandidateThreshold = try container.decodeIfPresent(Double.self, forKey: .tier1MouthOpenCandidateThreshold) ?? defaults.tier1MouthOpenCandidateThreshold
+            self.tier2ConfirmationZThreshold = try container.decodeIfPresent(Double.self, forKey: .tier2ConfirmationZThreshold) ?? defaults.tier2ConfirmationZThreshold
+            self.temporalOnsetMinimumSeconds = try container.decodeIfPresent(Double.self, forKey: .temporalOnsetMinimumSeconds) ?? defaults.temporalOnsetMinimumSeconds
+            self.temporalMinimumDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .temporalMinimumDurationSeconds) ?? defaults.temporalMinimumDurationSeconds
+            self.temporalMaximumDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .temporalMaximumDurationSeconds) ?? defaults.temporalMaximumDurationSeconds
+            self.temporalExitThresholdMultiplier = try container.decodeIfPresent(Double.self, forKey: .temporalExitThresholdMultiplier) ?? defaults.temporalExitThresholdMultiplier
+            self.abValidationDays = try container.decodeIfPresent(Int.self, forKey: .abValidationDays) ?? defaults.abValidationDays
+            self.cascadeShadowMode = try container.decodeIfPresent(Bool.self, forKey: .cascadeShadowMode) ?? defaults.cascadeShadowMode
+        }
+    }
+
     struct CognitiveSettings: Codable {
         var flowMinimumSeconds: Double
         var flowMaximumFocusChanges: Int
@@ -265,6 +337,7 @@ struct ObserverSettings: Codable {
     var pillVerbosity: String
     var pseudonymizeEntities: Bool
     var detectorSettings: DetectorSettings
+    var cameraDetectorSettings: CameraDetectorSettings
     var cognitiveSettings: CognitiveSettings
     var workSchedule: WorkScheduleSettings
     var readinessSettings: ReadinessSettings
@@ -293,6 +366,7 @@ struct ObserverSettings: Codable {
         pillVerbosity: String,
         pseudonymizeEntities: Bool,
         detectorSettings: DetectorSettings,
+        cameraDetectorSettings: CameraDetectorSettings,
         cognitiveSettings: CognitiveSettings,
         workSchedule: WorkScheduleSettings,
         readinessSettings: ReadinessSettings,
@@ -320,6 +394,7 @@ struct ObserverSettings: Codable {
         self.pillVerbosity = pillVerbosity
         self.pseudonymizeEntities = pseudonymizeEntities
         self.detectorSettings = detectorSettings
+        self.cameraDetectorSettings = cameraDetectorSettings
         self.cognitiveSettings = cognitiveSettings
         self.workSchedule = workSchedule
         self.readinessSettings = readinessSettings
@@ -351,6 +426,7 @@ struct ObserverSettings: Codable {
         self.pillVerbosity = try container.decodeIfPresent(String.self, forKey: .pillVerbosity) ?? defaults.pillVerbosity
         self.pseudonymizeEntities = try container.decodeIfPresent(Bool.self, forKey: .pseudonymizeEntities) ?? defaults.pseudonymizeEntities
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
+        self.cameraDetectorSettings = try container.decodeIfPresent(CameraDetectorSettings.self, forKey: .cameraDetectorSettings) ?? defaults.cameraDetectorSettings
         self.cognitiveSettings = try container.decodeIfPresent(CognitiveSettings.self, forKey: .cognitiveSettings) ?? defaults.cognitiveSettings
         self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
         self.readinessSettings = try container.decodeIfPresent(ReadinessSettings.self, forKey: .readinessSettings) ?? defaults.readinessSettings
@@ -385,6 +461,23 @@ struct ObserverSettings: Codable {
             returnLoopMinimumEvents: 5,
             returnLoopMinimumReturns: 3,
             readingPauseSeconds: 180
+        ),
+        cameraDetectorSettings: CameraDetectorSettings(
+            tier2SidecarEnabled: false,
+            tier2SocketPath: "/tmp/observer-openface3.sock",
+            tier2BackgroundFPS: 2.0,
+            tier2BatteryFPS: 1.0,
+            tier2BurstSeconds: 10.0,
+            tier2BurstPrePostSeconds: 3.0,
+            tier1SmileCandidateThreshold: 0.48,
+            tier1MouthOpenCandidateThreshold: 0.50,
+            tier2ConfirmationZThreshold: 1.35,
+            temporalOnsetMinimumSeconds: 0.30,
+            temporalMinimumDurationSeconds: 0.50,
+            temporalMaximumDurationSeconds: 4.0,
+            temporalExitThresholdMultiplier: 0.65,
+            abValidationDays: 14,
+            cascadeShadowMode: true
         ),
         cognitiveSettings: CognitiveSettings(
             flowMinimumSeconds: 600,

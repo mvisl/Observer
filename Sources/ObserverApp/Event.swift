@@ -16,8 +16,11 @@ enum ObserverEventType: String, Codable {
     case breakpoint
     case cameraAttentionStarted
     case cameraAttentionStopped
+    case cameraCueTrajectory
+    case cameraDetectorABReport
     case cameraEvidence
     case cameraPermission
+    case cameraTier2Sample
     case causalAntecedent
     case causalHypothesis
     case causalUnderstandingReport
@@ -100,6 +103,9 @@ extension ObserverEventType {
              .behaviorCue,
              .boundReaction,
              .cameraEvidence,
+             .cameraCueTrajectory,
+             .cameraDetectorABReport,
+             .cameraTier2Sample,
              .causalAntecedent,
              .causalHypothesis,
              .causalUnderstandingReport,

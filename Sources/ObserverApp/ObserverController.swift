@@ -292,7 +292,11 @@ final class ObserverController {
             return hypothesis
         }
 
-        return ""
+        if let fallback = currentFocusFallbackLine(now: now) {
+            return fallback
+        }
+
+        return "Рабочий эпизод: собираешь контекст в цельную гипотезу"
     }
 
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
@@ -325,7 +329,7 @@ final class ObserverController {
             if joinedApps.contains("chatgpt") || joinedApps.contains("claude") {
                 return "Дизайн + ИИ: сверяешь визуальное решение с формулировкой"
             }
-            return "Дизайн: проверяешь, превращается ли идея в цельный экран"
+            return "Дизайн: ищешь, где макет расходится с рабочей идеей"
         }
         if appName.contains("telegram")
             || appName.contains("whatsapp")
@@ -450,6 +454,7 @@ final class ObserverController {
                 )
                 && now.timeIntervalSince(event.timestamp) <= 180
         }
+        let activeMedia = latestActiveMediaLine(events: events, now: now)
         let hasNegativeCharge = [
             "бесит", "злюсь", "хует", "хуй", "ебан", "еблан", "гандон", "тупым роботом", "shit", "fuck"
         ].contains { text.contains($0) }
@@ -458,18 +463,27 @@ final class ObserverController {
         ].contains { text.contains($0) }
 
         if hasCommunication && hasProductPriorityTalk && hasRecentSmile {
+            if let activeMedia {
+                return "Переписка + музыка: спор разряжается, но источник подъёма разделяем (\(activeMedia))"
+            }
             return "Переписка: спор о продукте разряжается шуткой"
         }
         if hasCommunication && hasProductPriorityTalk {
             return "Переписка: спор о приоритетах карточек и описаний"
         }
         if hasCommunication && hasNegativeCharge && hasRecentSmile {
+            if let activeMedia {
+                return "Переписка + музыка: резкий тон похож на стёб; рядом играет \(activeMedia)"
+            }
             return "Переписка: резкий тон похож на стёб, а не тупик"
         }
         if hasCommunication && hasNegativeCharge {
             return "Переписка: напряжение вокруг процесса и ответственности"
         }
         if hasCommunication && hasRecentSmile {
+            if let activeMedia {
+                return "Переписка + музыка: подъём есть, источник надо разделить (\(activeMedia))"
+            }
             return "Переписка: общение даёт лёгкий эмоциональный подъём"
         }
 
@@ -505,6 +519,23 @@ final class ObserverController {
         }
 
         return nil
+    }
+
+    private func latestActiveMediaLine(events: [ObserverEvent], now: Date = Date()) -> String? {
+        guard let media = events.reversed().first(where: { event in
+            event.type == .mediaPlayback
+                && event.payload["state"] == "playing"
+                && now.timeIntervalSince(event.timestamp) <= 10 * 60
+        }) else {
+            return nil
+        }
+        let source = cleanInsightFragment(media.payload["source"]) ?? "музыка"
+        let title = cleanInsightFragment(media.payload["title"], allowShortCodeLikeText: false)
+        let artist = cleanInsightFragment(media.payload["artist"], allowShortCodeLikeText: false)
+        if let title, let artist {
+            return "\(source): \(artist) - \(title)"
+        }
+        return title.map { "\(source): \($0)" } ?? source
     }
 
     private func usableWidgetContextLine(_ line: String?) -> String? {
@@ -1168,6 +1199,8 @@ final class ObserverController {
         return [
             securityLine,
             "\(intervalLabel): \(semanticFocusSummary(events))",
+            cameraCandidateSummary(events),
+            episodeSpanSummary(events),
             contextShiftSummary(events),
             latestContentSummary(events),
             state.map { "Состояние: \($0)" },
@@ -1278,6 +1311,39 @@ final class ObserverController {
         }
 
         return names.joined(separator: " + ")
+    }
+
+    private func cameraCandidateSummary(_ events: [ObserverEvent]) -> String? {
+        let cameraCues = events.filter { event in
+            event.type == .behaviorCue
+                && event.payload["detector_tier"] == "tier1"
+                && event.payload["cascade_stage"] == "tier1_candidate"
+        }
+        if let yawn = cameraCues.reversed().first(where: { $0.payload["cue"] == "energy_drop_candidate" }) {
+            let score = yawn.payload["mouth_open_score"].map { " score \($0)" } ?? ""
+            return "Камера: зевок пойман как кандидат\(score); в вывод не идёт без PERCLOS/ритма."
+        }
+        if let smile = cameraCues.reversed().first(where: { $0.payload["cue"] == "positive_reaction_candidate" }) {
+            let score = smile.payload["smile_score"].map { " score \($0)" } ?? ""
+            return "Камера: улыбка только кандидат\(score); нужна связка с контекстом."
+        }
+        return nil
+    }
+
+    private func episodeSpanSummary(_ events: [ObserverEvent]) -> String? {
+        guard let span = events.reversed().first(where: { $0.type == .attentionSpan }) else {
+            return nil
+        }
+        let kind = readableSpanKind(span.payload["span_kind"])
+        let apps = cleanInsightFragment(span.payload["apps"], allowShortCodeLikeText: false)
+        let switches = span.payload["switches_within_span"]
+        let duration = Double(span.payload["duration_seconds"] ?? "").map(formatCompactDuration)
+        let details = [
+            apps.map { "через \($0)" },
+            duration.map { "\($0)" },
+            switches.map { "переходов внутри связки \($0)" }
+        ].compactMap { $0 }.joined(separator: " · ")
+        return details.isEmpty ? "Эпизод: \(kind)" : "Эпизод: \(kind) · \(details)"
     }
 
     private func contextShiftSummary(_ events: [ObserverEvent]) -> String? {
@@ -1445,6 +1511,25 @@ final class ObserverController {
             return "страница"
         default:
             return kind
+        }
+    }
+
+    private func readableSpanKind(_ kind: String?) -> String {
+        switch kind {
+        case "ai_assisted_design":
+            return "ИИ помогает довести дизайн"
+        case "ai_assisted_work":
+            return "ИИ-итерация по рабочей задаче"
+        case "design_work":
+            return "дизайн-работа"
+        case "communication":
+            return "переписка с рабочим следом"
+        case "reading_research":
+            return "исследование и чтение"
+        case "mixed":
+            return "смешанный рабочий фрагмент"
+        default:
+            return "рабочий фрагмент"
         }
     }
 
@@ -2076,14 +2161,23 @@ final class ObserverController {
         do {
             latestCameraStatus = "Жду активности · камера включается"
             try cameraAttentionService.start(
-                minimumEmitInterval: environment.settings.attentionSampleIntervalSeconds
+                minimumEmitInterval: environment.settings.attentionSampleIntervalSeconds,
+                smileCandidateThreshold: environment.settings.cameraDetectorSettings.tier1SmileCandidateThreshold,
+                mouthOpenCandidateThreshold: environment.settings.cameraDetectorSettings.tier1MouthOpenCandidateThreshold
             ) { [weak self] snapshot in
                 self?.handleAttentionSnapshot(snapshot)
             }
             append(
                 .init(
                     type: .cameraAttentionStarted,
-                    payload: ["sample_interval_seconds": "\(Int(environment.settings.attentionSampleIntervalSeconds))"],
+                    payload: [
+                        "sample_interval_seconds": "\(Int(environment.settings.attentionSampleIntervalSeconds))",
+                        "detector_pipeline": "tier1_media_pipe_vision_plus_tier2_openface_shadow",
+                        "tier1_smile_candidate_threshold": String(format: "%.2f", environment.settings.cameraDetectorSettings.tier1SmileCandidateThreshold),
+                        "tier1_mouth_open_candidate_threshold": String(format: "%.2f", environment.settings.cameraDetectorSettings.tier1MouthOpenCandidateThreshold),
+                        "tier2_sidecar_enabled": environment.settings.cameraDetectorSettings.tier2SidecarEnabled ? "true" : "false",
+                        "cascade_shadow_mode": environment.settings.cameraDetectorSettings.cascadeShadowMode ? "true" : "false"
+                    ],
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
@@ -2298,6 +2392,11 @@ final class ObserverController {
         updateOwnerFaceProfileIfNeeded(snapshot)
         recordGazeCalibrationSampleIfNeeded(now: now)
         recordCognitiveStateIfNeeded(now: now)
+        pauseMediaIfHeadphonesLikelyRemovedFromCamera(
+            previousAttention: previousAttention,
+            currentAttention: snapshot,
+            now: now
+        )
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
         notifyStateChanged()
@@ -3020,7 +3119,12 @@ final class ObserverController {
             "cue": "positive_reaction_candidate",
             "interpretation": currentFocus?.isCommunicationContext == true
                 ? "smile_in_communication_context"
-                : "smile_in_current_context"
+                : "smile_in_current_context",
+            "detector_tier": "tier1",
+            "cascade_stage": "tier1_candidate",
+            "tier2_required_for_publication": "true",
+            "temporal_model_required": "true",
+            "display_eligible": "false"
         ]
         if let score = attention.smileScore {
             payload["smile_score"] = String(format: "%.3f", score)
@@ -3054,7 +3158,7 @@ final class ObserverController {
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
-            confidence: 0.58,
+            confidence: 0.36,
             payload: payload,
             displayText: isCommunicationSmile
                 ? "Камера: кандидат улыбки в переписке"
@@ -3093,7 +3197,12 @@ final class ObserverController {
 
         var payload: [String: String] = [
             "cue": "energy_drop_candidate",
-            "interpretation": "yawn_detected"
+            "interpretation": "yawn_detected",
+            "detector_tier": "tier1",
+            "cascade_stage": "tier1_candidate",
+            "tier2_required_for_publication": "true",
+            "temporal_model_required": "true",
+            "display_eligible": "false"
         ]
         if let score = attention.mouthOpenScore {
             payload["mouth_open_score"] = String(format: "%.3f", score)
@@ -3584,7 +3693,7 @@ final class ObserverController {
 
         let probe = MediaPlaybackService().currentPlaybackProbe()
         guard let snapshot = probe.snapshot else {
-            recordMediaProbeFailureIfNeeded(probe.failures)
+            recordMediaProbeResultWithoutSnapshotIfNeeded(probe.failures)
             return
         }
 
@@ -3652,23 +3761,20 @@ final class ObserverController {
         lastMediaPlaybackSnapshot = snapshot
     }
 
-    private func recordMediaProbeFailureIfNeeded(_ failures: [String], now: Date = Date()) {
-        guard !failures.isEmpty else {
-            return
-        }
+    private func recordMediaProbeResultWithoutSnapshotIfNeeded(_ failures: [String], now: Date = Date()) {
         guard lastMediaProbeFailureAt.map({ now.timeIntervalSince($0) >= 120 }) ?? true else {
             return
         }
 
         lastMediaProbeFailureAt = now
-        latestHint = "Медиа: не вижу Music, нужна проверка доступа"
-        lastHintAt = now
         append(
             .init(
                 type: .mediaPlayback,
                 payload: [
-                    "action": "media_probe_failed",
-                    "failures": failures.prefix(4).joined(separator: " | ")
+                    "action": failures.isEmpty ? "media_probe_no_active_source" : "media_probe_failed",
+                    "status": failures.isEmpty ? "players_closed_or_not_playing" : "probe_error",
+                    "failures": failures.prefix(4).joined(separator: " | "),
+                    "display_eligible": "false"
                 ],
                 workspaceTopologyVersion: environment.topology.version
             )
@@ -3784,6 +3890,72 @@ final class ObserverController {
             )
         )
         notifyStateChanged()
+    }
+
+    private func pauseMediaIfHeadphonesLikelyRemovedFromCamera(
+        previousAttention: AttentionSnapshot?,
+        currentAttention: AttentionSnapshot,
+        now: Date = Date()
+    ) {
+        guard environment.settings.autoPauseMediaWhenAway else {
+            return
+        }
+        guard mode == .observing else {
+            return
+        }
+        guard previousAttention?.facePresent == true, currentAttention.facePresent == false else {
+            return
+        }
+        guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
+            return
+        }
+
+        let audioService = AudioOutputService()
+        let outputName = audioService.currentOutputName()
+        guard audioService.looksLikeHeadphones(outputName) else {
+            return
+        }
+
+        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
+            ? lastMediaPlaybackSnapshot
+            : MediaPlaybackService().currentPlayback()
+        guard playbackSnapshot?.state == "playing" else {
+            return
+        }
+
+        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let inferredPausedBySystem = pausedSources.isEmpty
+            ? playbackSnapshot?.sourceForObserverResume
+            : nil
+        if let inferredPausedBySystem {
+            pausedSources = [inferredPausedBySystem]
+        }
+        guard !pausedSources.isEmpty else {
+            return
+        }
+
+        lastHeadphonesAutoPauseAt = now
+        lastAutoPauseAt = now
+        autoPausedSources = pausedSources
+        latestHint = inferredPausedBySystem == nil
+            ? "Медиа: камера увидела снятие наушников, поставил паузу"
+            : "Медиа: наушники сняты, пауза уже случилась"
+        lastHintAt = now
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
+                    "reason": "camera_headphones_removed_candidate",
+                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
+                    "paused_sources": pausedSources.joined(separator: ", "),
+                    "audio_output": outputName ?? "unknown",
+                    "source": playbackSnapshot?.source ?? "unknown",
+                    "title": playbackSnapshot?.title ?? ""
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func pauseMediaIfUserAppearsAway() {

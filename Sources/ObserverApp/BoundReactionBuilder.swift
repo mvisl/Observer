@@ -42,6 +42,17 @@ struct BoundReactionBuilder {
         if let sentiment = content.payload["sentiment"] {
             payload["sentiment"] = sentiment
         }
+        if let media = recentEvents
+            .filter({ $0.type == .mediaPlayback && $0.timestamp >= lower && $0.timestamp <= upper })
+            .last(where: { $0.payload["state"] == "playing" }) {
+            payload["competing_evidence"] = "media_playback"
+            payload["attribution"] = "ambiguous_content_vs_media"
+            payload["media_event_id"] = media.id.uuidString
+            payload["media_source"] = media.payload["source"]
+            payload["media_title"] = media.payload["title"]
+            payload["media_artist"] = media.payload["artist"]
+            payload["evidence_event_ids"] = [cueEvent.id.uuidString, content.id.uuidString, media.id.uuidString].joined(separator: ",")
+        }
         return payload
     }
 }
