@@ -87,6 +87,59 @@ struct DailyActivityReportBuilderTests {
         #expect(result.markdown.contains("family logistics"))
     }
 
+    @Test func reportsProjectWorkstreamIntentionAttemptAboveApplications() {
+        let now = Date()
+        let thread = event(.activityThread, at: now, confidence: 0.82, payload: [
+            "activity_thread_id": "freelance-obord",
+            "generated_name": "Freelance oBoard prototype",
+            "confidence": "0.82"
+        ])
+        let aiEpisode = event(.episode, at: now.addingTimeInterval(10), confidence: 0.8, payload: [
+            "episode_kind": "ai_assisted_work",
+            "topic": "oBoard prototype generation",
+            "apps": "Figma -> ChatGPT -> Codex"
+        ])
+        let callEpisode = event(.episode, at: now.addingTimeInterval(900), confidence: 0.8, payload: [
+            "episode_kind": "call",
+            "topic": "oBoard созвон с Витей",
+            "apps": "Viber"
+        ])
+        let aiSlice = event(.contextSlice, at: now.addingTimeInterval(30), confidence: 0.8, payload: [
+            "activity_thread_id": "freelance-obord",
+            "assignment_state": "assigned",
+            "activity_kind": "ai_assisted",
+            "episode_event_id": aiEpisode.id.uuidString,
+            "started_at": ISO8601DateFormatter().string(from: now),
+            "ended_at": ISO8601DateFormatter().string(from: now.addingTimeInterval(600)),
+            "active_seconds": "600"
+        ])
+        let callSlice = event(.contextSlice, at: now.addingTimeInterval(930), confidence: 0.8, payload: [
+            "activity_thread_id": "freelance-obord",
+            "assignment_state": "assigned",
+            "activity_kind": "communication",
+            "episode_event_id": callEpisode.id.uuidString,
+            "started_at": ISO8601DateFormatter().string(from: now.addingTimeInterval(900)),
+            "ended_at": ISO8601DateFormatter().string(from: now.addingTimeInterval(1200)),
+            "active_seconds": "300"
+        ])
+
+        let result = DailyActivityReportBuilder().build(
+            events: [thread, aiEpisode, callEpisode, aiSlice, callSlice],
+            day: now
+        )
+
+        #expect(result.markdown.contains("## Проекты и задачи"))
+        #expect(result.markdown.contains("### Oboard"))
+        #expect(result.markdown.contains("#### Dashboard"))
+        #expect(result.markdown.contains("##### Улучшение Dashboard"))
+        #expect(result.markdown.contains("Попытка подключить Codex к Figma"))
+        #expect(result.markdown.contains("Обсуждение текущего решения"))
+        #expect(result.markdown.contains("Приложения: ChatGPT → Codex → Figma"))
+        #expect(result.markdown.contains("Приложения: Viber"))
+        #expect(result.markdown.contains("## Хронология по задачам"))
+        #expect(!result.markdown.contains("## Task Breakdown"))
+    }
+
     private func event(
         _ type: ObserverEventType,
         at date: Date,

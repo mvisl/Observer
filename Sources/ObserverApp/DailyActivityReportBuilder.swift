@@ -28,10 +28,16 @@ struct DailyActivityReportBuilder {
         let coverage = observedSeconds > 0 ? min(1, activeSeconds / observedSeconds) : 0
 
         let confidenceBuckets = confidenceDistribution(assignments)
+        let workHierarchy = WorkHierarchyBuilder().build(
+            threads: threads,
+            slices: slices,
+            episodes: episodes,
+            actionItems: actionItems
+        )
         let threadSections = activityThreadSections(threads: threads, slices: slices, episodes: episodes)
         let timeline = timelineLines(slices: slices)
         let unassigned = unassignedLines(slices: slices)
-        let diagnostics: [String: String] = [
+        var diagnostics: [String: String] = [
             "date": dateString(startOfDay),
             "observations": "\(observations.count)",
             "camera_evidence": "\(dayEvents.filter { $0.type == .cameraEvidence }.count)",
@@ -57,6 +63,7 @@ struct DailyActivityReportBuilder {
             "source_event_ids": dayEvents.suffix(300).map(\.id.uuidString).joined(separator: ","),
             "pipeline_version": ObserverPipeline.version
         ]
+        diagnostics.merge(workHierarchy.diagnostics) { _, new in new }
 
         let markdown = """
         # Daily Activity Report
@@ -74,11 +81,19 @@ struct DailyActivityReportBuilder {
         - Meetings: \(meetingEpisodes.count); calls: \(callEpisodes.count); action items: \(actionItems.count)
         - Confidence: high \(confidenceBuckets.high), medium \(confidenceBuckets.medium), low \(confidenceBuckets.low)
 
+        ## Проекты и задачи
+
+        \(workHierarchy.projectMarkdown)
+
+        ## Хронология по задачам
+
+        \(workHierarchy.timelineMarkdown)
+
         ## Activity Threads
 
         \(threadSections.isEmpty ? "- No assigned activity threads yet." : threadSections)
 
-        ## Timeline
+        ## Technical Timeline
 
         \(timeline.isEmpty ? "- No context slices yet." : timeline)
 

@@ -271,6 +271,14 @@ final class ObserverController {
     }
 
     private func currentWidgetContextText(now: Date = Date()) -> String {
+        if let protectionLine = currentWidgetProtectionLine() {
+            return protectionLine
+        }
+
+        if let attentionBoundaryLine = currentWidgetAttentionBoundaryLine() {
+            return attentionBoundaryLine
+        }
+
         if currentFocus?.isObserverApp == true {
             if let latestContextLine = usableWidgetContextLine(latestContextLine) {
                 return latestContextLine
@@ -297,6 +305,38 @@ final class ObserverController {
         }
 
         return "Рабочий эпизод: собираешь контекст в цельную гипотезу"
+    }
+
+    private func currentWidgetProtectionLine() -> String? {
+        WidgetProtectionLineBuilder().build(
+            appName: currentFocus?.appName,
+            appID: currentFocus?.appID,
+            facePresent: latestAttention?.facePresent,
+            missingFaceSamples: consecutiveMissingFaceSamples,
+            secondsSinceAnyInput: latestInputActivity?.secondsSinceAnyInput
+        )
+    }
+
+    private func currentWidgetAttentionBoundaryLine() -> String? {
+        guard let attention = latestAttention,
+              attention.facePresent,
+              !attention.isTemporarilyLostFace
+        else {
+            return nil
+        }
+        guard (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 20 else {
+            return nil
+        }
+
+        let looksAway = attention.attentionZone == .offScreen
+            || attention.pitch.map { $0 < -0.25 } == true
+            || attention.yaw.map { abs($0) > 0.55 } == true
+        guard looksAway else {
+            return nil
+        }
+
+        let appName = currentFocus?.appName ?? "открытое приложение"
+        return "Фокус: взгляд вне экрана; не связываю паузу с \(appName)"
     }
 
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
@@ -444,15 +484,20 @@ final class ObserverController {
         } || events.contains { event in
             event.type == .contentContext && ["message", "email"].contains(event.payload["content_kind"])
         }
-        let hasRecentSmile = events.contains { event in
-            event.type == .behaviorCue
-                && event.payload["cue"] == "positive_reaction_candidate"
-                && (
-                    event.payload["interpretation"] == "smile_in_communication_context"
-                    || event.payload["content_kind"] == "message"
-                    || event.payload["activity_insight"]?.contains("Коммуникация") == true
-                )
-                && now.timeIntervalSince(event.timestamp) <= 180
+        let hasConfirmedSocialPositiveReaction = events.contains { event in
+            guard event.type == .boundReaction,
+                  event.confidence >= 0.75,
+                  event.payload["competing_evidence"] == nil,
+                  now.timeIntervalSince(event.timestamp) <= 180
+            else {
+                return false
+            }
+            let cue = (event.payload["cue"] ?? "").lowercased()
+            let kind = event.payload["content_kind"] ?? ""
+            let sentiment = event.payload["sentiment"] ?? ""
+            return (cue.contains("positive") || cue.contains("smile"))
+                && ["message", "email"].contains(kind)
+                && sentiment != "neg"
         }
         let activeMedia = latestActiveMediaLine(events: events, now: now)
         let hasNegativeCharge = [
@@ -462,7 +507,7 @@ final class ObserverController {
             "приоритет", "главным", "второстепенным", "уровень", "тизер", "карточ", "продукт", "описан", "вопросик"
         ].contains { text.contains($0) }
 
-        if hasCommunication && hasProductPriorityTalk && hasRecentSmile {
+        if hasCommunication && hasProductPriorityTalk && hasConfirmedSocialPositiveReaction {
             if let activeMedia {
                 return "Переписка + музыка: спор разряжается, но источник подъёма разделяем (\(activeMedia))"
             }
@@ -471,7 +516,7 @@ final class ObserverController {
         if hasCommunication && hasProductPriorityTalk {
             return "Переписка: спор о приоритетах карточек и описаний"
         }
-        if hasCommunication && hasNegativeCharge && hasRecentSmile {
+        if hasCommunication && hasNegativeCharge && hasConfirmedSocialPositiveReaction {
             if let activeMedia {
                 return "Переписка + музыка: резкий тон похож на стёб; рядом играет \(activeMedia)"
             }
@@ -480,7 +525,7 @@ final class ObserverController {
         if hasCommunication && hasNegativeCharge {
             return "Переписка: напряжение вокруг процесса и ответственности"
         }
-        if hasCommunication && hasRecentSmile {
+        if hasCommunication && hasConfirmedSocialPositiveReaction {
             if let activeMedia {
                 return "Переписка + музыка: подъём есть, источник надо разделить (\(activeMedia))"
             }
@@ -588,7 +633,9 @@ final class ObserverController {
             || lower.contains("собираю контекст")
             || lower.contains("собираю сигналы")
             || lower.contains("нет уверенной гипотезы")
-            || lower.contains("санитарку скрываю") {
+            || lower.contains("санитарку скрываю")
+            || lower.contains("системный барьер")
+            || lower.contains("эмоциональный подъём") {
             return true
         }
         if normalized.contains("долгая пауза") {

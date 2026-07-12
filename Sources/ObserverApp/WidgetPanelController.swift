@@ -1315,7 +1315,8 @@ private extension String {
             "Фрикция:",
             "Фокус:",
             "Медиа:",
-            "Контент:"
+            "Контент:",
+            "Защита:"
         ].contains { normalized.hasPrefix($0) }
     }
 
@@ -1401,6 +1402,10 @@ private extension String {
             return true
         }
         if normalized.hasPrefix("Внешний анализ выключен:") {
+            return true
+        }
+        if normalized.lowercased().contains("системный барьер")
+            || normalized.lowercased().contains("эмоциональный подъём") {
             return true
         }
 

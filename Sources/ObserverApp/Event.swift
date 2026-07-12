@@ -88,6 +88,8 @@ enum ObserverEventType: String, Codable {
     case workspaceTopologyLoaded
     case dailyActivityReport
     case weeklyReport
+    case workNode
+    case episodeWorkAssignment
 }
 
 enum ObserverPipeline {
@@ -142,6 +144,9 @@ extension ObserverEventType {
              .situationModel,
              .stateTransition,
              .weeklyReport:
+            return true
+        case .workNode,
+             .episodeWorkAssignment:
             return true
         default:
             return false
