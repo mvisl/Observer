@@ -56,6 +56,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Export Research Digest", #selector(exportResearchDigest), to: menu)
         addItem("Export Readiness Report", #selector(exportReadinessReport), to: menu)
         addItem("Export Causal Understanding Report", #selector(exportCausalUnderstandingReport), to: menu)
+        addItem("Export Daily Activity Report", #selector(exportDailyActivityReport), to: menu)
         addItem("Export Events JSONL", #selector(exportEventsJSONL), to: menu)
         addItem("Generate Local LLM Insight", #selector(generateLocalLLMInsight), to: menu)
         addItem("Set Gemini API Key", #selector(setGeminiAPIKey), to: menu)
@@ -199,6 +200,13 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func exportCausalUnderstandingReport() {
         guard let url = controller?.exportCausalUnderstandingReport() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func exportDailyActivityReport() {
+        guard let url = controller?.exportDailyActivityReport() else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -428,6 +436,15 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             Timer.scheduledTimer(withTimeInterval: causalAfter, repeats: false) { [weak self] _ in
                 Task { @MainActor in
                     _ = self?.controller?.exportCausalUnderstandingReport()
+                }
+            }
+        }
+
+        if let dailyAfterValue = environment["OBSERVER_EXPORT_DAILY_ACTIVITY_AFTER_SECONDS"],
+           let dailyAfter = TimeInterval(dailyAfterValue) {
+            Timer.scheduledTimer(withTimeInterval: dailyAfter, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    _ = self?.controller?.exportDailyActivityReport()
                 }
             }
         }

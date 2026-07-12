@@ -14,6 +14,7 @@ enum ObserverEventType: String, Codable {
     case breakpoint
     case cameraAttentionStarted
     case cameraAttentionStopped
+    case cameraEvidence
     case cameraPermission
     case causalAntecedent
     case causalHypothesis
@@ -24,6 +25,7 @@ enum ObserverEventType: String, Codable {
     case displayInventory
     case evidence
     case episode
+    case episodeThreadAssignment
     case experiment
     case hintCandidate
     case inputActivity
@@ -65,7 +67,12 @@ enum ObserverEventType: String, Codable {
     case observingStarted
     case observingPaused
     case observationGap
+    case activityThread
+    case artifactIdentity
     case contextPackGenerated
+    case contextLinkAudit
+    case contextLinkUserLabel
+    case contextSlice
     case contentContext
     case privacyAllowlistAdded
     case privacyExclusionAdded
@@ -73,6 +80,7 @@ enum ObserverEventType: String, Codable {
     case userLabel
     case writingContext
     case workspaceTopologyLoaded
+    case dailyActivityReport
     case weeklyReport
 }
 
@@ -83,15 +91,23 @@ enum ObserverPipeline {
 extension ObserverEventType {
     var requiresLineage: Bool {
         switch self {
-        case .attentionSpan,
+        case .activityThread,
+             .artifactIdentity,
+             .attentionSpan,
              .behaviorCue,
              .boundReaction,
+             .cameraEvidence,
              .causalAntecedent,
              .causalHypothesis,
              .causalUnderstandingReport,
              .causalValidationReport,
              .cognitiveState,
+             .contextLinkAudit,
+             .contextLinkUserLabel,
+             .contextSlice,
+             .dailyActivityReport,
              .detectorFired,
+             .episodeThreadAssignment,
              .episode,
              .evidence,
              .fusionAudit,

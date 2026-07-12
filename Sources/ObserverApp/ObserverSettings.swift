@@ -159,6 +159,58 @@ struct ObserverSettings: Codable {
         }
     }
 
+    struct ContextFabricSettings: Codable {
+        var contextFabricEnabled: Bool
+        var cameraEvidenceEnabled: Bool
+        var objectGestureLayerEnabled: Bool
+        var episodeEngineEnabled: Bool
+        var contextLinkerEnabled: Bool
+        var activityTrackerEnabled: Bool
+        var activityTrackerShadowMode: Bool
+        var activityTrackerUIEnabled: Bool
+        var activityThreadRelinkerEnabled: Bool
+        var causalLayerShadowMode: Bool
+
+        init(
+            contextFabricEnabled: Bool,
+            cameraEvidenceEnabled: Bool,
+            objectGestureLayerEnabled: Bool,
+            episodeEngineEnabled: Bool,
+            contextLinkerEnabled: Bool,
+            activityTrackerEnabled: Bool,
+            activityTrackerShadowMode: Bool,
+            activityTrackerUIEnabled: Bool,
+            activityThreadRelinkerEnabled: Bool,
+            causalLayerShadowMode: Bool
+        ) {
+            self.contextFabricEnabled = contextFabricEnabled
+            self.cameraEvidenceEnabled = cameraEvidenceEnabled
+            self.objectGestureLayerEnabled = objectGestureLayerEnabled
+            self.episodeEngineEnabled = episodeEngineEnabled
+            self.contextLinkerEnabled = contextLinkerEnabled
+            self.activityTrackerEnabled = activityTrackerEnabled
+            self.activityTrackerShadowMode = activityTrackerShadowMode
+            self.activityTrackerUIEnabled = activityTrackerUIEnabled
+            self.activityThreadRelinkerEnabled = activityThreadRelinkerEnabled
+            self.causalLayerShadowMode = causalLayerShadowMode
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.contextFabric
+            self.contextFabricEnabled = try container.decodeIfPresent(Bool.self, forKey: .contextFabricEnabled) ?? defaults.contextFabricEnabled
+            self.cameraEvidenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEvidenceEnabled) ?? defaults.cameraEvidenceEnabled
+            self.objectGestureLayerEnabled = try container.decodeIfPresent(Bool.self, forKey: .objectGestureLayerEnabled) ?? defaults.objectGestureLayerEnabled
+            self.episodeEngineEnabled = try container.decodeIfPresent(Bool.self, forKey: .episodeEngineEnabled) ?? defaults.episodeEngineEnabled
+            self.contextLinkerEnabled = try container.decodeIfPresent(Bool.self, forKey: .contextLinkerEnabled) ?? defaults.contextLinkerEnabled
+            self.activityTrackerEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityTrackerEnabled) ?? defaults.activityTrackerEnabled
+            self.activityTrackerShadowMode = try container.decodeIfPresent(Bool.self, forKey: .activityTrackerShadowMode) ?? defaults.activityTrackerShadowMode
+            self.activityTrackerUIEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityTrackerUIEnabled) ?? defaults.activityTrackerUIEnabled
+            self.activityThreadRelinkerEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityThreadRelinkerEnabled) ?? defaults.activityThreadRelinkerEnabled
+            self.causalLayerShadowMode = try container.decodeIfPresent(Bool.self, forKey: .causalLayerShadowMode) ?? defaults.causalLayerShadowMode
+        }
+    }
+
     var summaryIntervalSeconds: TimeInterval
     var retentionDays: Int
     var idleSessionBoundarySeconds: Double
@@ -184,6 +236,7 @@ struct ObserverSettings: Codable {
     var cognitiveSettings: CognitiveSettings
     var workSchedule: WorkScheduleSettings
     var readinessSettings: ReadinessSettings
+    var contextFabric: ContextFabricSettings
 
     init(
         summaryIntervalSeconds: TimeInterval,
@@ -210,7 +263,8 @@ struct ObserverSettings: Codable {
         detectorSettings: DetectorSettings,
         cognitiveSettings: CognitiveSettings,
         workSchedule: WorkScheduleSettings,
-        readinessSettings: ReadinessSettings
+        readinessSettings: ReadinessSettings,
+        contextFabric: ContextFabricSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
         self.retentionDays = retentionDays
@@ -237,6 +291,7 @@ struct ObserverSettings: Codable {
         self.cognitiveSettings = cognitiveSettings
         self.workSchedule = workSchedule
         self.readinessSettings = readinessSettings
+        self.contextFabric = contextFabric
     }
 
     init(from decoder: Decoder) throws {
@@ -267,6 +322,7 @@ struct ObserverSettings: Codable {
         self.cognitiveSettings = try container.decodeIfPresent(CognitiveSettings.self, forKey: .cognitiveSettings) ?? defaults.cognitiveSettings
         self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
         self.readinessSettings = try container.decodeIfPresent(ReadinessSettings.self, forKey: .readinessSettings) ?? defaults.readinessSettings
+        self.contextFabric = try container.decodeIfPresent(ContextFabricSettings.self, forKey: .contextFabric) ?? defaults.contextFabric
     }
 
     static let defaults = ObserverSettings(
@@ -345,6 +401,18 @@ struct ObserverSettings: Codable {
             minimumLineageCoverage: 0.95,
             minimumEpisodeContentCoverage: 0.80,
             maximumUnsupportedClaimRate: 0.05
+        ),
+        contextFabric: ContextFabricSettings(
+            contextFabricEnabled: true,
+            cameraEvidenceEnabled: true,
+            objectGestureLayerEnabled: true,
+            episodeEngineEnabled: true,
+            contextLinkerEnabled: true,
+            activityTrackerEnabled: true,
+            activityTrackerShadowMode: true,
+            activityTrackerUIEnabled: true,
+            activityThreadRelinkerEnabled: true,
+            causalLayerShadowMode: true
         )
     )
 }

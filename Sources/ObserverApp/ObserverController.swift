@@ -986,6 +986,91 @@ final class ObserverController {
         }
     }
 
+    func exportDailyActivityReport(day: Date = Date()) -> URL? {
+        do {
+            let events = try environment.eventStore.allEvents()
+            appendContextFabricForRecentEpisodes(from: events)
+            let refreshedEvents = try environment.eventStore.allEvents()
+            let result = DailyActivityReportBuilder().build(events: refreshedEvents, day: day)
+            append(
+                .init(
+                    type: .dailyActivityReport,
+                    confidence: 0.7,
+                    payload: result.diagnostics,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return try ArtifactExporter(directory: environment.dataDirectory).export(
+                name: "daily-activity-report",
+                contents: result.markdown
+            )
+        } catch {
+            print("Failed to export daily activity report: \(error)")
+            return nil
+        }
+    }
+
+    private func appendContextFabricForRecentEpisodes(from events: [ObserverEvent], limit: Int = 50) {
+        guard environment.settings.contextFabric.contextFabricEnabled else {
+            return
+        }
+        let result = ContextFabricBuilder().build(events: Array(events.suffix(limit * 500)), now: Date())
+        if environment.settings.contextFabric.contextLinkerEnabled {
+            for payload in result.artifactIdentities {
+                append(
+                    .init(
+                        type: .artifactIdentity,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.75,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.activityThreads {
+                append(
+                    .init(
+                        type: .activityThread,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.6,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.assignments {
+                append(
+                    .init(
+                        type: .episodeThreadAssignment,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.linkAudits {
+                append(
+                    .init(
+                        type: .contextLinkAudit,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+        }
+        if environment.settings.contextFabric.activityTrackerEnabled {
+            for payload in result.contextSlices {
+                append(
+                    .init(
+                        type: .contextSlice,
+                        confidence: Double(payload["coverage"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+        }
+    }
+
     private func appendCausalUnderstandingForRecentEpisodes(from events: [ObserverEvent], limit: Int = 25) {
         let alreadyProcessed = Set(events.filter { event in
             event.type == .causalHypothesis || event.type == .stateTransition
@@ -2122,6 +2207,7 @@ final class ObserverController {
         append(episodeEvent)
 
         let historicalEvents = (try? environment.eventStore.recentEvents(limit: 8_000)) ?? events
+        appendContextFabricForRecentEpisodes(from: historicalEvents + [episodeEvent], limit: 10)
         let causal = CausalUnderstandingBuilder().buildForClosedEpisode(
             episode: episodeEvent,
             episodeEvents: events,
@@ -2186,14 +2272,14 @@ final class ObserverController {
             consecutiveMissingFaceSamples += 1
         }
         latestCameraStatus = nil
-        append(
-            .init(
-                type: .attention,
-                confidence: snapshot.confidence,
-                payload: snapshot.eventPayload,
-                workspaceTopologyVersion: environment.topology.version
-            )
+        let attentionEvent = ObserverEvent(
+            type: .attention,
+            confidence: snapshot.confidence,
+            payload: snapshot.eventPayload,
+            workspaceTopologyVersion: environment.topology.version
         )
+        append(attentionEvent)
+        recordCameraEvidenceIfNeeded(from: attentionEvent, now: now)
         recordBehaviorCueIfNeeded(
             previousAttention: previousAttention,
             currentAttention: snapshot,
@@ -2215,6 +2301,22 @@ final class ObserverController {
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
         notifyStateChanged()
+    }
+
+    private func recordCameraEvidenceIfNeeded(from attentionEvent: ObserverEvent, now: Date = Date()) {
+        guard environment.settings.contextFabric.cameraEvidenceEnabled else {
+            return
+        }
+        for payload in ContextFabricBuilder().cameraEvidencePayloads(from: attentionEvent, now: now) {
+            append(
+                .init(
+                    type: .cameraEvidence,
+                    confidence: Double(payload["confidence"] ?? "") ?? attentionEvent.confidence,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
     }
 
     private func handleSensorEvent(_ sensorEvent: SensorEvent) {
