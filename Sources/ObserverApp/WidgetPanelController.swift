@@ -1339,11 +1339,16 @@ private extension String {
             "Позитивная реакция: кандидат улыбки",
             "Камера: кандидат улыбки",
             "Камера: кандидат улыбки в переписке",
+            "Защита: отошёл и прикрыл экран",
+            "Внешний анализ выключен: нет Gemini-ключа",
             "Наблюдаю контекст"
         ].contains(normalized) {
             return true
         }
         if normalized.contains("долгая пауза") {
+            return true
+        }
+        if normalized.hasPrefix("Внешний анализ выключен:") {
             return true
         }
 

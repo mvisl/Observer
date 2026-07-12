@@ -230,7 +230,7 @@ struct ActivityInsightBuilderTests {
             focusChangesLastMinute: 0
         )
 
-        #expect(text == "Защита: отошёл и прикрыл экран")
+        #expect(text == "Защита: экран заблокирован")
     }
 
     @Test func missingFaceAndMediumIdleDoesNotMeanAway() {

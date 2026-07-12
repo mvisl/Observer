@@ -5,10 +5,10 @@ struct AwayPresenceIncidentBuilderTests {
     @Test func detectsPersonSeenAfterAwayIdlePeriod() throws {
         let incident = try #require(AwayPresenceIncidentBuilder().build(
             currentAttention: facePresent(),
-            missingFaceSamplesBeforeCurrent: 4,
-            input: input(secondsSinceAnyInput: 180),
+            missingFaceSamplesBeforeCurrent: 12,
+            input: input(secondsSinceAnyInput: 300),
             currentFocus: focus(),
-            activityInsight: "Похоже, отошел"
+            activityInsight: "Защита: экран заблокирован"
         ))
 
         #expect(incident.payload["cue"] == "presence_detected_after_away")
@@ -24,6 +24,18 @@ struct AwayPresenceIncidentBuilderTests {
             input: input(secondsSinceAnyInput: 5),
             currentFocus: focus(),
             activityInsight: "Диалог с ИИ: основной экран"
+        )
+
+        #expect(incident == nil)
+    }
+
+    @Test func ignoresShortSideCameraFaceLossWhileUserMayStillBePresent() {
+        let incident = AwayPresenceIncidentBuilder().build(
+            currentAttention: facePresent(),
+            missingFaceSamplesBeforeCurrent: 4,
+            input: input(secondsSinceAnyInput: 180),
+            currentFocus: focus(),
+            activityInsight: "Дизайн: долгая пауза"
         )
 
         #expect(incident == nil)

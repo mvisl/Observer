@@ -555,6 +555,12 @@ final class ObserverController {
         if normalized.contains("долгая пауза") {
             return true
         }
+        if normalized == "Защита: отошёл и прикрыл экран" {
+            return true
+        }
+        if normalized.hasPrefix("Внешний анализ выключен:") {
+            return true
+        }
         return [
             "Диалог с ИИ: формулирует",
             "Диалог с ИИ: формирует",
@@ -621,10 +627,6 @@ final class ObserverController {
     }
 
     private func currentActivityInsightText() -> String {
-        if currentFocus?.isObserverApp == true, let lastActivityInsight {
-            return usableWidgetContextLine(lastActivityInsight) ?? ""
-        }
-
         let insight = ActivityInsightBuilder().build(
             attention: smoothedAttentionForDisplay,
             input: latestInputActivity,
@@ -1408,8 +1410,6 @@ final class ObserverController {
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
-            setLatestContextLine("Внешний анализ выключен: нет Gemini-ключа")
-            notifyStateChanged()
             print("Gemini API key is not configured. Use Set Gemini API Key first.")
             return
         }

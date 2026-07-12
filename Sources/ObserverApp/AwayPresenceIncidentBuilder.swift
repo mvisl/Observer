@@ -16,10 +16,10 @@ struct AwayPresenceIncidentBuilder {
         guard currentAttention.facePresent else {
             return nil
         }
-        guard missingFaceSamplesBeforeCurrent >= 3 else {
+        guard missingFaceSamplesBeforeCurrent >= 12 else {
             return nil
         }
-        guard let input, input.secondsSinceAnyInput >= 120 else {
+        guard let input, input.secondsSinceAnyInput >= 300 else {
             return nil
         }
 

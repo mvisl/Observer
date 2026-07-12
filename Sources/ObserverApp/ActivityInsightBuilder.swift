@@ -10,15 +10,11 @@ struct ActivityInsightBuilder {
         focusChangesLastMinute: Int,
         now: Date = Date()
     ) -> String {
-        let presence = presenceSignal(attention, input: input)
         let focusSeconds = currentFocusStartedAt.map { max(0, now.timeIntervalSince($0)) }
         let intent = currentFocus.map(AppIntent.init(focus:)) ?? .unknown
         let workspace = workspaceSignal(input: input, currentFocus: currentFocus)
 
         if intent == .lockScreen {
-            if presence == .away || attention?.facePresent == false {
-                return "Защита: отошёл и прикрыл экран"
-            }
             return "Защита: экран заблокирован"
         }
 
@@ -102,34 +98,6 @@ struct ActivityInsightBuilder {
         case .unknown, .none:
             return nil
         }
-    }
-
-    private enum PresenceSignal {
-        case present
-        case uncertain
-        case away
-    }
-
-    private func presenceSignal(
-        _ attention: AttentionSnapshot?,
-        input: InputActivitySnapshot?
-    ) -> PresenceSignal {
-        guard let attention else {
-            return .uncertain
-        }
-
-        if attention.isTemporarilyLostFace {
-            return .present
-        }
-
-        guard attention.facePresent else {
-            if let input, input.secondsSinceAnyInput < 900 {
-                return .uncertain
-            }
-            return .away
-        }
-
-        return .present
     }
 
     private func formatDuration(_ seconds: Double) -> String {
