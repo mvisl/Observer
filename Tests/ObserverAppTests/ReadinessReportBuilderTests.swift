@@ -19,20 +19,27 @@ struct ReadinessReportBuilderTests {
 
         #expect(report.isReadyForPrediction == false)
         #expect(report.payload["status"] == "not_ready")
-        #expect(report.payload["blockers"]?.contains("cognitiveState") == true)
-        #expect(report.payload["blockers"]?.contains("boundReaction") == true)
+        #expect(report.payload["blockers"]?.contains("pipeline integrity") == true)
+        #expect(report.payload["blockers"]?.contains("episode readiness") == true)
     }
 
-    @Test func funnelCountsTheBrainConversionStages() {
+    @Test func funnelReportsEpisodeReadinessMetrics() {
         let now = Date()
+        let start = now.addingTimeInterval(-120)
+        let end = now.addingTimeInterval(-10)
+        let iso = ISO8601DateFormatter()
         let events = [
             event(.attention, at: now, payload: ["face_present": "true"]),
             event(.inputActivity, at: now, payload: [:]),
-            event(.contentContext, at: now, payload: [:]),
+            event(.contentContext, at: start.addingTimeInterval(10), payload: ["topic": "design conflict"]),
             event(.behaviorCue, at: now, payload: [:]),
             event(.fusionHypothesis, at: now, payload: [:]),
             event(.cognitiveState, at: now, payload: ["state": "engaged"]),
-            event(.episode, at: now, payload: ["outcome": "applied"]),
+            event(.episode, at: now, payload: [
+                "outcome": "applied",
+                "start": iso.string(from: start),
+                "end": iso.string(from: end)
+            ]),
             event(.boundReaction, at: now, payload: ["topic": "design"])
         ]
 
@@ -40,12 +47,11 @@ struct ReadinessReportBuilderTests {
             settings: ObserverSettings.defaults.readinessSettings
         ).funnelReport(events: events, now: now)
 
-        #expect(report.payload["today_signals"] == "3")
-        #expect(report.payload["today_behavior_cues"] == "1")
-        #expect(report.payload["today_fusion_hypotheses"] == "1")
-        #expect(report.payload["today_cognitive_states"] == "1")
-        #expect(report.payload["today_episode_outcomes"] == "1")
-        #expect(report.payload["today_bound_reactions"] == "1")
+        #expect(report.payload["today_episodes"] == "1")
+        #expect(report.payload["today_independent_days"] == "1")
+        #expect(report.payload["today_content_coverage"] == "1.000")
+        #expect(report.payload["rolling_7d_episodes"] == "1")
+        #expect(report.markdown.contains("not a raw event-count conversion funnel"))
     }
 
     private func event(

@@ -21,6 +21,7 @@ final class ObserverController {
     private let environment: AppEnvironment
     private var mode: Mode = .paused
     private let cameraAttentionService = CameraAttentionService()
+    private let ownerFaceRecognizer = OwnerFaceRecognizer()
     private var sensor: WorkspaceSensor?
     private var currentFocus: AppFocusSnapshot?
     private var currentFocusStartedAt: Date?
@@ -57,6 +58,8 @@ final class ObserverController {
     private var isFineInputPauseOpen = false
     private var sessionStartedAt: Date?
     private var currentEpisodeStartedAt: Date?
+    private var currentSessionID: String?
+    private var currentEpisodeID: String?
     private var summaryTimer: Timer?
     private var geminiInsightTimer: Timer?
     private var mediaTimer: Timer?
@@ -289,11 +292,7 @@ final class ObserverController {
             return hypothesis
         }
 
-        if let fallback = currentFocusFallbackLine(now: now) {
-            return "Гипотеза слаба (\(relativeAgeLabel(now.timeIntervalSince(lastMeaningfulEvidenceAt(now: now) ?? now)))): \(fallback)"
-        }
-
-        return currentWidgetSensingText()
+        return ""
     }
 
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
@@ -551,6 +550,16 @@ final class ObserverController {
         if exact.contains(normalized) {
             return true
         }
+        let lower = normalized.lowercased()
+        if lower.contains("собираю evidence")
+            || lower.contains("evidence:")
+            || lower.contains("нужен контекст + действие + реакция")
+            || lower.contains("собираю контекст")
+            || lower.contains("собираю сигналы")
+            || lower.contains("нет уверенной гипотезы")
+            || lower.contains("санитарку скрываю") {
+            return true
+        }
         if normalized.contains("долгая пауза") {
             return true
         }
@@ -601,9 +610,7 @@ final class ObserverController {
         return usableWidgetContextLine(latestHint)
     }
 
-    private func currentWidgetSensingText() -> String {
-        "Собираю evidence: нужен контекст + действие + реакция"
-    }
+    private func currentWidgetSensingText() -> String { "" }
 
     private func lastMeaningfulEvidenceAt(now: Date = Date()) -> Date? {
         ((try? environment.eventStore.recentEvents(limit: 160)) ?? [])
@@ -686,6 +693,8 @@ final class ObserverController {
         let scheduleStatus = scheduleGate.status(at: now)
         sessionStartedAt = now
         currentEpisodeStartedAt = now
+        currentSessionID = UUID().uuidString
+        currentEpisodeID = UUID().uuidString
         currentObservationIntervalStartedAt = now
         currentObservationOutsideDefaultSchedule = scheduleStatus.outsideDefaultSchedule
         append(.init(type: .observingStarted, workspaceTopologyVersion: environment.topology.version))
@@ -712,8 +721,10 @@ final class ObserverController {
             return
         }
         mode = .paused
-        sessionStartedAt = nil
         closeCurrentEpisode(outcome: "manual_pause")
+        sessionStartedAt = nil
+        currentSessionID = nil
+        currentEpisodeID = nil
         closeObservationInterval(reason: "manual_pause")
         append(.init(type: .observingPaused, workspaceTopologyVersion: environment.topology.version))
         closeCurrentFocusInterval(reason: "paused")
@@ -946,6 +957,111 @@ final class ObserverController {
         }
     }
 
+    func exportCausalUnderstandingReport() -> URL? {
+        do {
+            let events = try environment.eventStore.allEvents()
+            appendCausalUnderstandingForRecentEpisodes(from: events)
+            let causalEvents = try environment.eventStore.allEvents()
+            appendCausalValidation(from: causalEvents)
+            let refreshedEvents = try environment.eventStore.allEvents()
+            let report = CausalUnderstandingBuilder().report(events: refreshedEvents)
+            append(
+                .init(
+                    type: .causalUnderstandingReport,
+                    payload: [
+                        "period": "all",
+                        "source_event_ids": refreshedEvents.suffix(200).map(\.id.uuidString).joined(separator: ","),
+                        "pipeline_version": ObserverPipeline.version
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return try ArtifactExporter(directory: environment.dataDirectory).export(
+                name: "causal-understanding-report",
+                contents: report
+            )
+        } catch {
+            print("Failed to export causal understanding report: \(error)")
+            return nil
+        }
+    }
+
+    private func appendCausalUnderstandingForRecentEpisodes(from events: [ObserverEvent], limit: Int = 25) {
+        let alreadyProcessed = Set(events.filter { event in
+            event.type == .causalHypothesis || event.type == .stateTransition
+        }.compactMap { $0.payload["episode_event_id"] })
+        let eventByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id.uuidString, $0) })
+        let iso = ISO8601DateFormatter()
+        let builder = CausalUnderstandingBuilder()
+
+        for episode in events.filter({ $0.type == .episode }).suffix(limit) where !alreadyProcessed.contains(episode.id.uuidString) {
+            let traceIDs = (episode.payload["trace_event_ids"] ?? episode.payload["source_event_ids"] ?? "")
+                .split(separator: ",")
+                .map(String.init)
+            var episodeEvents = traceIDs.compactMap { eventByID[$0] }
+            if episodeEvents.isEmpty,
+               let start = iso.date(from: episode.payload["start"] ?? ""),
+               let end = iso.date(from: episode.payload["end"] ?? "") {
+                episodeEvents = events.filter { event in
+                    event.timestamp >= start
+                        && event.timestamp <= end
+                        && event.id != episode.id
+                }
+            }
+            guard !episodeEvents.isEmpty else {
+                continue
+            }
+            let result = builder.buildForClosedEpisode(
+                episode: episode,
+                episodeEvents: episodeEvents,
+                historicalEvents: events,
+                now: Date()
+            )
+            for payload in result.evidence {
+                append(
+                    .init(
+                        type: .evidence,
+                        confidence: Double(payload["reliability"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.transitions {
+                append(
+                    .init(
+                        type: .stateTransition,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.antecedents {
+                let confidence = ((Double(payload["semantic_relevance"] ?? "") ?? 0.5)
+                    + (Double(payload["temporal_relevance"] ?? "") ?? 0.5)) / 2
+                append(
+                    .init(
+                        type: .causalAntecedent,
+                        confidence: confidence,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.hypotheses {
+                append(
+                    .init(
+                        type: .causalHypothesis,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+        }
+    }
+
     func localInsight(forLast interval: TimeInterval) -> String {
         let now = Date()
         let cutoff = interval > 0
@@ -1155,6 +1271,28 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        appendCausalValidation(from: events, now: now)
+    }
+
+    private func appendCausalValidation(from events: [ObserverEvent], now: Date = Date()) {
+        let result = CausalUnderstandingBuilder().validationReport(events: events, now: now)
+        append(
+            .init(
+                type: .causalValidationReport,
+                payload: result.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        for pattern in result.patterns {
+            append(
+                .init(
+                    type: .personalCausalPattern,
+                    confidence: Double(pattern["confidence"] ?? "") ?? 0.5,
+                    payload: pattern,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
     }
 
     private func buildReadinessMarkdown(events: [ObserverEvent], now: Date = Date()) -> String {
@@ -1571,15 +1709,29 @@ final class ObserverController {
                 }
 
                 await MainActor.run {
+                    let sourceEventIDs = events.suffix(24).map(\.id.uuidString).joined(separator: ",")
                     var payload: [String: String] = [
                         "provider": "gemini",
                         "model": model,
+                        "model_version": model,
+                        "prompt_version": isDailyMode ? "daily_patterns_v2" : (widgetMode ? "widget_sensemaking_v2" : "work_insight_v2"),
                         "request_kind": requestKind,
-                        "insight": insight
+                        "insight": insight,
+                        "source_event_ids": sourceEventIDs,
+                        "abstraction_level": widgetMode ? "L2" : "L3",
+                        "primary_source_type": "context_pack"
                     ]
                     if widgetMode {
                         payload["widget_line"] = insight
-                        self.setLatestContextLine(insight)
+                        let event = ObserverEvent(
+                            type: .geminiInsight,
+                            payload: payload,
+                            workspaceTopologyVersion: self.environment.topology.version
+                        )
+                        let enriched = self.lineagePayload(for: event, payload: payload)
+                        if UserVisibleOutputPolicy.validate(payload: enriched) == .allowed {
+                            self.setLatestContextLine(insight)
+                        }
                     }
                     self.append(
                         .init(
@@ -1768,7 +1920,7 @@ final class ObserverController {
 
     private func append(_ event: ObserverEvent) {
         let status = scheduleGate.status(at: event.timestamp)
-        var payload = event.payload
+        var payload = lineagePayload(for: event, payload: event.payload)
         if status.outsideDefaultSchedule {
             payload["outside_default_schedule"] = "true"
         }
@@ -1789,6 +1941,44 @@ final class ObserverController {
         } catch {
             print("Failed to write event: \(error)")
         }
+    }
+
+    private func lineagePayload(for event: ObserverEvent, payload: [String: String]) -> [String: String] {
+        guard event.type.requiresLineage else {
+            return payload
+        }
+
+        var enriched = payload
+        enriched["pipeline_version"] = enriched["pipeline_version"] ?? ObserverPipeline.version
+        enriched["created_at"] = enriched["created_at"] ?? ISO8601DateFormatter().string(from: event.timestamp)
+        enriched["session_id"] = enriched["session_id"] ?? currentSessionID ?? "no_active_session"
+        enriched["episode_id"] = enriched["episode_id"] ?? currentEpisodeID ?? "no_active_episode"
+        enriched["valid_until"] = enriched["valid_until"] ?? ISO8601DateFormatter().string(
+            from: event.timestamp.addingTimeInterval(30 * 60)
+        )
+
+        if enriched["source_event_ids"] == nil {
+            if let trace = enriched["trace_event_ids"], !trace.isEmpty {
+                enriched["source_event_ids"] = trace
+            } else if let evidence = enriched["evidence_event_ids"], !evidence.isEmpty {
+                enriched["source_event_ids"] = evidence
+            } else if let candidate = enriched["candidate_event_id"], !candidate.isEmpty {
+                enriched["source_event_ids"] = candidate
+            } else {
+                enriched["source_event_ids"] = ""
+                enriched["lineage_status"] = "missing_source_events"
+            }
+        }
+
+        if event.type.isUserVisibleCandidate {
+            let decision = UserVisibleOutputPolicy.validate(payload: enriched)
+            enriched["user_visible_policy"] = decision.rawValue
+            if decision != .allowed {
+                enriched["surfaced_in_widget"] = "false"
+            }
+        }
+
+        return enriched
     }
 
     private func startCameraCapture() {
@@ -1852,9 +2042,7 @@ final class ObserverController {
                 )
             )
             if let hint = HintEngine().hint(for: detection) {
-                let shouldSurfaceHint = environment.settings.hintDeliveryMode != "off"
-                    && lastHintAt.map { Date().timeIntervalSince($0) >= environment.settings.minimumHintIntervalSeconds } != false
-                    && !proactiveHintsBlocked()
+                let shouldSurfaceHint = false
 
                 if shouldSurfaceHint && environment.settings.hintDeliveryMode == "quiet" {
                     latestHint = hint
@@ -1911,6 +2099,7 @@ final class ObserverController {
 
         defer {
             currentEpisodeStartedAt = now
+            currentEpisodeID = UUID().uuidString
         }
 
         let events = ((try? environment.eventStore.recentEvents(limit: 2_000)) ?? [])
@@ -1924,14 +2113,63 @@ final class ObserverController {
             return
         }
 
-        append(
-            .init(
-                type: .episode,
-                confidence: episode.confidence,
-                payload: episode.payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
+        let episodeEvent = ObserverEvent(
+            type: .episode,
+            confidence: episode.confidence,
+            payload: episode.payload,
+            workspaceTopologyVersion: environment.topology.version
         )
+        append(episodeEvent)
+
+        let historicalEvents = (try? environment.eventStore.recentEvents(limit: 8_000)) ?? events
+        let causal = CausalUnderstandingBuilder().buildForClosedEpisode(
+            episode: episodeEvent,
+            episodeEvents: events,
+            historicalEvents: historicalEvents,
+            now: now
+        )
+        for payload in causal.evidence {
+            append(
+                .init(
+                    type: .evidence,
+                    confidence: Double(payload["reliability"] ?? "") ?? 0.5,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+        for payload in causal.transitions {
+            append(
+                .init(
+                    type: .stateTransition,
+                    confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+        for payload in causal.antecedents {
+            let confidence = ((Double(payload["semantic_relevance"] ?? "") ?? 0.5)
+                + (Double(payload["temporal_relevance"] ?? "") ?? 0.5)) / 2
+            append(
+                .init(
+                    type: .causalAntecedent,
+                    confidence: confidence,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+        for payload in causal.hypotheses {
+            append(
+                .init(
+                    type: .causalHypothesis,
+                    confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
     }
 
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
@@ -1969,8 +2207,9 @@ final class ObserverController {
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
             now: now
         )
-        commitPendingAwayPresenceIncidentIfNeeded(now: now)
         releaseSecurityIncidentsIfOwnerReturned(now: now)
+        commitPendingAwayPresenceIncidentIfNeeded(now: now)
+        updateOwnerFaceProfileIfNeeded(snapshot)
         recordGazeCalibrationSampleIfNeeded(now: now)
         recordCognitiveStateIfNeeded(now: now)
         pauseMediaIfUserAppearsAway()
@@ -2134,14 +2373,6 @@ final class ObserverController {
         ) else {
             return
         }
-
-        setLatestContextLine(
-            widgetContextLine(
-                prefix: displayPrefix,
-                annotation: annotation,
-                context: context
-            )
-        )
 
         var payload = annotation.payload
         payload["app_name"] = context.appName
@@ -2503,6 +2734,24 @@ final class ObserverController {
             return
         }
 
+        if ownerFaceRecognizer.isOwnerFace(currentAttention.jpegData) == true {
+            append(
+                .init(
+                    type: .awayPresenceIncident,
+                    displayRole: currentFocus?.displayRole,
+                    appID: currentFocus?.appID,
+                    confidence: 0.72,
+                    payload: incident.payload.merging([
+                        "owner_identity": "recognized_owner",
+                        "review_state": "dismissed_owner_face_match",
+                        "media_written": "false"
+                    ]) { current, _ in current },
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return
+        }
+
         let enoughTimePassed = lastAwayPresenceIncidentAt.map { now.timeIntervalSince($0) >= 600 } ?? true
         guard enoughTimePassed else {
             return
@@ -2541,6 +2790,7 @@ final class ObserverController {
         let recentOwnerInput = (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5
         if recentOwnerInput {
             pendingAwayPresenceIncident = nil
+            ownerFaceRecognizer.learnOwnerFace(from: pending.jpegData)
             append(
                 .init(
                     type: .awayPresenceIncident,
@@ -2557,7 +2807,26 @@ final class ObserverController {
             return
         }
 
-        guard now.timeIntervalSince(pending.firstSeenAt) >= 15 else {
+        if ownerFaceRecognizer.isOwnerFace(pending.jpegData) == true {
+            pendingAwayPresenceIncident = nil
+            append(
+                .init(
+                    type: .awayPresenceIncident,
+                    displayRole: pending.displayRole,
+                    appID: pending.appID,
+                    confidence: min(pending.confidence, 0.45),
+                    payload: pending.payload.merging([
+                        "owner_identity": "recognized_owner",
+                        "review_state": "dismissed_owner_face_match",
+                        "media_written": "false"
+                    ]) { current, _ in current },
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return
+        }
+
+        guard now.timeIntervalSince(pending.firstSeenAt) >= 45 else {
             return
         }
 
@@ -2618,6 +2887,16 @@ final class ObserverController {
             now: now
         )
         notifyStateChanged()
+    }
+
+    private func updateOwnerFaceProfileIfNeeded(_ attention: AttentionSnapshot) {
+        guard attention.facePresent, attention.faceCount == 1 else {
+            return
+        }
+        guard (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 10 else {
+            return
+        }
+        ownerFaceRecognizer.learnOwnerFace(from: attention.jpegData)
     }
 
     private func recordSmileCueIfNeeded(_ attention: AttentionSnapshot, now: Date = Date()) {
@@ -2830,6 +3109,8 @@ final class ObserverController {
         }
         mode = .offHours
         sessionStartedAt = nil
+        currentSessionID = nil
+        currentEpisodeID = nil
         sensor?.stop()
         stopSummaryTimer()
         stopGeminiInsightTimer()
@@ -2839,7 +3120,7 @@ final class ObserverController {
             cameraAttentionService.stop()
         }
         latestCameraStatus = nil
-        setLatestContextLine("вне рабочих часов")
+        setLatestContextLine(nil)
         notifyStateChanged()
     }
 

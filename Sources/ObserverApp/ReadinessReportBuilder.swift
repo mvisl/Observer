@@ -23,23 +23,27 @@ struct ReadinessReportBuilder {
     func funnelReport(events: [ObserverEvent], now: Date = Date()) -> FunnelReport {
         let dayStart = calendar.startOfDay(for: now)
         let sevenDayStart = calendar.date(byAdding: .day, value: -6, to: dayStart) ?? dayStart
-        let today = events.filter { $0.timestamp >= dayStart }
-        let rolling = events.filter { $0.timestamp >= sevenDayStart }
-        let todayMetrics = funnelMetrics(events: today)
-        let rollingMetrics = funnelMetrics(events: rolling)
+        let todayMetrics = EpisodeReadinessMetrics(
+            events: events.filter { $0.timestamp >= dayStart },
+            calendar: calendar
+        )
+        let rollingMetrics = EpisodeReadinessMetrics(
+            events: events.filter { $0.timestamp >= sevenDayStart },
+            calendar: calendar
+        )
 
         let payload = todayMetrics.payload(prefix: "today_")
             .merging(rollingMetrics.payload(prefix: "rolling_7d_")) { current, _ in current }
         let markdown = """
-        ## Funnel Metrics
+        ## Episode Readiness Funnel
 
-        | Window | Signals | Behavior | Fusion | State | Episode outcome | Bound reaction |
-        | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-        | Today | \(todayMetrics.signals) | \(todayMetrics.behaviorCues) | \(todayMetrics.fusionHypotheses) | \(todayMetrics.cognitiveStates) | \(todayMetrics.episodeOutcomes) | \(todayMetrics.boundReactions) |
-        | 7d | \(rollingMetrics.signals) | \(rollingMetrics.behaviorCues) | \(rollingMetrics.fusionHypotheses) | \(rollingMetrics.cognitiveStates) | \(rollingMetrics.episodeOutcomes) | \(rollingMetrics.boundReactions) |
+        This is not a raw event-count conversion funnel. It measures whether episodes have enough lineage,
+        fresh semantic context, and supported claims to become prediction material.
 
-        - Today conversion: \(todayMetrics.conversionSummary)
-        - 7d conversion: \(rollingMetrics.conversionSummary)
+        | Window | Episodes | Days | Fresh content | Lineage | Unsupported claims |
+        | --- | ---: | ---: | ---: | ---: | ---: |
+        | Today | \(todayMetrics.episodes) | \(todayMetrics.independentDays) | \(todayMetrics.percent(todayMetrics.contentCoverage)) | \(todayMetrics.percent(todayMetrics.lineageCoverage)) | \(todayMetrics.percent(todayMetrics.unsupportedClaimRate)) |
+        | 7d | \(rollingMetrics.episodes) | \(rollingMetrics.independentDays) | \(rollingMetrics.percent(rollingMetrics.contentCoverage)) | \(rollingMetrics.percent(rollingMetrics.lineageCoverage)) | \(rollingMetrics.percent(rollingMetrics.unsupportedClaimRate)) |
         """
 
         return FunnelReport(payload: payload, markdown: markdown)
@@ -64,7 +68,6 @@ struct ReadinessReportBuilder {
         let behaviorCount = max(1, events.filter { $0.type == .behaviorCue }.count)
         let fusionCount = events.filter { $0.type == .fusionHypothesis }.count
         let compression = Double(fusionCount) / Double(behaviorCount)
-        let compressionOK = compression >= settings.fusionCompressionMinimum && compression <= settings.fusionCompressionMaximum
         let examples = audited.suffix(5).map { item in
             "- \(item.fusion.payload["cue"] ?? item.fusion.payload["interpretation"] ?? "fusion"): \(item.channels.joined(separator: "+"))"
         }.joined(separator: "\n")
@@ -76,16 +79,14 @@ struct ReadinessReportBuilder {
             "fusion_count": "\(fusionCount)",
             "behavior_cue_count": "\(behaviorCount)",
             "compression_ratio": String(format: "%.3f", compression),
-            "compression_target": "\(settings.fusionCompressionMinimum)-\(settings.fusionCompressionMaximum)",
-            "compression_ok": compressionOK ? "true" : "false"
+            "compression_note": "diagnostic_only_not_readiness_gate"
         ]
         let markdown = """
         ## Fusion Audit
 
         - Sample: \(total) recent fusion hypotheses.
         - Real two-channel evidence: \(passed)/\(total) (\(Int(passRate * 100))%).
-        - Compression fusion/behaviorCue: \(String(format: "%.2f", compression)) target \(settings.fusionCompressionMinimum)-\(settings.fusionCompressionMaximum).
-        - Compression status: \(compressionOK ? "ok" : "needs rule fix").
+        - Compression fusion/behaviorCue: \(String(format: "%.2f", compression)) diagnostic only, not a readiness target.
 
         \(examples.isEmpty ? "- No fusion examples yet." : examples)
         """
@@ -94,68 +95,70 @@ struct ReadinessReportBuilder {
     }
 
     func readinessReport(events: [ObserverEvent], now: Date = Date()) -> ReadinessReport {
-        let cognitiveEvents = events.filter { $0.type == .cognitiveState }
-        let cognitiveDays = Set(cognitiveEvents.map { calendar.startOfDay(for: $0.timestamp) }).count
-        let boundReactionEvents = events.filter { $0.type == .boundReaction }
-        let entitiesOrTopics = Set(boundReactionEvents.compactMap { event in
-            event.payload["entity_id"] ?? event.payload["topic"]
-        }).count
-        let geminiEvents = events.filter { $0.type == .geminiInsight }
-        let audit = fusionAudit(events: events, now: now)
-        let cognitiveReady = cognitiveEvents.count >= settings.cognitiveStateMinimumEvents
-            && cognitiveDays >= settings.cognitiveStateMinimumDays
-        let boundReady = boundReactionEvents.count >= settings.boundReactionMinimumEvents
-            && entitiesOrTopics >= settings.boundReactionMinimumEntitiesOrTopics
-        let geminiReady = geminiEvents.count >= settings.geminiInsightMinimumEvents
-        let fusionReady = audit.payload["compression_ok"] == "true"
-        let ready = cognitiveReady && boundReady && geminiReady && fusionReady
+        let metrics = EpisodeReadinessMetrics(events: events, calendar: calendar)
+        let evidenceEvents = events.filter { $0.type == .evidence }
+        let situationModels = events.filter { $0.type == .situationModel }
+        let interventionDecisions = events.filter { $0.type == .interventionDecision }
+        let pipelineReady = metrics.lineageCoverage >= settings.minimumLineageCoverage
+        let episodeReady = metrics.episodes >= settings.minimumIndependentEpisodes
+            && metrics.independentDays >= settings.minimumEpisodeDays
+            && metrics.contentCoverage >= settings.minimumEpisodeContentCoverage
+        let semanticReady = metrics.unsupportedClaimRate <= settings.maximumUnsupportedClaimRate
+            && !evidenceEvents.isEmpty
+            && !situationModels.isEmpty
+        let predictionReady = episodeReady
+            && semanticReady
+            && events.contains { $0.type == .prediction || $0.type == .interventionCandidate }
+        let interventionReady = !interventionDecisions.isEmpty
+        let userVisibleReady = pipelineReady && episodeReady && semanticReady && predictionReady && interventionReady
+        let ready = pipelineReady && episodeReady && semanticReady && predictionReady
 
         let blockers = [
-            cognitiveReady ? nil : "cognitiveState: \(cognitiveEvents.count)/\(settings.cognitiveStateMinimumEvents), days \(cognitiveDays)/\(settings.cognitiveStateMinimumDays)",
-            boundReady ? nil : "boundReaction: \(boundReactionEvents.count)/\(settings.boundReactionMinimumEvents), entity/topic \(entitiesOrTopics)/\(settings.boundReactionMinimumEntitiesOrTopics)",
-            geminiReady ? nil : "geminiInsight: \(geminiEvents.count)/\(settings.geminiInsightMinimumEvents)",
-            fusionReady ? nil : "fusion compression outside target"
+            pipelineReady ? nil : "pipeline integrity: lineage \(metrics.percent(metrics.lineageCoverage)) / \(metrics.percent(settings.minimumLineageCoverage))",
+            episodeReady ? nil : "episode readiness: \(metrics.episodes)/\(settings.minimumIndependentEpisodes) episodes, \(metrics.independentDays)/\(settings.minimumEpisodeDays) days, content \(metrics.percent(metrics.contentCoverage))",
+            semanticReady ? nil : "semantic readiness: evidence/situation model missing or unsupported claims \(metrics.percent(metrics.unsupportedClaimRate))",
+            predictionReady ? nil : "prediction readiness: shadow predictions are not validated against episode outcomes",
+            interventionReady ? nil : "intervention readiness: no intervention ledger outcomes yet",
+            userVisibleReady ? nil : "user-visible readiness: strict gates not complete"
         ].compactMap { $0 }
 
         let payload: [String: String] = [
             "status": ready ? "ready" : "not_ready",
-            "cognitive_state_count": "\(cognitiveEvents.count)",
-            "cognitive_state_days": "\(cognitiveDays)",
-            "bound_reaction_count": "\(boundReactionEvents.count)",
-            "bound_reaction_entities_or_topics": "\(entitiesOrTopics)",
-            "gemini_insight_count": "\(geminiEvents.count)",
-            "fusion_ready": fusionReady ? "true" : "false",
+            "pipeline_integrity": pipelineReady ? "ready" : "not_ready",
+            "episode_readiness": episodeReady ? "ready" : "not_ready",
+            "semantic_readiness": semanticReady ? "ready" : "not_ready",
+            "prediction_readiness": predictionReady ? "ready" : "not_ready",
+            "intervention_readiness": interventionReady ? "ready" : "not_ready",
+            "user_visible_readiness": userVisibleReady ? "ready" : "not_ready",
+            "independent_episodes": "\(metrics.episodes)",
+            "independent_episode_days": "\(metrics.independentDays)",
+            "lineage_coverage": String(format: "%.3f", metrics.lineageCoverage),
+            "episode_content_coverage": String(format: "%.3f", metrics.contentCoverage),
+            "unsupported_claim_rate": String(format: "%.3f", metrics.unsupportedClaimRate),
             "blockers": blockers.joined(separator: "; ")
         ]
         let markdown = """
-        ## Prediction Readiness
+        ## Brain Readiness
 
         Status: \(ready ? "ready" : "not_ready")
 
         | Gate | Current | Target | Status |
         | --- | ---: | ---: | --- |
-        | cognitiveState events | \(cognitiveEvents.count) | \(settings.cognitiveStateMinimumEvents) | \(cognitiveReady ? "ok" : "blocked") |
-        | cognitiveState days | \(cognitiveDays) | \(settings.cognitiveStateMinimumDays) | \(cognitiveReady ? "ok" : "blocked") |
-        | boundReaction events | \(boundReactionEvents.count) | \(settings.boundReactionMinimumEvents) | \(boundReady ? "ok" : "blocked") |
-        | entity/topic coverage | \(entitiesOrTopics) | \(settings.boundReactionMinimumEntitiesOrTopics) | \(boundReady ? "ok" : "blocked") |
-        | Gemini insights | \(geminiEvents.count) | \(settings.geminiInsightMinimumEvents) | \(geminiReady ? "ok" : "blocked") |
-        | Fusion compression | \(audit.payload["compression_ratio"] ?? "?") | \(settings.fusionCompressionMinimum)-\(settings.fusionCompressionMaximum) | \(fusionReady ? "ok" : "blocked") |
+        | Pipeline integrity | \(metrics.percent(metrics.lineageCoverage)) | \(metrics.percent(settings.minimumLineageCoverage)) | \(pipelineReady ? "ok" : "blocked") |
+        | Independent episodes | \(metrics.episodes) | \(settings.minimumIndependentEpisodes) | \(episodeReady ? "ok" : "blocked") |
+        | Independent days | \(metrics.independentDays) | \(settings.minimumEpisodeDays) | \(episodeReady ? "ok" : "blocked") |
+        | Episode content coverage | \(metrics.percent(metrics.contentCoverage)) | \(metrics.percent(settings.minimumEpisodeContentCoverage)) | \(episodeReady ? "ok" : "blocked") |
+        | Unsupported claim rate | \(metrics.percent(metrics.unsupportedClaimRate)) | max \(metrics.percent(settings.maximumUnsupportedClaimRate)) | \(semanticReady ? "ok" : "blocked") |
+        | Evidence graph | \(evidenceEvents.count) nodes | >0 | \(evidenceEvents.isEmpty ? "blocked" : "ok") |
+        | Situation model | \(situationModels.count) models | >0 | \(situationModels.isEmpty ? "blocked" : "ok") |
+        | Intervention ledger | \(interventionDecisions.count) decisions | >0 | \(interventionReady ? "ok" : "blocked") |
 
         \(blockers.isEmpty ? "- No blockers." : blockers.map { "- \($0)" }.joined(separator: "\n"))
+
+        Gemini is treated as a hypothesis generator, not as ground truth.
         """
 
         return ReadinessReport(payload: payload, markdown: markdown, isReadyForPrediction: ready)
-    }
-
-    private func funnelMetrics(events: [ObserverEvent]) -> FunnelMetrics {
-        FunnelMetrics(
-            signals: events.filter { [.attention, .inputActivity, .contentContext].contains($0.type) }.count,
-            behaviorCues: events.filter { $0.type == .behaviorCue }.count,
-            fusionHypotheses: events.filter { $0.type == .fusionHypothesis }.count,
-            cognitiveStates: events.filter { $0.type == .cognitiveState }.count,
-            episodeOutcomes: events.filter { $0.type == .episode && ($0.payload["outcome"]?.isEmpty == false) }.count,
-            boundReactions: events.filter { $0.type == .boundReaction }.count
-        )
     }
 
     private func channel(for event: ObserverEvent) -> String? {
@@ -201,51 +204,92 @@ struct ReadinessReportBuilder {
     }
 }
 
-private struct FunnelMetrics {
-    let signals: Int
-    let behaviorCues: Int
-    let fusionHypotheses: Int
-    let cognitiveStates: Int
-    let episodeOutcomes: Int
-    let boundReactions: Int
+private struct EpisodeReadinessMetrics {
+    let events: [ObserverEvent]
+    let calendar: Calendar
 
-    var conversionSummary: String {
-        [
-            "behavior/signals \(ratio(behaviorCues, signals))",
-            "fusion/behavior \(ratio(fusionHypotheses, behaviorCues))",
-            "state/fusion \(ratio(cognitiveStates, fusionHypotheses))",
-            "episode/state \(ratio(episodeOutcomes, cognitiveStates))",
-            "reaction/episode \(ratio(boundReactions, episodeOutcomes))"
-        ].joined(separator: ", ")
+    var episodes: Int {
+        episodeEvents.count
+    }
+
+    var independentDays: Int {
+        Set(episodeEvents.map { calendar.startOfDay(for: $0.timestamp) }).count
+    }
+
+    var lineageCoverage: Double {
+        let derived = events.filter { $0.type.requiresLineage }
+        guard !derived.isEmpty else {
+            return 0
+        }
+        let complete = derived.filter { event in
+            event.payload["pipeline_version"]?.isEmpty == false
+                && event.payload["session_id"]?.isEmpty == false
+                && event.payload["episode_id"]?.isEmpty == false
+                && event.payload["source_event_ids"]?.isEmpty == false
+        }
+        return Double(complete.count) / Double(derived.count)
+    }
+
+    var contentCoverage: Double {
+        guard !episodeEvents.isEmpty else {
+            return 0
+        }
+        let covered = episodeEvents.filter { episode in
+            guard let start = date(episode.payload["start"]),
+                  let end = date(episode.payload["end"])
+            else {
+                return false
+            }
+            return events.contains { event in
+                event.type == .contentContext
+                    && event.timestamp >= start.addingTimeInterval(-90)
+                    && event.timestamp <= end
+            }
+        }
+        return Double(covered.count) / Double(episodeEvents.count)
+    }
+
+    var unsupportedClaimRate: Double {
+        let candidates = events.filter { event in
+            event.type == .geminiInsight
+                || event.type == .fusionHypothesis
+                || event.type == .situationModel
+                || event.type == .interventionCandidate
+        }
+        guard !candidates.isEmpty else {
+            return 1
+        }
+        let unsupported = candidates.filter { event in
+            event.payload["source_event_ids"]?.isEmpty != false
+                && event.payload["evidence_event_ids"]?.isEmpty != false
+        }
+        return Double(unsupported.count) / Double(candidates.count)
     }
 
     func payload(prefix: String) -> [String: String] {
         [
-            "\(prefix)signals": "\(signals)",
-            "\(prefix)behavior_cues": "\(behaviorCues)",
-            "\(prefix)fusion_hypotheses": "\(fusionHypotheses)",
-            "\(prefix)cognitive_states": "\(cognitiveStates)",
-            "\(prefix)episode_outcomes": "\(episodeOutcomes)",
-            "\(prefix)bound_reactions": "\(boundReactions)",
-            "\(prefix)behavior_to_signals": ratioValue(behaviorCues, signals),
-            "\(prefix)fusion_to_behavior": ratioValue(fusionHypotheses, behaviorCues),
-            "\(prefix)state_to_fusion": ratioValue(cognitiveStates, fusionHypotheses),
-            "\(prefix)episode_to_state": ratioValue(episodeOutcomes, cognitiveStates),
-            "\(prefix)reaction_to_episode": ratioValue(boundReactions, episodeOutcomes)
+            "\(prefix)episodes": "\(episodes)",
+            "\(prefix)independent_days": "\(independentDays)",
+            "\(prefix)lineage_coverage": String(format: "%.3f", lineageCoverage),
+            "\(prefix)content_coverage": String(format: "%.3f", contentCoverage),
+            "\(prefix)unsupported_claim_rate": String(format: "%.3f", unsupportedClaimRate)
         ]
     }
 
-    private func ratio(_ numerator: Int, _ denominator: Int) -> String {
-        guard denominator > 0 else {
-            return "n/a"
-        }
-        return "\(Int((Double(numerator) / Double(denominator)) * 100))%"
+    func percent(_ value: Double) -> String {
+        "\(Int((value * 100).rounded()))%"
     }
 
-    private func ratioValue(_ numerator: Int, _ denominator: Int) -> String {
-        guard denominator > 0 else {
-            return "n/a"
+    private var episodeEvents: [ObserverEvent] {
+        events.filter { event in
+            event.type == .episode && event.payload["outcome"]?.isEmpty == false
         }
-        return String(format: "%.3f", Double(numerator) / Double(denominator))
+    }
+
+    private func date(_ value: String?) -> Date? {
+        guard let value else {
+            return nil
+        }
+        return ISO8601DateFormatter().date(from: value)
     }
 }

@@ -110,7 +110,7 @@ final class EventStore {
         return count
     }
 
-    func allEvents(limit: Int = 10_000) throws -> [ObserverEvent] {
+    func allEvents(limit: Int = 200_000) throws -> [ObserverEvent] {
         let sql = """
         SELECT id, timestamp, type, source, platform, display_role, app_id,
                confidence, payload_json, workspace_topology_version

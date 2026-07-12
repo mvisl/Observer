@@ -55,6 +55,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Export Context File", #selector(exportContextFile), to: menu)
         addItem("Export Research Digest", #selector(exportResearchDigest), to: menu)
         addItem("Export Readiness Report", #selector(exportReadinessReport), to: menu)
+        addItem("Export Causal Understanding Report", #selector(exportCausalUnderstandingReport), to: menu)
         addItem("Export Events JSONL", #selector(exportEventsJSONL), to: menu)
         addItem("Generate Local LLM Insight", #selector(generateLocalLLMInsight), to: menu)
         addItem("Set Gemini API Key", #selector(setGeminiAPIKey), to: menu)
@@ -191,6 +192,13 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func exportReadinessReport() {
         guard let url = controller?.exportReadinessReport() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func exportCausalUnderstandingReport() {
+        guard let url = controller?.exportCausalUnderstandingReport() else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -411,6 +419,15 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     _ = self?.controller?.generateLocalSummary()
                     _ = self?.controller?.collectContextPack()
+                }
+            }
+        }
+
+        if let causalAfterValue = environment["OBSERVER_EXPORT_CAUSAL_AFTER_SECONDS"],
+           let causalAfter = TimeInterval(causalAfterValue) {
+            Timer.scheduledTimer(withTimeInterval: causalAfter, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    _ = self?.controller?.exportCausalUnderstandingReport()
                 }
             }
         }

@@ -5,6 +5,7 @@ enum PrivacyRedactor {
     private static let privateKeyPattern = "(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----"
     private static let ibanPattern = "\\b[A-Z]{2}\\d{2}[A-Z0-9]{11,30}\\b"
     private static let twoFactorPattern = "(?i)\\b(verification|verify|code|otp|2fa|one[- ]time)\\D{0,24}\\b\\d{4,8}\\b"
+    private static let uuidPattern = "\\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\b"
     private static let longHexPattern = "\\b[A-Fa-f0-9]{32,}\\b"
     private static let longTokenPattern = "\\b[A-Za-z0-9_\\-]{36,}\\b"
     private static let bip39ProbeWords: Set<String> = [
@@ -19,7 +20,8 @@ enum PrivacyRedactor {
     ]
 
     static func redact(_ value: String) -> String {
-        var redacted = value
+        var protectedUUIDs: [String] = []
+        var redacted = protectUUIDs(in: value, into: &protectedUUIDs)
         redacted = replace(pattern: secretFieldPattern, in: redacted, with: "$1: [secret:credential]")
         redacted = replace(pattern: twoFactorPattern, in: redacted, with: "$1 [secret:2fa_code]")
         redacted = replace(pattern: ibanPattern, in: redacted, with: "[secret:iban]")
@@ -28,7 +30,7 @@ enum PrivacyRedactor {
         redacted = replace(pattern: longHexPattern, in: redacted, with: "[secret:hex_token]")
         redacted = replace(pattern: longTokenPattern, in: redacted, with: "[secret:token]")
         redacted = replace(pattern: privateKeyPattern, in: redacted, with: "[secret:private_key]")
-        return redacted
+        return restoreUUIDs(in: redacted, from: protectedUUIDs)
     }
 
     static func redact(_ value: String?) -> String? {
@@ -44,6 +46,31 @@ enum PrivacyRedactor {
             with: replacement,
             options: .regularExpression
         )
+    }
+
+    private static func protectUUIDs(in value: String, into protected: inout [String]) -> String {
+        guard let regex = try? NSRegularExpression(pattern: uuidPattern) else {
+            return value
+        }
+        var result = value
+        let nsRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        for match in regex.matches(in: value, range: nsRange).reversed() {
+            guard let range = Range(match.range, in: value) else {
+                continue
+            }
+            let index = protected.count
+            protected.append(String(value[range]))
+            result.replaceSubrange(range, with: "__OBSERVER_UUID_\(index)__")
+        }
+        return result
+    }
+
+    private static func restoreUUIDs(in value: String, from protected: [String]) -> String {
+        var result = value
+        for (index, uuid) in protected.enumerated() {
+            result = result.replacingOccurrences(of: "__OBSERVER_UUID_\(index)__", with: uuid)
+        }
+        return result
     }
 
     private static func redactCardNumbers(in value: String) -> String {

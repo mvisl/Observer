@@ -104,6 +104,11 @@ struct ObserverSettings: Codable {
         var fusionCompressionMinimum: Double
         var fusionCompressionMaximum: Double
         var fusionAuditSampleSize: Int
+        var minimumIndependentEpisodes: Int
+        var minimumEpisodeDays: Int
+        var minimumLineageCoverage: Double
+        var minimumEpisodeContentCoverage: Double
+        var maximumUnsupportedClaimRate: Double
 
         init(
             cognitiveStateMinimumEvents: Int,
@@ -113,7 +118,12 @@ struct ObserverSettings: Codable {
             geminiInsightMinimumEvents: Int,
             fusionCompressionMinimum: Double,
             fusionCompressionMaximum: Double,
-            fusionAuditSampleSize: Int
+            fusionAuditSampleSize: Int,
+            minimumIndependentEpisodes: Int,
+            minimumEpisodeDays: Int,
+            minimumLineageCoverage: Double,
+            minimumEpisodeContentCoverage: Double,
+            maximumUnsupportedClaimRate: Double
         ) {
             self.cognitiveStateMinimumEvents = cognitiveStateMinimumEvents
             self.cognitiveStateMinimumDays = cognitiveStateMinimumDays
@@ -123,6 +133,11 @@ struct ObserverSettings: Codable {
             self.fusionCompressionMinimum = fusionCompressionMinimum
             self.fusionCompressionMaximum = fusionCompressionMaximum
             self.fusionAuditSampleSize = fusionAuditSampleSize
+            self.minimumIndependentEpisodes = minimumIndependentEpisodes
+            self.minimumEpisodeDays = minimumEpisodeDays
+            self.minimumLineageCoverage = minimumLineageCoverage
+            self.minimumEpisodeContentCoverage = minimumEpisodeContentCoverage
+            self.maximumUnsupportedClaimRate = maximumUnsupportedClaimRate
         }
 
         init(from decoder: Decoder) throws {
@@ -136,6 +151,11 @@ struct ObserverSettings: Codable {
             self.fusionCompressionMinimum = try container.decodeIfPresent(Double.self, forKey: .fusionCompressionMinimum) ?? defaults.fusionCompressionMinimum
             self.fusionCompressionMaximum = try container.decodeIfPresent(Double.self, forKey: .fusionCompressionMaximum) ?? defaults.fusionCompressionMaximum
             self.fusionAuditSampleSize = try container.decodeIfPresent(Int.self, forKey: .fusionAuditSampleSize) ?? defaults.fusionAuditSampleSize
+            self.minimumIndependentEpisodes = try container.decodeIfPresent(Int.self, forKey: .minimumIndependentEpisodes) ?? defaults.minimumIndependentEpisodes
+            self.minimumEpisodeDays = try container.decodeIfPresent(Int.self, forKey: .minimumEpisodeDays) ?? defaults.minimumEpisodeDays
+            self.minimumLineageCoverage = try container.decodeIfPresent(Double.self, forKey: .minimumLineageCoverage) ?? defaults.minimumLineageCoverage
+            self.minimumEpisodeContentCoverage = try container.decodeIfPresent(Double.self, forKey: .minimumEpisodeContentCoverage) ?? defaults.minimumEpisodeContentCoverage
+            self.maximumUnsupportedClaimRate = try container.decodeIfPresent(Double.self, forKey: .maximumUnsupportedClaimRate) ?? defaults.maximumUnsupportedClaimRate
         }
     }
 
@@ -319,7 +339,12 @@ struct ObserverSettings: Codable {
             geminiInsightMinimumEvents: 20,
             fusionCompressionMinimum: 0.30,
             fusionCompressionMaximum: 0.50,
-            fusionAuditSampleSize: 30
+            fusionAuditSampleSize: 30,
+            minimumIndependentEpisodes: 50,
+            minimumEpisodeDays: 5,
+            minimumLineageCoverage: 0.95,
+            minimumEpisodeContentCoverage: 0.80,
+            maximumUnsupportedClaimRate: 0.05
         )
     )
 }

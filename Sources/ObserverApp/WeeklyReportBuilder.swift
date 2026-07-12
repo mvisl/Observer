@@ -127,12 +127,11 @@ struct WeeklyReportBuilder {
         return """
         | Stage | Today | 7d |
         | --- | ---: | ---: |
-        | Signals | \(latest.payload["today_signals"] ?? "0") | \(latest.payload["rolling_7d_signals"] ?? "0") |
-        | Behavior cues | \(latest.payload["today_behavior_cues"] ?? "0") | \(latest.payload["rolling_7d_behavior_cues"] ?? "0") |
-        | Fusion hypotheses | \(latest.payload["today_fusion_hypotheses"] ?? "0") | \(latest.payload["rolling_7d_fusion_hypotheses"] ?? "0") |
-        | Cognitive states | \(latest.payload["today_cognitive_states"] ?? "0") | \(latest.payload["rolling_7d_cognitive_states"] ?? "0") |
-        | Episode outcomes | \(latest.payload["today_episode_outcomes"] ?? "0") | \(latest.payload["rolling_7d_episode_outcomes"] ?? "0") |
-        | Bound reactions | \(latest.payload["today_bound_reactions"] ?? "0") | \(latest.payload["rolling_7d_bound_reactions"] ?? "0") |
+        | Episodes | \(latest.payload["today_episodes"] ?? "0") | \(latest.payload["rolling_7d_episodes"] ?? "0") |
+        | Independent days | \(latest.payload["today_independent_days"] ?? "0") | \(latest.payload["rolling_7d_independent_days"] ?? "0") |
+        | Fresh content | \(latest.payload["today_content_coverage"] ?? "0") | \(latest.payload["rolling_7d_content_coverage"] ?? "0") |
+        | Lineage | \(latest.payload["today_lineage_coverage"] ?? "0") | \(latest.payload["rolling_7d_lineage_coverage"] ?? "0") |
+        | Unsupported claims | \(latest.payload["today_unsupported_claim_rate"] ?? "0") | \(latest.payload["rolling_7d_unsupported_claim_rate"] ?? "0") |
         """
     }
 

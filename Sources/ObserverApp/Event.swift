@@ -15,9 +15,14 @@ enum ObserverEventType: String, Codable {
     case cameraAttentionStarted
     case cameraAttentionStopped
     case cameraPermission
+    case causalAntecedent
+    case causalHypothesis
+    case causalUnderstandingReport
+    case causalValidationReport
     case cognitiveState
     case detectorFired
     case displayInventory
+    case evidence
     case episode
     case experiment
     case hintCandidate
@@ -36,9 +41,13 @@ enum ObserverEventType: String, Codable {
     case geminiKeyUpdated
     case gazeCalibrationSample
     case localInsight
+    case interventionCandidate
+    case interventionDecision
+    case interventionOutcome
     case mediaPlayback
     case mediaReaction
     case personalBaseline
+    case personalCausalPattern
     case prediction
     case predictorCalibration
     case researchDigest
@@ -47,6 +56,8 @@ enum ObserverEventType: String, Codable {
     case scheduleOverride
     case securityIncident
     case sequencePattern
+    case situationModel
+    case stateTransition
     case localSummary
     case ocrContext
     case screenContext
@@ -63,6 +74,93 @@ enum ObserverEventType: String, Codable {
     case writingContext
     case workspaceTopologyLoaded
     case weeklyReport
+}
+
+enum ObserverPipeline {
+    static let version = "observer-brain-v2-foundation"
+}
+
+extension ObserverEventType {
+    var requiresLineage: Bool {
+        switch self {
+        case .attentionSpan,
+             .behaviorCue,
+             .boundReaction,
+             .causalAntecedent,
+             .causalHypothesis,
+             .causalUnderstandingReport,
+             .causalValidationReport,
+             .cognitiveState,
+             .detectorFired,
+             .episode,
+             .evidence,
+             .fusionAudit,
+             .fusionHypothesis,
+             .funnelReport,
+             .geminiInsight,
+             .hintCandidate,
+             .interventionCandidate,
+             .interventionDecision,
+             .interventionOutcome,
+             .localInsight,
+             .localSummary,
+             .mediaReaction,
+             .personalBaseline,
+             .personalCausalPattern,
+             .prediction,
+             .predictorCalibration,
+             .readinessReport,
+             .researchDigest,
+             .resumptionLag,
+             .sequencePattern,
+             .situationModel,
+             .stateTransition,
+             .weeklyReport:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isUserVisibleCandidate: Bool {
+        switch self {
+        case .geminiInsight, .hintCandidate, .localInsight, .mediaReaction, .situationModel, .interventionCandidate:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+enum UserVisibleOutputPolicy {
+    enum Decision: String {
+        case allowed
+        case missingLineage
+        case lowAbstraction
+        case legacyPrimarySource
+        case missingEvidence
+    }
+
+    static func validate(payload: [String: String]) -> Decision {
+        if payload["primary_source_type"] == ObserverEventType.activityInsight.rawValue {
+            return .legacyPrimarySource
+        }
+        guard payload["pipeline_version"]?.isEmpty == false,
+              payload["session_id"]?.isEmpty == false,
+              payload["episode_id"]?.isEmpty == false
+        else {
+            return .missingLineage
+        }
+        let sources = payload["source_event_ids"] ?? payload["evidence_event_ids"] ?? ""
+        guard sources.isEmpty == false else {
+            return .missingEvidence
+        }
+        let level = payload["abstraction_level"] ?? payload["insight_level"] ?? ""
+        guard ["L2", "L3", "L4"].contains(level) else {
+            return .lowAbstraction
+        }
+        return .allowed
+    }
 }
 
 struct ObserverEvent: Codable, Identifiable {

@@ -28,6 +28,9 @@ struct EpisodeBuilder {
         )
         let kind = inferKind(spans: spans, apps: apps)
         let dominant = dominantContext(spans: spans, apps: apps)
+        let topic = inferTopic(events: episodeEvents, dominant: dominant)
+        let stage = inferStage(events: episodeEvents, outcome: outcome)
+        let goal = inferGoal(kind: kind, topic: topic, apps: apps)
         let switchesWithinSpans = spans
             .compactMap { Int($0.payload["switches_within_span"] ?? "") }
             .reduce(0, +)
@@ -35,7 +38,13 @@ struct EpisodeBuilder {
         let traceIDs = episodeEvents.suffix(40).map(\.id.uuidString).joined(separator: ",")
 
         var payload: [String: String] = [
+            "episode_id": UUID().uuidString,
             "episode_kind": kind,
+            "status": outcome == "manual_pause" || outcome == "schedule_end" ? "provisional" : "closed",
+            "primary_task": dominant,
+            "topic": topic,
+            "goal": goal,
+            "stage": stage,
             "start": ISO8601DateFormatter().string(from: start),
             "end": ISO8601DateFormatter().string(from: end),
             "duration_seconds": String(format: "%.1f", end.timeIntervalSince(start)),
@@ -46,6 +55,9 @@ struct EpisodeBuilder {
             "switches_within_span": "\(switchesWithinSpans)",
             "outcome": outcome,
             "trace_event_ids": traceIDs,
+            "source_event_ids": traceIDs,
+            "created_by_pipeline_version": ObserverPipeline.version,
+            "last_updated_at": ISO8601DateFormatter().string(from: end),
             "shadow_mode": "true"
         ]
         if !entities.isEmpty {
@@ -77,6 +89,54 @@ struct EpisodeBuilder {
             }
         }
         return singleContextKind(apps: apps)
+    }
+
+    private func inferTopic(events: [ObserverEvent], dominant: String) -> String {
+        if let topic = events.reversed().first(where: { $0.type == .contentContext })?.payload["topic"],
+           !topic.isEmpty {
+            return topic
+        }
+        if let raw = events.reversed().first(where: { $0.payload["raw_fragment"]?.isEmpty == false })?.payload["raw_fragment"] {
+            return String(raw.prefix(140))
+        }
+        return dominant
+    }
+
+    private func inferStage(events: [ObserverEvent], outcome: String) -> String {
+        if outcome == "flow_exit" || outcome == "schedule_end" {
+            return "completed"
+        }
+        let text = events.flatMap { $0.payload.values }.joined(separator: " ").lowercased()
+        if text.contains("ошиб") || text.contains("не работает") || text.contains("blocked") {
+            return "blocked"
+        }
+        if text.contains("поправ") || text.contains("исправ") || text.contains("санитар") || text.contains("поверхност") {
+            return "correcting"
+        }
+        if events.contains(where: { $0.type == .contentContext || $0.type == .ocrContext }) {
+            return "reviewing"
+        }
+        if events.contains(where: { $0.type == .inputActivity }) {
+            return "executing"
+        }
+        return "unknown"
+    }
+
+    private func inferGoal(kind: String, topic: String, apps: [String]) -> String {
+        let haystack = ([kind, topic] + apps).joined(separator: " ").lowercased()
+        if haystack.contains("observer") || haystack.contains("пилюл") || haystack.contains("санитар") {
+            return "улучшить смысловую глубину Observer"
+        }
+        if kind == "ai_assisted_work" {
+            return "получить проверяемый результат через ИИ"
+        }
+        if kind == "communication" {
+            return "разобрать коммуникационный обмен"
+        }
+        if kind == "design_work" {
+            return "проверить или улучшить дизайн-артефакт"
+        }
+        return "продвинуть текущую рабочую задачу"
     }
 
     private func singleContextKind(apps: [String]) -> String {

@@ -41,4 +41,13 @@ struct PrivacyRedactorTests {
         """)
         #expect(redacted.contains("[secret:private_key]"))
     }
+
+    @Test func preservesObserverUUIDLineageIds() {
+        let id = "550E8400-E29B-41D4-A716-446655440000"
+        let redacted = PrivacyRedactor.redact("source_event_ids=\(id),\(id.lowercased())")
+
+        #expect(redacted.contains(id))
+        #expect(redacted.contains(id.lowercased()))
+        #expect(!redacted.contains("[secret:token]"))
+    }
 }
