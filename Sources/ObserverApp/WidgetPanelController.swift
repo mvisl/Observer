@@ -33,19 +33,21 @@ final class WidgetPanelController {
 
         panel.contentView = widgetView
         panel.setLockedWidth(Self.normalWidgetWidth, keepingTopRight: false)
-        panel.level = .floating
+        panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isMovableByWindowBackground = false
         positionPanel()
     }
 
     func show() {
         panel.setLockedWidth(Self.normalWidgetWidth, keepingTopRight: true)
-        positionPanelIfNeeded()
+        panel.level = .statusBar
+        panel.alphaValue = 1
+        ensureVisiblePanelFrame()
         panel.orderFrontRegardless()
     }
 
@@ -66,16 +68,32 @@ final class WidgetPanelController {
         widgetView.update(state)
     }
 
-    private func positionPanelIfNeeded() {
-        if panel.frame.origin == .zero {
+    private func ensureVisiblePanelFrame() {
+        let size = Self.clampedSize(panel.frame.size, lockedWidth: Self.normalWidgetWidth)
+        if panel.frame.size != size {
+            panel.setFrame(NSRect(origin: panel.frame.origin, size: size), display: false)
+        }
+
+        if panel.frame.origin == .zero || !Self.isMostlyVisible(origin: panel.frame.origin, size: panel.frame.size) {
+            Self.clearStoredWidgetFrame()
             positionPanel()
+            return
+        }
+
+        let origin = Self.clampedOrigin(panel.frame.origin, size: panel.frame.size)
+        if origin != panel.frame.origin {
+            panel.setFrameOrigin(origin)
         }
     }
 
     private func positionPanel() {
         if let storedOrigin = storedWidgetOrigin() {
-            panel.setFrameOrigin(clampedOrigin(storedOrigin, size: panel.frame.size))
-            return
+            let origin = clampedOrigin(storedOrigin, size: panel.frame.size)
+            if Self.isMostlyVisible(origin: origin, size: panel.frame.size) {
+                panel.setFrameOrigin(origin)
+                return
+            }
+            Self.clearStoredWidgetFrame()
         }
 
         let screen = NSScreen.main ?? NSScreen.screens.first
@@ -100,10 +118,23 @@ final class WidgetPanelController {
             return nil
         }
 
-        return CGPoint(
+        let origin = CGPoint(
             x: defaults.double(forKey: "widget.origin.x"),
             y: defaults.double(forKey: "widget.origin.y")
         )
+        guard origin.x.isFinite, origin.y.isFinite else {
+            Self.clearStoredWidgetFrame()
+            return nil
+        }
+        return origin
+    }
+
+    private static func clearStoredWidgetFrame() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "widget.origin.x")
+        defaults.removeObject(forKey: "widget.origin.y")
+        defaults.removeObject(forKey: "widget.width")
+        defaults.removeObject(forKey: "widget.height")
     }
 
     fileprivate static func saveWidgetOrigin(_ origin: CGPoint) {
@@ -151,13 +182,14 @@ final class WidgetPanelController {
     }
 
     fileprivate static func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
-        guard let frame = screenFrame(for: origin, size: size) else {
+        let cleanSize = clampedSize(size, lockedWidth: normalWidgetWidth)
+        guard let frame = screenFrame(for: origin, size: cleanSize) else {
             return origin
         }
 
         return CGPoint(
-            x: min(max(origin.x, frame.minX), frame.maxX - size.width),
-            y: min(max(origin.y, frame.minY), frame.maxY - size.height)
+            x: min(max(origin.x, frame.minX), frame.maxX - cleanSize.width),
+            y: min(max(origin.y, frame.minY), frame.maxY - cleanSize.height)
         )
     }
 
@@ -170,9 +202,28 @@ final class WidgetPanelController {
         return NSScreen.screens
             .map(\.visibleFrame)
             .max { lhs, rhs in
-                lhs.intersection(candidate).width * lhs.intersection(candidate).height
-                    < rhs.intersection(candidate).width * rhs.intersection(candidate).height
-            }
+                intersectionArea(lhs, candidate) < intersectionArea(rhs, candidate)
+            } ?? NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame
+    }
+
+    private static func isMostlyVisible(origin: CGPoint, size: CGSize) -> Bool {
+        guard origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite else {
+            return false
+        }
+        let rect = CGRect(origin: origin, size: clampedSize(size, lockedWidth: normalWidgetWidth))
+        let visibleArea = NSScreen.screens
+            .map { intersectionArea($0.visibleFrame, rect) }
+            .reduce(0, +)
+        let requiredArea = min(rect.width * rect.height * 0.35, 2_500)
+        return visibleArea >= requiredArea
+    }
+
+    private static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        let intersection = lhs.intersection(rhs)
+        guard !intersection.isNull, intersection.width.isFinite, intersection.height.isFinite else {
+            return 0
+        }
+        return max(0, intersection.width) * max(0, intersection.height)
     }
 
     private func clampedOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
@@ -195,19 +246,19 @@ final class WidgetPanelController {
             return nil
         }
 
-        return clampedSize(
-            CGSize(
-                width: normalWidgetWidth,
-                height: defaults.double(forKey: "widget.height")
-            ),
-            lockedWidth: normalWidgetWidth
-        )
+        let height = defaults.double(forKey: "widget.height")
+        guard height.isFinite else {
+            clearStoredWidgetFrame()
+            return nil
+        }
+        return clampedSize(CGSize(width: normalWidgetWidth, height: height), lockedWidth: normalWidgetWidth)
     }
 
     private static func clampedSize(_ size: CGSize, lockedWidth: CGFloat) -> CGSize {
-        CGSize(
+        let height = size.height.isFinite ? size.height : normalWidgetHeight
+        return CGSize(
             width: lockedWidth,
-            height: min(max(size.height, normalWidgetHeight), 240)
+            height: min(max(height, normalWidgetHeight), 240)
         )
     }
 }
