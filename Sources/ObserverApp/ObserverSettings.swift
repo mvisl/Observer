@@ -95,6 +95,50 @@ struct ObserverSettings: Codable {
         }
     }
 
+    struct ReadinessSettings: Codable {
+        var cognitiveStateMinimumEvents: Int
+        var cognitiveStateMinimumDays: Int
+        var boundReactionMinimumEvents: Int
+        var boundReactionMinimumEntitiesOrTopics: Int
+        var geminiInsightMinimumEvents: Int
+        var fusionCompressionMinimum: Double
+        var fusionCompressionMaximum: Double
+        var fusionAuditSampleSize: Int
+
+        init(
+            cognitiveStateMinimumEvents: Int,
+            cognitiveStateMinimumDays: Int,
+            boundReactionMinimumEvents: Int,
+            boundReactionMinimumEntitiesOrTopics: Int,
+            geminiInsightMinimumEvents: Int,
+            fusionCompressionMinimum: Double,
+            fusionCompressionMaximum: Double,
+            fusionAuditSampleSize: Int
+        ) {
+            self.cognitiveStateMinimumEvents = cognitiveStateMinimumEvents
+            self.cognitiveStateMinimumDays = cognitiveStateMinimumDays
+            self.boundReactionMinimumEvents = boundReactionMinimumEvents
+            self.boundReactionMinimumEntitiesOrTopics = boundReactionMinimumEntitiesOrTopics
+            self.geminiInsightMinimumEvents = geminiInsightMinimumEvents
+            self.fusionCompressionMinimum = fusionCompressionMinimum
+            self.fusionCompressionMaximum = fusionCompressionMaximum
+            self.fusionAuditSampleSize = fusionAuditSampleSize
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.readinessSettings
+            self.cognitiveStateMinimumEvents = try container.decodeIfPresent(Int.self, forKey: .cognitiveStateMinimumEvents) ?? defaults.cognitiveStateMinimumEvents
+            self.cognitiveStateMinimumDays = try container.decodeIfPresent(Int.self, forKey: .cognitiveStateMinimumDays) ?? defaults.cognitiveStateMinimumDays
+            self.boundReactionMinimumEvents = try container.decodeIfPresent(Int.self, forKey: .boundReactionMinimumEvents) ?? defaults.boundReactionMinimumEvents
+            self.boundReactionMinimumEntitiesOrTopics = try container.decodeIfPresent(Int.self, forKey: .boundReactionMinimumEntitiesOrTopics) ?? defaults.boundReactionMinimumEntitiesOrTopics
+            self.geminiInsightMinimumEvents = try container.decodeIfPresent(Int.self, forKey: .geminiInsightMinimumEvents) ?? defaults.geminiInsightMinimumEvents
+            self.fusionCompressionMinimum = try container.decodeIfPresent(Double.self, forKey: .fusionCompressionMinimum) ?? defaults.fusionCompressionMinimum
+            self.fusionCompressionMaximum = try container.decodeIfPresent(Double.self, forKey: .fusionCompressionMaximum) ?? defaults.fusionCompressionMaximum
+            self.fusionAuditSampleSize = try container.decodeIfPresent(Int.self, forKey: .fusionAuditSampleSize) ?? defaults.fusionAuditSampleSize
+        }
+    }
+
     var summaryIntervalSeconds: TimeInterval
     var retentionDays: Int
     var idleSessionBoundarySeconds: Double
@@ -119,6 +163,7 @@ struct ObserverSettings: Codable {
     var detectorSettings: DetectorSettings
     var cognitiveSettings: CognitiveSettings
     var workSchedule: WorkScheduleSettings
+    var readinessSettings: ReadinessSettings
 
     init(
         summaryIntervalSeconds: TimeInterval,
@@ -144,7 +189,8 @@ struct ObserverSettings: Codable {
         pseudonymizeEntities: Bool,
         detectorSettings: DetectorSettings,
         cognitiveSettings: CognitiveSettings,
-        workSchedule: WorkScheduleSettings
+        workSchedule: WorkScheduleSettings,
+        readinessSettings: ReadinessSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
         self.retentionDays = retentionDays
@@ -170,6 +216,7 @@ struct ObserverSettings: Codable {
         self.detectorSettings = detectorSettings
         self.cognitiveSettings = cognitiveSettings
         self.workSchedule = workSchedule
+        self.readinessSettings = readinessSettings
     }
 
     init(from decoder: Decoder) throws {
@@ -199,6 +246,7 @@ struct ObserverSettings: Codable {
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
         self.cognitiveSettings = try container.decodeIfPresent(CognitiveSettings.self, forKey: .cognitiveSettings) ?? defaults.cognitiveSettings
         self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
+        self.readinessSettings = try container.decodeIfPresent(ReadinessSettings.self, forKey: .readinessSettings) ?? defaults.readinessSettings
     }
 
     static let defaults = ObserverSettings(
@@ -262,6 +310,16 @@ struct ObserverSettings: Codable {
             morningTailMinutes: 10,
             predictionSuppressionBeforeEndSeconds: 1800,
             boundaryTruncationMarginSeconds: 300
+        ),
+        readinessSettings: ReadinessSettings(
+            cognitiveStateMinimumEvents: 500,
+            cognitiveStateMinimumDays: 5,
+            boundReactionMinimumEvents: 200,
+            boundReactionMinimumEntitiesOrTopics: 15,
+            geminiInsightMinimumEvents: 20,
+            fusionCompressionMinimum: 0.30,
+            fusionCompressionMaximum: 0.50,
+            fusionAuditSampleSize: 30
         )
     )
 }

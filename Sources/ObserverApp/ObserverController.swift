@@ -38,8 +38,6 @@ final class ObserverController {
     private var lastHintAt: Date?
     private var lastWidgetAppName: String?
     private var focusChangeTimestamps: [Date] = []
-    private var lastActivityInsight: String?
-    private var lastActivityInsightAt: Date?
     private var lastAttentionSpanSignature: String?
     private var lastBehaviorCueName: String?
     private var lastBehaviorCueAt: Date?
@@ -119,7 +117,7 @@ final class ObserverController {
             appName: currentWidgetAppName(),
             contextText: currentWidgetContextText(),
             sessionStartedAt: sessionStartedAt,
-            attentionText: latestCameraStatus ?? currentActivityInsightText(),
+            attentionText: latestCameraStatus ?? currentWidgetSensingText(),
             hintText: currentWidgetHintText(),
             securityIncidentCount: environment.securityIncidentStore.unseenCount(),
             calibration: currentWidgetCalibrationState()
@@ -274,9 +272,6 @@ final class ObserverController {
             if let latestContextLine = usableWidgetContextLine(latestContextLine) {
                 return latestContextLine
             }
-            if let lastActivityInsight = usableWidgetContextLine(lastActivityInsight) {
-                return lastActivityInsight
-            }
         }
 
         if let latestContextLine,
@@ -294,7 +289,11 @@ final class ObserverController {
             return hypothesis
         }
 
-        return currentFocusFallbackLine(now: now) ?? ""
+        if let fallback = currentFocusFallbackLine(now: now) {
+            return "Гипотеза слаба (\(relativeAgeLabel(now.timeIntervalSince(lastMeaningfulEvidenceAt(now: now) ?? now)))): \(fallback)"
+        }
+
+        return currentWidgetSensingText()
     }
 
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
@@ -427,7 +426,7 @@ final class ObserverController {
             .lowercased()
 
         let focusedApps = NSOrderedSet(array: events
-            .filter { $0.type == .appFocus || $0.type == .activityInsight }
+            .filter { $0.type == .appFocus || $0.type == .attentionSpan }
             .compactMap { cleanInsightFragment($0.payload["app_name"]) })
             .array
             .compactMap { $0 as? String }
@@ -596,7 +595,34 @@ final class ObserverController {
         guard let latestHint, let lastHintAt else {
             return nil
         }
-        return now.timeIntervalSince(lastHintAt) <= 150 ? latestHint : nil
+        guard now.timeIntervalSince(lastHintAt) <= 45 else {
+            return nil
+        }
+        return usableWidgetContextLine(latestHint)
+    }
+
+    private func currentWidgetSensingText() -> String {
+        "Собираю evidence: нужен контекст + действие + реакция"
+    }
+
+    private func lastMeaningfulEvidenceAt(now: Date = Date()) -> Date? {
+        ((try? environment.eventStore.recentEvents(limit: 160)) ?? [])
+            .reversed()
+            .first { event in
+                now.timeIntervalSince(event.timestamp) <= 30 * 60
+                    && [.geminiInsight, .boundReaction, .episode, .attentionSpan, .fusionHypothesis, .contentContext].contains(event.type)
+            }?
+            .timestamp
+    }
+
+    private func relativeAgeLabel(_ seconds: TimeInterval) -> String {
+        if seconds < 60 {
+            return "сейчас"
+        }
+        if seconds < 3600 {
+            return "\(Int(seconds / 60))м назад"
+        }
+        return "\(Int(seconds / 3600))ч назад"
     }
 
     private func setLatestContextLine(_ line: String?, now: Date = Date()) {
@@ -624,18 +650,6 @@ final class ObserverController {
         let cutoff = Date().addingTimeInterval(-60)
         focusChangeTimestamps.removeAll { $0 < cutoff }
         return focusChangeTimestamps.count
-    }
-
-    private func currentActivityInsightText() -> String {
-        let insight = ActivityInsightBuilder().build(
-            attention: smoothedAttentionForDisplay,
-            input: latestInputActivity,
-            topology: environment.topology,
-            currentFocus: currentFocus,
-            currentFocusStartedAt: currentFocusStartedAt,
-            focusChangesLastMinute: recentFocusChangesCount
-        )
-        return usableWidgetContextLine(insight) ?? ""
     }
 
     func recordLaunch() {
@@ -903,6 +917,7 @@ final class ObserverController {
         let events = (try? environment.eventStore.recentEvents(limit: 250)) ?? []
         appendDetectorEvents(from: events)
         updatePersonalBaselines(from: events)
+        appendReadinessReports(from: events)
         let summary = LocalSummaryBuilder().build(events: events)
         append(
             .init(
@@ -915,6 +930,20 @@ final class ObserverController {
             )
         )
         return summary
+    }
+
+    func exportReadinessReport() -> URL? {
+        do {
+            let events = try environment.eventStore.allEvents()
+            let report = buildReadinessMarkdown(events: events)
+            return try ArtifactExporter(directory: environment.dataDirectory).export(
+                name: "readiness-report",
+                contents: report
+            )
+        } catch {
+            print("Failed to export readiness report: \(error)")
+            return nil
+        }
     }
 
     func localInsight(forLast interval: TimeInterval) -> String {
@@ -1085,7 +1114,7 @@ final class ObserverController {
 
     private func latestReactionSummary(_ events: [ObserverEvent]) -> String? {
         guard let event = events.reversed().first(where: { event in
-            event.type == .boundReaction || event.type == .behaviorCue || event.type == .activityInsight
+            event.type == .boundReaction || event.type == .behaviorCue
         }) else {
             return nil
         }
@@ -1098,6 +1127,54 @@ final class ObserverController {
             return nil
         }
         return "Реакция: \(readableCue(value))"
+    }
+
+    private func appendReadinessReports(from events: [ObserverEvent], now: Date = Date()) {
+        let builder = ReadinessReportBuilder(settings: environment.settings.readinessSettings)
+        let funnel = builder.funnelReport(events: events, now: now)
+        append(
+            .init(
+                type: .funnelReport,
+                payload: funnel.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        let audit = builder.fusionAudit(events: events, now: now)
+        append(
+            .init(
+                type: .fusionAudit,
+                payload: audit.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        let readiness = builder.readinessReport(events: events, now: now)
+        append(
+            .init(
+                type: .readinessReport,
+                payload: readiness.payload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
+    private func buildReadinessMarkdown(events: [ObserverEvent], now: Date = Date()) -> String {
+        let builder = ReadinessReportBuilder(settings: environment.settings.readinessSettings)
+        let funnel = builder.funnelReport(events: events, now: now)
+        let audit = builder.fusionAudit(events: events, now: now)
+        let readiness = builder.readinessReport(events: events, now: now)
+        return """
+        # Observer Readiness Report
+
+        \(readiness.markdown)
+
+        \(funnel.markdown)
+
+        \(audit.markdown)
+
+        ## Rule
+
+        Predictions and proactive suggestions stay blocked until every readiness gate is green.
+        """
     }
 
     private func topFocusApps(_ events: [ObserverEvent], limit: Int) -> [(name: String, seconds: Double)] {
@@ -2300,7 +2377,7 @@ final class ObserverController {
         guard let cue = TextAffectCueBuilder().build(
             text: text,
             appName: appName,
-            activityInsight: lastActivityInsight
+            activityInsight: nil
         ) else {
             return
         }
@@ -2325,61 +2402,7 @@ final class ObserverController {
     }
 
     private func notifyStateChanged() {
-        recordActivityInsightIfNeeded()
         onStateChanged?(stateSnapshot)
-    }
-
-    private func recordActivityInsightIfNeeded() {
-        guard mode == .observing, latestCameraStatus == nil else {
-            return
-        }
-
-        let insight = currentActivityInsightText()
-        guard !insight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
-        let now = Date()
-        let enoughTimePassed = lastActivityInsightAt.map { now.timeIntervalSince($0) >= 60 } ?? true
-        guard insight != lastActivityInsight || enoughTimePassed else {
-            return
-        }
-
-        lastActivityInsight = insight
-        lastActivityInsightAt = now
-
-        var payload: [String: String] = ["insight": insight]
-        if let currentFocus {
-            payload["app_name"] = currentFocus.appName
-            if let appID = currentFocus.appID {
-                payload["app_id"] = appID
-            }
-            if let displayRole = currentFocus.displayRole {
-                payload["focus_display_role"] = displayRole.rawValue
-            }
-        }
-        if let input = latestInputActivity {
-            payload["seconds_since_any_input"] = String(format: "%.1f", input.secondsSinceAnyInput)
-            if let mouseDisplayRole = input.mouseDisplayRole {
-                payload["mouse_display_role"] = mouseDisplayRole.rawValue
-            }
-        }
-        if let attention = smoothedAttentionForDisplay {
-            payload["face_present"] = attention.facePresent ? "true" : "false"
-            if attention.isTemporarilyLostFace {
-                payload["temporarily_lost_face"] = "true"
-            }
-        }
-
-        append(
-            .init(
-                type: .activityInsight,
-                displayRole: currentFocus?.displayRole,
-                appID: currentFocus?.appID,
-                confidence: 0.65,
-                payload: payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
-        )
     }
 
     private func recordBehaviorCueIfNeeded(
@@ -2400,7 +2423,7 @@ final class ObserverController {
             currentFocus: currentFocus,
             currentFocusStartedAt: currentFocusStartedAt,
             focusChangesLastMinute: recentFocusChangesCount,
-            activityInsight: lastActivityInsight,
+            activityInsight: nil,
             now: now
         ) else {
             return
@@ -2433,7 +2456,7 @@ final class ObserverController {
             attention: smoothedAttentionForDisplay,
             input: latestInputActivity,
             currentFocus: currentFocus,
-            activityInsight: lastActivityInsight
+            activityInsight: nil
         ) else {
             return
         }
@@ -2475,7 +2498,7 @@ final class ObserverController {
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
             input: latestInputActivity,
             currentFocus: currentFocus,
-            activityInsight: lastActivityInsight
+            activityInsight: nil
         ) else {
             return
         }
@@ -2630,9 +2653,6 @@ final class ObserverController {
                 payload["app_id"] = appID
             }
         }
-        if let lastActivityInsight {
-            payload["activity_insight"] = lastActivityInsight
-        }
         if let latestContent = ((try? environment.eventStore.recentEvents(limit: 40)) ?? [])
             .reversed()
             .first(where: { event in
@@ -2706,10 +2726,6 @@ final class ObserverController {
                 payload["app_id"] = appID
             }
         }
-        if let lastActivityInsight {
-            payload["activity_insight"] = lastActivityInsight
-        }
-
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
@@ -2894,14 +2910,13 @@ final class ObserverController {
         }
         let events = (try? environment.eventStore.recentEvents(limit: 400)) ?? []
         guard let previousContext = events.reversed().first(where: { event in
-            event.timestamp < start && (event.type == .contentContext || event.type == .activityInsight)
+            event.timestamp < start && event.type == .contentContext
         }) else {
             return
         }
         let days = max(1, Calendar.current.dateComponents([.day], from: previousContext.timestamp, to: now).day ?? 1)
         let label = days >= 2 ? "последняя сессия: \(days)д назад" : "вчера"
         let topic = previousContext.payload["topic"]
-            ?? previousContext.payload["insight"]
             ?? previousContext.payload["app_name"]
             ?? "контекст не найден"
         setLatestContextLine("\(label): \(topic)", now: now)
@@ -3112,6 +3127,22 @@ final class ObserverController {
             return
         }
         let events = (try? environment.eventStore.recentEvents(limit: 220)) ?? []
+        let readiness = ReadinessReportBuilder(
+            settings: environment.settings.readinessSettings
+        ).readinessReport(events: events)
+        guard readiness.isReadyForPrediction else {
+            append(
+                .init(
+                    type: .readinessReport,
+                    payload: readiness.payload.merging([
+                        "prediction_blocked": "true",
+                        "block_reason": "readiness_gate"
+                    ]) { current, _ in current },
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            return
+        }
         append(
             .init(
                 type: .prediction,
@@ -3198,10 +3229,6 @@ final class ObserverController {
                 payload["mouse_display_role"] = mouseDisplayRole.rawValue
             }
         }
-        if let lastActivityInsight {
-            payload["activity_insight"] = lastActivityInsight
-        }
-
         let now = Date()
         let previousSnapshot = lastMediaPlaybackSnapshot
         let secondsOnPrevious = currentMediaTrackStartedAt.map { now.timeIntervalSince($0) }
@@ -3218,7 +3245,7 @@ final class ObserverController {
             current: snapshot,
             secondsOnPrevious: secondsOnPrevious,
             userAppearsAway: userAppearsAway,
-            activityInsight: lastActivityInsight,
+            activityInsight: nil,
             activeAppName: currentFocus?.appName
         ) {
             latestHint = reaction.insight

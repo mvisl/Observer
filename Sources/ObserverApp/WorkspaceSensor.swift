@@ -159,11 +159,6 @@ final class WorkspaceSensor {
         }
 
         let contextKey = context.identityKey
-        guard focusChanged || contextKey != lastContextKey else {
-            lastContextRefreshAt = now
-            return
-        }
-
         lastContextKey = contextKey
         lastContextRefreshAt = now
         handler?(.screenContext(context))

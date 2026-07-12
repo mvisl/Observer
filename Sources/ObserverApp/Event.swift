@@ -28,7 +28,9 @@ enum ObserverEventType: String, Codable {
     case clipboardRoute
     case comparisonLayoutCandidate
     case externalLLMRequest
+    case fusionAudit
     case fusionHypothesis
+    case funnelReport
     case geminiInsight
     case geminiKeyDeleted
     case geminiKeyUpdated
@@ -40,6 +42,7 @@ enum ObserverEventType: String, Codable {
     case prediction
     case predictorCalibration
     case researchDigest
+    case readinessReport
     case resumptionLag
     case scheduleOverride
     case securityIncident

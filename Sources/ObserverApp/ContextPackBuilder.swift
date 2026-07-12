@@ -20,7 +20,6 @@ struct ContextPackBuilder {
         let contentContexts = events.filter { $0.type == .contentContext }
         let boundReactions = events.filter { $0.type == .boundReaction }
         let inputEvents = events.filter { $0.type == .inputActivity }
-        let activityInsightEvents = events.filter { $0.type == .activityInsight }
         let mediaEvents = events.filter { $0.type == .mediaPlayback }
         let mediaReactionEvents = events.filter { $0.type == .mediaReaction }
         let latestSummary = events.last { $0.type == .localSummary }?.payload["summary"]
@@ -94,10 +93,6 @@ struct ContextPackBuilder {
         ## Local Detectors
 
         \(describeDetectors(detectorEvents))
-
-        ## Activity Insights
-
-        \(describeActivityInsights(activityInsightEvents))
 
         ## Media Playback
 
@@ -285,20 +280,6 @@ struct ContextPackBuilder {
             let detector = event.payload["detector"] ?? "unknown"
             let interpretation = event.payload["interpretation"] ?? "no interpretation"
             return "- \(detector): \(interpretation)"
-        }.joined(separator: "\n")
-    }
-
-    private func describeActivityInsights(_ activityInsightEvents: [ObserverEvent]) -> String {
-        let insights = activityInsightEvents.suffix(6)
-        guard !insights.isEmpty else {
-            return "- No activity insights recorded yet."
-        }
-
-        return insights.map { event in
-            let insight = event.payload["insight"] ?? "unknown"
-            let app = event.payload["app_name"].map { " · \($0)" } ?? ""
-            let mouse = event.payload["mouse_display_role"].map { " · pointer: \($0)" } ?? ""
-            return "- \(insight)\(app)\(mouse)"
         }.joined(separator: "\n")
     }
 

@@ -99,6 +99,17 @@ final class EventStore {
         return counts
     }
 
+    func archivedActivityInsightCount() throws -> Int {
+        let sql = "SELECT COUNT(*) FROM _archive_activity_insight;"
+        var count = 0
+        try withStatement(sql) { statement in
+            if sqlite3_step(statement) == SQLITE_ROW {
+                count = Int(sqlite3_column_int(statement, 0))
+            }
+        }
+        return count
+    }
+
     func allEvents(limit: Int = 10_000) throws -> [ObserverEvent] {
         let sql = """
         SELECT id, timestamp, type, source, platform, display_role, app_id,
@@ -166,6 +177,42 @@ final class EventStore {
         try execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);")
         try execute("CREATE INDEX IF NOT EXISTS idx_events_type_timestamp ON events(type, timestamp);")
         try execute("CREATE INDEX IF NOT EXISTS idx_events_app_timestamp ON events(app_id, timestamp);")
+        try archiveLegacyActivityInsights()
+    }
+
+    private func archiveLegacyActivityInsights() throws {
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS _archive_activity_insight (
+                rowid INTEGER PRIMARY KEY,
+                id TEXT NOT NULL UNIQUE,
+                timestamp TEXT NOT NULL,
+                type TEXT NOT NULL,
+                source TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                display_role TEXT,
+                app_id TEXT,
+                confidence REAL NOT NULL,
+                payload_json TEXT NOT NULL,
+                workspace_topology_version INTEGER NOT NULL,
+                archived_at TEXT NOT NULL
+            );
+            """
+        )
+        try execute(
+            """
+            INSERT OR IGNORE INTO _archive_activity_insight (
+                rowid, id, timestamp, type, source, platform, display_role, app_id,
+                confidence, payload_json, workspace_topology_version, archived_at
+            )
+            SELECT rowid, id, timestamp, type, source, platform, display_role, app_id,
+                   confidence, payload_json, workspace_topology_version, '\(isoFormatter.string(from: Date()))'
+            FROM events
+            WHERE type = 'activityInsight';
+            """
+        )
+        try execute("DELETE FROM events WHERE type = 'activityInsight';")
+        try execute("CREATE INDEX IF NOT EXISTS idx_archive_activity_insight_timestamp ON _archive_activity_insight(timestamp);")
     }
 
     private func execute(_ sql: String) throws {

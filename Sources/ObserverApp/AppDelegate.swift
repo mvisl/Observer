@@ -54,6 +54,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Generate Research Digest", #selector(generateResearchDigest), to: menu)
         addItem("Export Context File", #selector(exportContextFile), to: menu)
         addItem("Export Research Digest", #selector(exportResearchDigest), to: menu)
+        addItem("Export Readiness Report", #selector(exportReadinessReport), to: menu)
         addItem("Export Events JSONL", #selector(exportEventsJSONL), to: menu)
         addItem("Generate Local LLM Insight", #selector(generateLocalLLMInsight), to: menu)
         addItem("Set Gemini API Key", #selector(setGeminiAPIKey), to: menu)
@@ -183,6 +184,13 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func exportResearchDigest() {
         guard let url = controller?.exportResearchDigest() else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func exportReadinessReport() {
+        guard let url = controller?.exportReadinessReport() else {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])

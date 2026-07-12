@@ -30,6 +30,14 @@ struct WeeklyReportBuilder {
 
         \(predictionSummary(events))
 
+        ## Readiness
+
+        \(readinessSummary(events))
+
+        ## Funnel
+
+        \(funnelSummary(events))
+
         ## Experiments
 
         - No active N-of-1 experiments. New experiments require manual activation.
@@ -98,6 +106,34 @@ struct WeeklyReportBuilder {
             return "- No prediction events yet."
         }
         return "- Latest shadow prediction: stuck \(latest.payload["p_stuck_20m"] ?? "?"), flow-end \(latest.payload["p_flow_end_10m"] ?? "?")."
+    }
+
+    private func readinessSummary(_ events: [ObserverEvent]) -> String {
+        guard let latest = events.last(where: { $0.type == .readinessReport }) else {
+            return "- No readiness report yet."
+        }
+        let status = latest.payload["status"] ?? "unknown"
+        let blockers = latest.payload["blockers"].flatMap { $0.isEmpty ? nil : $0 } ?? "none"
+        return """
+        - Status: \(status).
+        - Blockers: \(blockers).
+        """
+    }
+
+    private func funnelSummary(_ events: [ObserverEvent]) -> String {
+        guard let latest = events.last(where: { $0.type == .funnelReport }) else {
+            return "- No funnel report yet."
+        }
+        return """
+        | Stage | Today | 7d |
+        | --- | ---: | ---: |
+        | Signals | \(latest.payload["today_signals"] ?? "0") | \(latest.payload["rolling_7d_signals"] ?? "0") |
+        | Behavior cues | \(latest.payload["today_behavior_cues"] ?? "0") | \(latest.payload["rolling_7d_behavior_cues"] ?? "0") |
+        | Fusion hypotheses | \(latest.payload["today_fusion_hypotheses"] ?? "0") | \(latest.payload["rolling_7d_fusion_hypotheses"] ?? "0") |
+        | Cognitive states | \(latest.payload["today_cognitive_states"] ?? "0") | \(latest.payload["rolling_7d_cognitive_states"] ?? "0") |
+        | Episode outcomes | \(latest.payload["today_episode_outcomes"] ?? "0") | \(latest.payload["rolling_7d_episode_outcomes"] ?? "0") |
+        | Bound reactions | \(latest.payload["today_bound_reactions"] ?? "0") | \(latest.payload["rolling_7d_bound_reactions"] ?? "0") |
+        """
     }
 
     private func topInsights(_ events: [ObserverEvent]) -> String {
