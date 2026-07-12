@@ -315,6 +315,38 @@ struct ObserverSettings: Codable {
         }
     }
 
+    struct DashboardSettings: Codable {
+        var enabled: Bool
+        var port: Int
+        var remoteAccessMode: String
+        var diagnosticsEnabled: Bool
+        var sessionTTLSeconds: Double
+
+        init(
+            enabled: Bool,
+            port: Int,
+            remoteAccessMode: String,
+            diagnosticsEnabled: Bool,
+            sessionTTLSeconds: Double
+        ) {
+            self.enabled = enabled
+            self.port = port
+            self.remoteAccessMode = remoteAccessMode
+            self.diagnosticsEnabled = diagnosticsEnabled
+            self.sessionTTLSeconds = sessionTTLSeconds
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.dashboard
+            self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+            self.port = try container.decodeIfPresent(Int.self, forKey: .port) ?? defaults.port
+            self.remoteAccessMode = try container.decodeIfPresent(String.self, forKey: .remoteAccessMode) ?? defaults.remoteAccessMode
+            self.diagnosticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .diagnosticsEnabled) ?? defaults.diagnosticsEnabled
+            self.sessionTTLSeconds = try container.decodeIfPresent(Double.self, forKey: .sessionTTLSeconds) ?? defaults.sessionTTLSeconds
+        }
+    }
+
     var summaryIntervalSeconds: TimeInterval
     var retentionDays: Int
     var idleSessionBoundarySeconds: Double
@@ -342,6 +374,7 @@ struct ObserverSettings: Codable {
     var workSchedule: WorkScheduleSettings
     var readinessSettings: ReadinessSettings
     var contextFabric: ContextFabricSettings
+    var dashboard: DashboardSettings
 
     init(
         summaryIntervalSeconds: TimeInterval,
@@ -370,7 +403,8 @@ struct ObserverSettings: Codable {
         cognitiveSettings: CognitiveSettings,
         workSchedule: WorkScheduleSettings,
         readinessSettings: ReadinessSettings,
-        contextFabric: ContextFabricSettings
+        contextFabric: ContextFabricSettings,
+        dashboard: DashboardSettings
     ) {
         self.summaryIntervalSeconds = summaryIntervalSeconds
         self.retentionDays = retentionDays
@@ -399,6 +433,7 @@ struct ObserverSettings: Codable {
         self.workSchedule = workSchedule
         self.readinessSettings = readinessSettings
         self.contextFabric = contextFabric
+        self.dashboard = dashboard
     }
 
     init(from decoder: Decoder) throws {
@@ -431,6 +466,7 @@ struct ObserverSettings: Codable {
         self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
         self.readinessSettings = try container.decodeIfPresent(ReadinessSettings.self, forKey: .readinessSettings) ?? defaults.readinessSettings
         self.contextFabric = try container.decodeIfPresent(ContextFabricSettings.self, forKey: .contextFabric) ?? defaults.contextFabric
+        self.dashboard = try container.decodeIfPresent(DashboardSettings.self, forKey: .dashboard) ?? defaults.dashboard
     }
 
     static let defaults = ObserverSettings(
@@ -546,6 +582,13 @@ struct ObserverSettings: Codable {
             objectPresenceFPS: 1.0,
             objectPresenceBatteryFPS: 0.5,
             objectPresenceDisabledDuringMeeting: true
+        ),
+        dashboard: DashboardSettings(
+            enabled: true,
+            port: 43127,
+            remoteAccessMode: "off",
+            diagnosticsEnabled: true,
+            sessionTTLSeconds: 60 * 60 * 12
         )
     )
 }

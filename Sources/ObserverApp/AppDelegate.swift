@@ -8,6 +8,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     private var widgetController: WidgetPanelController?
     private var timelineController: TimelineWindowController?
     private var cameraPermissionTimer: Timer?
+    private var dashboardServer: DashboardHTTPServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -15,6 +16,11 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         do {
             let environment = try AppEnvironment.bootstrap()
             controller = ObserverController(environment: environment)
+            if environment.settings.dashboard.enabled {
+                let server = DashboardHTTPServer(environment: environment)
+                dashboardServer = server
+                try server.start()
+            }
             controller?.onStateChanged = { [weak self] snapshot in
                 self?.widgetController?.update(snapshot)
             }
@@ -63,6 +69,9 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         addItem("Delete Gemini API Key", #selector(deleteGeminiAPIKey), to: menu)
         addItem("Generate Gemini Insight", #selector(generateGeminiInsight), to: menu)
         addItem("Show Timeline", #selector(showTimeline), to: menu)
+        addItem("Open Web Dashboard", #selector(openWebDashboard), to: menu)
+        addItem("Copy Dashboard Pairing Code", #selector(copyDashboardPairingCode), to: menu)
+        addItem("Copy Tailscale Serve Command", #selector(copyTailscaleServeCommand), to: menu)
         addItem("Add Note", #selector(addNote), to: menu)
         addItem("Copy Diagnostics", #selector(copyDiagnostics), to: menu)
         addItem("Capture OCR For Current App", #selector(captureOCRForCurrentApp), to: menu)
@@ -269,6 +278,35 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         timeline.show(text: controller.timelineText())
     }
 
+    @objc private func openWebDashboard() {
+        guard let dashboardServer else {
+            return
+        }
+        NSWorkspace.shared.open(dashboardServer.baseURL)
+    }
+
+    @objc private func copyDashboardPairingCode() {
+        guard let dashboardServer else {
+            return
+        }
+        let code = dashboardServer.currentPairingCode()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        print("Observer Dashboard pairing code: \(code)")
+    }
+
+    @objc private func copyTailscaleServeCommand() {
+        let port = controller?.settings.dashboard.port ?? 43127
+        let command = """
+        tailscale serve localhost:\(port)
+        tailscale serve status --json
+        # Funnel is intentionally not used for Observer v0.
+        """
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        print(command)
+    }
+
     @objc private func addNote() {
         let alert = NSAlert()
         alert.messageText = "Add Observer Note"
@@ -385,6 +423,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() {
+        dashboardServer?.stop()
         controller?.recordShutdown()
         NSApp.terminate(nil)
     }

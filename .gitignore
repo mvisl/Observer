@@ -1,5 +1,8 @@
 .build/
 build/
+node_modules/
+apps/observer-web/dist/
+*.tsbuildinfo
 .DS_Store
 *.xcuserstate
 xcuserdata/

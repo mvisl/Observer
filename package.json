@@ -1,0 +1,11 @@
+{
+  "name": "observer-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "web-dev": "pnpm --dir apps/observer-web dev",
+    "web-build": "pnpm --dir apps/observer-web build",
+    "web-test": "pnpm --dir apps/observer-web test",
+    "web-preview": "pnpm --dir apps/observer-web preview"
+  }
+}

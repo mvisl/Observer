@@ -10,6 +10,11 @@ struct KeychainStore {
         account: "apiKey"
     )
 
+    static let dashboardMasterSecret = KeychainStore(
+        service: "local.observer.dashboard",
+        account: "masterSecret"
+    )
+
     func setPassword(_ password: String) throws {
         let data = Data(password.utf8)
         var query = baseQuery()

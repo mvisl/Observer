@@ -17,6 +17,7 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("CoreMedia"),
+                .linkedFramework("Network"),
                 .linkedFramework("Security"),
                 .linkedFramework("Vision"),
                 .linkedLibrary("sqlite3")

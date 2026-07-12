@@ -5,13 +5,20 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT_DIR/build/Observer.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
+if command -v pnpm >/dev/null 2>&1 && [[ -f "$ROOT_DIR/apps/observer-web/package.json" ]]; then
+  pnpm --dir "$ROOT_DIR/apps/observer-web" build
+fi
 swift build --package-path "$ROOT_DIR"
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$ROOT_DIR/.build/debug/ObserverApp" "$MACOS_DIR/ObserverApp"
+if [[ -d "$ROOT_DIR/apps/observer-web/dist" ]]; then
+  cp -R "$ROOT_DIR/apps/observer-web/dist" "$RESOURCES_DIR/observer-web"
+fi
 
 /usr/libexec/PlistBuddy -c "Clear dict" "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :CFBundleName string Observer" "$CONTENTS_DIR/Info.plist"
