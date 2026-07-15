@@ -102,13 +102,10 @@ struct MediaPlaybackService {
     }
 
     func pauseSystemMediaKey() -> String? {
-        let script = """
-        tell application "System Events"
-            key code 16
-        end tell
-        return "System Media Key"
-        """
-        return runActionScript(script)
+        // System Events key code 16 is the letter Y, not the macOS media key.
+        // Do not fabricate a successful pause when the selected player did not
+        // confirm that it accepted one.
+        nil
     }
 
     func resumeSources(_ sources: [String]) -> [String] {
@@ -172,6 +169,7 @@ struct MediaPlaybackService {
     }
 
     private func currentYouTubePlaybackInChrome(failures: inout [String]) -> MediaPlaybackSnapshot? {
+        let javaScript = Self.appleScriptStringLiteral(Self.youtubePlaybackJavaScript)
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return ""
@@ -180,7 +178,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set playbackInfo to execute javascript "\(Self.youtubePlaybackJavaScript)" in t
+                        set playbackInfo to execute javascript "\(javaScript)" in t
                         if playbackInfo is not "" then return "YouTube Chrome|" & playbackInfo
                     end if
                 end repeat
@@ -192,6 +190,7 @@ struct MediaPlaybackService {
     }
 
     private func currentYouTubePlaybackInSafari(failures: inout [String]) -> MediaPlaybackSnapshot? {
+        let javaScript = Self.appleScriptStringLiteral(Self.youtubePlaybackJavaScript)
         let script = """
         tell application "System Events"
             if not (exists process "Safari") then return ""
@@ -200,7 +199,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set playbackInfo to do JavaScript "\(Self.youtubePlaybackJavaScript)" in t
+                        set playbackInfo to do JavaScript "\(javaScript)" in t
                         if playbackInfo is not "" then return "YouTube Safari|" & playbackInfo
                     end if
                 end repeat
@@ -260,6 +259,7 @@ struct MediaPlaybackService {
     }
 
     private func pauseYouTubeInChrome() -> String? {
+        let javaScript = Self.appleScriptStringLiteral(Self.youtubePauseJavaScript)
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return ""
@@ -269,7 +269,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set pauseInfo to execute javascript "\(Self.youtubePauseJavaScript)" in t
+                        set pauseInfo to execute javascript "\(javaScript)" in t
                         if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
@@ -282,6 +282,7 @@ struct MediaPlaybackService {
     }
 
     private func pauseYouTubeInSafari() -> String? {
+        let javaScript = Self.appleScriptStringLiteral(Self.youtubePauseJavaScript)
         let script = """
         tell application "System Events"
             if not (exists process "Safari") then return ""
@@ -291,7 +292,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set pauseInfo to do JavaScript "\(Self.youtubePauseJavaScript)" in t
+                        set pauseInfo to do JavaScript "\(javaScript)" in t
                         if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
@@ -330,6 +331,7 @@ struct MediaPlaybackService {
     }
 
     private func resumeYouTubeInChrome() -> String? {
+        let javaScript = Self.appleScriptStringLiteral("(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();")
         let script = """
         tell application "System Events"
             if not (exists process "Google Chrome") then return ""
@@ -339,7 +341,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set resumeInfo to execute javascript "(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();"
+                        set resumeInfo to execute javascript "\(javaScript)" in t
                         if resumeInfo is "resumed" then set didResume to true
                     end if
                 end repeat
@@ -352,6 +354,7 @@ struct MediaPlaybackService {
     }
 
     private func resumeYouTubeInSafari() -> String? {
+        let javaScript = Self.appleScriptStringLiteral("(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();")
         let script = """
         tell application "System Events"
             if not (exists process "Safari") then return ""
@@ -361,7 +364,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set resumeInfo to do JavaScript "(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();" in t
+                        set resumeInfo to do JavaScript "\(javaScript)" in t
                         if resumeInfo is "resumed" then set didResume to true
                     end if
                 end repeat
@@ -436,6 +439,14 @@ struct MediaPlaybackService {
         let number = error[NSAppleScript.errorNumber] ?? "unknown"
         let message = error[NSAppleScript.errorMessage] ?? "unknown"
         return "\(number) \(message)"
+    }
+
+    static func appleScriptStringLiteral(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "")
     }
 
     static func parseOutput(_ output: String) -> MediaPlaybackSnapshot? {

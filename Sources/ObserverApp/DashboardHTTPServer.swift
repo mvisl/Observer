@@ -14,7 +14,6 @@ final class DashboardHTTPServer: @unchecked Sendable {
         self.environment = environment
         self.pairingCode = DashboardHTTPServer.generatePairingCode()
         self.pairingExpiresAt = Date().addingTimeInterval(300)
-        ensureMasterSecret()
     }
 
     var baseURL: URL {
@@ -290,11 +289,6 @@ final class DashboardHTTPServer: @unchecked Sendable {
         if path.hasSuffix(".svg") { return "image/svg+xml" }
         if path.hasSuffix(".json") { return "application/json" }
         return "application/octet-stream"
-    }
-
-    private func ensureMasterSecret() {
-        guard !KeychainStore.dashboardMasterSecret.hasPassword() else { return }
-        try? KeychainStore.dashboardMasterSecret.setPassword(UUID().uuidString + UUID().uuidString)
     }
 
     private static func generatePairingCode() -> String {

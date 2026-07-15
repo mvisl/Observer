@@ -241,7 +241,7 @@ private struct IntentionAttributionMetrics {
     var objectPresenceStatus: String {
         let count = events.filter { $0.type == .objectPresence }.count
         return count == 0
-            ? "no observations; object detector is not wired into the camera producer"
+            ? "camera visual classifier active; no supported object passed the confidence gate yet"
             : "\(count) shadow observations"
     }
     var durationLabel: String {

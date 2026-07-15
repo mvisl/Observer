@@ -52,6 +52,14 @@ struct MeetingCallUnderstandingBuilderTests {
 }
 
 struct ObjectPresenceBuilderTests {
+    @Test func normalizesVisionLabelsWithoutPretendingObjectIsInHand() {
+        let builder = ObjectPresenceBuilder()
+
+        #expect(builder.normalizedClass(from: "wireless headset") == "headphones")
+        #expect(builder.normalizedClass(from: "cellular telephone") == "cell phone")
+        #expect(builder.normalizedClass(from: "aluminum can") == nil)
+    }
+
     @Test func phoneInHandBecomesShadowEvidenceOnly() {
         let payload = ObjectPresenceBuilder().payload(
             objectClass: "cell phone",

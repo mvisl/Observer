@@ -99,14 +99,20 @@ final class CameraAttentionService: NSObject {
             return
         }
 
-        let request = VNDetectFaceLandmarksRequest()
+        let faceRequest = VNDetectFaceLandmarksRequest()
+        let classifyRequest = VNClassifyImageRequest()
         let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
 
         do {
-            try requestHandler.perform([request])
-            let observations = request.results ?? []
+            try requestHandler.perform([faceRequest, classifyRequest])
+            let observations = faceRequest.results ?? []
+            let visualObjects = (classifyRequest.results ?? [])
+                .filter { $0.confidence >= 0.20 }
+                .prefix(8)
+                .map { AttentionSnapshot.CameraObjectObservation(label: $0.identifier, confidence: Double($0.confidence)) }
             let snapshot = AttentionSnapshot.from(
                 faceObservations: observations,
+                visualObjects: visualObjects,
                 jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer),
                 smileCandidateThreshold: smileCandidateThreshold,
                 mouthOpenCandidateThreshold: mouthOpenCandidateThreshold
@@ -166,6 +172,11 @@ struct AttentionSnapshot: Sendable {
         case unknown
     }
 
+    struct CameraObjectObservation: Sendable, Equatable {
+        let label: String
+        let confidence: Double
+    }
+
     let facePresent: Bool
     let attentionZone: AttentionZone
     let facePosition: FacePosition
@@ -191,6 +202,7 @@ struct AttentionSnapshot: Sendable {
     let mouthOpenScore: Double?
     let yawnCandidate: Bool?
     let mouthSignalSource: String?
+    let visualObjects: [CameraObjectObservation]
     let jpegData: Data?
     let isTemporarilyLostFace: Bool
 
@@ -220,6 +232,7 @@ struct AttentionSnapshot: Sendable {
         mouthOpenScore: Double? = nil,
         yawnCandidate: Bool? = nil,
         mouthSignalSource: String? = nil,
+        visualObjects: [CameraObjectObservation] = [],
         jpegData: Data? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
@@ -248,12 +261,14 @@ struct AttentionSnapshot: Sendable {
         self.mouthOpenScore = mouthOpenScore
         self.yawnCandidate = yawnCandidate
         self.mouthSignalSource = mouthSignalSource
+        self.visualObjects = visualObjects
         self.jpegData = jpegData
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
     static func from(
         faceObservations: [VNFaceObservation],
+        visualObjects: [CameraObjectObservation] = [],
         jpegData: Data? = nil,
         smileCandidateThreshold: Double = 0.62,
         mouthOpenCandidateThreshold: Double = 0.62
@@ -272,7 +287,8 @@ struct AttentionSnapshot: Sendable {
                 faceArea: nil,
                 yaw: nil,
                 pitch: nil,
-                roll: nil
+                roll: nil,
+                visualObjects: visualObjects
             )
         }
 
@@ -328,6 +344,7 @@ struct AttentionSnapshot: Sendable {
             mouthOpenScore: mouth.score,
             yawnCandidate: mouth.isYawnCandidate,
             mouthSignalSource: mouth.source,
+            visualObjects: visualObjects,
             jpegData: jpegData
         )
     }
@@ -359,6 +376,7 @@ struct AttentionSnapshot: Sendable {
             mouthOpenScore: mouthOpenScore,
             yawnCandidate: yawnCandidate,
             mouthSignalSource: mouthSignalSource,
+            visualObjects: visualObjects,
             jpegData: jpegData,
             isTemporarilyLostFace: true
         )
@@ -440,6 +458,13 @@ struct AttentionSnapshot: Sendable {
         }
         if let mouthSignalSource {
             payload["mouth_signal_source"] = mouthSignalSource
+        }
+        if !visualObjects.isEmpty {
+            payload["visual_object_candidates"] = visualObjects
+                .map { "\($0.label):\(String(format: "%.2f", $0.confidence))" }
+                .joined(separator: ",")
+            payload["visual_object_candidate_count"] = "\(visualObjects.count)"
+            payload["visual_object_policy"] = "shadow_only_destroy_frame_after_inference"
         }
         if isTemporarilyLostFace {
             payload["temporarily_lost_face"] = "true"

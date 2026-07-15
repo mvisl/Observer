@@ -72,6 +72,8 @@ final class ObserverController {
     private var summaryTimer: Timer?
     private var geminiInsightTimer: Timer?
     private var mediaTimer: Timer?
+    private let mediaProbeQueue = DispatchQueue(label: "local.observer.media-probe", qos: .utility)
+    private var isMediaProbeInFlight = false
     private var predictionTimer: Timer?
     private var lastMediaPlaybackKey: String?
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
@@ -85,6 +87,8 @@ final class ObserverController {
     private var lastAudioActive: Bool?
     private var lastAudioActivityEventAt: Date?
     private var autoPausedSources: [String] = []
+    private var headphoneWearStateMachine = HeadphoneWearStateMachine()
+    private var lastVisualObjectEventAt: [String: Date] = [:]
     private var scheduleOverride: ScheduleOverride?
     private var currentObservationIntervalStartedAt: Date?
     private var currentObservationOutsideDefaultSchedule = false
@@ -2605,6 +2609,7 @@ final class ObserverController {
         )
         append(attentionEvent)
         recordCameraEvidenceIfNeeded(from: attentionEvent, now: now)
+        recordVisualObjectEvidenceIfNeeded(snapshot, now: now)
         recordBehaviorCueIfNeeded(
             previousAttention: previousAttention,
             currentAttention: snapshot,
@@ -2623,11 +2628,7 @@ final class ObserverController {
         updateOwnerFaceProfileIfNeeded(snapshot)
         recordGazeCalibrationSampleIfNeeded(now: now)
         recordCognitiveStateIfNeeded(now: now)
-        pauseMediaIfHeadphonesLikelyRemovedFromCamera(
-            previousAttention: previousAttention,
-            currentAttention: snapshot,
-            now: now
-        )
+        updateHeadphoneWearState(from: snapshot, now: now)
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
         notifyStateChanged()
@@ -2642,6 +2643,39 @@ final class ObserverController {
                 .init(
                     type: .cameraEvidence,
                     confidence: Double(payload["confidence"] ?? "") ?? attentionEvent.confidence,
+                    payload: payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+    }
+
+    private func recordVisualObjectEvidenceIfNeeded(_ snapshot: AttentionSnapshot, now: Date = Date()) {
+        guard environment.settings.contextFabric.objectGestureLayerEnabled else {
+            return
+        }
+        let builder = ObjectPresenceBuilder()
+        for observation in snapshot.visualObjects {
+            guard let objectClass = builder.normalizedClass(from: observation.label), observation.confidence >= 0.45 else {
+                continue
+            }
+            let lastEventAt = lastVisualObjectEventAt[objectClass] ?? .distantPast
+            guard now.timeIntervalSince(lastEventAt) >= 20 else {
+                continue
+            }
+            guard let payload = builder.payload(
+                objectClass: objectClass,
+                inHand: false,
+                durationSeconds: 0,
+                confidence: observation.confidence
+            ) else {
+                continue
+            }
+            lastVisualObjectEventAt[objectClass] = now
+            append(
+                .init(
+                    type: .objectPresence,
+                    confidence: observation.confidence,
                     payload: payload,
                     workspaceTopologyVersion: environment.topology.version
                 )
@@ -3930,6 +3964,7 @@ final class ObserverController {
         lastAudioOutputLooksLikeHeadphones = nil
         lastAudioActive = nil
         lastAudioActivityEventAt = nil
+        isMediaProbeInFlight = false
     }
 
     private func sampleMediaPlayback() {
@@ -3939,7 +3974,28 @@ final class ObserverController {
         handleAudioOutputTransition()
         recordAudioActivityStateIfNeeded()
 
-        let probe = MediaPlaybackService().currentPlaybackProbe()
+        // Browser AppleScript can stall on an unresponsive tab. Keep it off the
+        // main actor so the pill, camera and input sensors remain responsive.
+        guard !isMediaProbeInFlight else {
+            return
+        }
+        isMediaProbeInFlight = true
+        mediaProbeQueue.async { [weak self] in
+            let probe = MediaPlaybackService().currentPlaybackProbe()
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                self.isMediaProbeInFlight = false
+                self.consumeMediaPlaybackProbe(probe)
+            }
+        }
+    }
+
+    private func consumeMediaPlaybackProbe(_ probe: MediaPlaybackService.ProbeResult) {
+        guard scheduleGate.status().sensorAllowed else {
+            return
+        }
         guard let snapshot = probe.snapshot else {
             recordMediaProbeResultWithoutSnapshotIfNeeded(probe.failures)
             return
@@ -4161,50 +4217,11 @@ final class ObserverController {
             return
         }
 
-        let mediaService = MediaPlaybackService()
-        var pausedSources = mediaService.pauseAllKnownSources()
-        var usedSystemMediaKeyFallback = false
-        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
-            pausedSources = [systemPause]
-            usedSystemMediaKeyFallback = true
-        }
-        let inferredPausedBySystem = pausedSources.isEmpty
-            ? lastMediaPlaybackSnapshot?.sourceForObserverResume
-            : nil
-        if let inferredPausedBySystem {
-            pausedSources = [inferredPausedBySystem]
-        }
-
-        lastHeadphonesAutoPauseAt = now
-        if !pausedSources.isEmpty {
-            lastAutoPauseAt = now
-            autoPausedSources = pausedSources
-            latestHint = inferredPausedBySystem == nil
-                ? "Медиа: снял наушники, поставил на паузу"
-                : "Медиа: система остановила, запомнил для продолжения"
-        } else {
-            latestHint = "Медиа: снял наушники, уже тихо"
-        }
-        lastHintAt = now
-
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": pausedSources.isEmpty
-                        ? "auto_pause_skipped"
-                        : (inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred"),
-                    "reason": "headphones_removed",
-                    "pause_actor": usedSystemMediaKeyFallback
-                        ? "observer_system_media_key"
-                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
-                    "paused_sources": pausedSources.joined(separator: ", "),
-                    "audio_output": outputName ?? "unknown"
-                ],
-                workspaceTopologyVersion: environment.topology.version
-            )
+        pauseMediaAfterHeadphonesRemoved(
+            reason: "audio_output_headphones_removed",
+            outputName: outputName,
+            now: now
         )
-        notifyStateChanged()
     }
 
     private func resumeMediaIfHeadphonesReturned(outputName: String?) {
@@ -4245,9 +4262,36 @@ final class ObserverController {
         notifyStateChanged()
     }
 
-    private func pauseMediaIfHeadphonesLikelyRemovedFromCamera(
-        previousAttention: AttentionSnapshot?,
-        currentAttention: AttentionSnapshot,
+    private func updateHeadphoneWearState(from snapshot: AttentionSnapshot, now: Date = Date()) {
+        let headphoneConfidence = snapshot.visualObjects
+            .compactMap { observation -> Double? in
+                guard ObjectPresenceBuilder().normalizedClass(from: observation.label) == "headphones" else {
+                    return nil
+                }
+                return observation.confidence
+            }
+            .max()
+        let transition = headphoneWearStateMachine.observe(
+            facePresent: snapshot.facePresent,
+            headphoneConfidence: headphoneConfidence
+        )
+        switch transition {
+        case .none:
+            return
+        case .removed:
+            pauseMediaAfterHeadphonesRemoved(
+                reason: "camera_headphones_removed_confirmed",
+                outputName: AudioOutputService().currentOutputName(),
+                now: now
+            )
+        case .putOn:
+            resumeMediaIfHeadphonesWornAgain(now: now)
+        }
+    }
+
+    private func pauseMediaAfterHeadphonesRemoved(
+        reason: String,
+        outputName: String?,
         now: Date = Date()
     ) {
         guard environment.settings.autoPauseMediaWhenAway else {
@@ -4256,16 +4300,7 @@ final class ObserverController {
         guard mode == .observing else {
             return
         }
-        guard previousAttention?.facePresent == true, currentAttention.facePresent == false else {
-            return
-        }
         guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
-            return
-        }
-
-        let audioService = AudioOutputService()
-        let outputName = audioService.currentOutputName()
-        guard audioService.looksLikeHeadphones(outputName) else {
             return
         }
 
@@ -4277,38 +4312,37 @@ final class ObserverController {
         }
 
         let mediaService = MediaPlaybackService()
-        var pausedSources = mediaService.pauseAllKnownSources()
-        var usedSystemMediaKeyFallback = false
-        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
-            pausedSources = [systemPause]
-            usedSystemMediaKeyFallback = true
-        }
-        let inferredPausedBySystem = pausedSources.isEmpty
-            ? playbackSnapshot?.sourceForObserverResume
-            : nil
-        if let inferredPausedBySystem {
-            pausedSources = [inferredPausedBySystem]
-        }
+        let pausedSources = mediaService.pauseAllKnownSources()
         guard !pausedSources.isEmpty else {
+            latestHint = "Медиа: снял наушники, источник не подтвердил паузу"
+            lastHintAt = now
+            append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_pause_skipped",
+                        "reason": reason,
+                        "audio_output": outputName ?? "unknown",
+                        "source": playbackSnapshot?.source ?? "unknown"
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
             return
         }
 
         lastHeadphonesAutoPauseAt = now
         lastAutoPauseAt = now
         autoPausedSources = pausedSources
-        latestHint = inferredPausedBySystem == nil
-            ? "Медиа: камера увидела снятие наушников, поставил паузу"
-            : "Медиа: наушники сняты, пауза уже случилась"
+        latestHint = "Медиа: снял наушники, поставил на паузу"
         lastHintAt = now
         append(
             .init(
                 type: .mediaPlayback,
                 payload: [
-                    "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
-                    "reason": "camera_headphones_removed_candidate",
-                    "pause_actor": usedSystemMediaKeyFallback
-                        ? "observer_system_media_key"
-                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
+                    "action": "auto_pause",
+                    "reason": reason,
+                    "pause_actor": "observer",
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "audio_output": outputName ?? "unknown",
                     "source": playbackSnapshot?.source ?? "unknown",
@@ -4317,6 +4351,43 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        notifyStateChanged()
+    }
+
+    private func resumeMediaIfHeadphonesWornAgain(now: Date = Date()) {
+        guard environment.settings.autoResumeMediaWhenBack else {
+            return
+        }
+        guard !autoPausedSources.isEmpty else {
+            return
+        }
+        guard latestAttention?.facePresent == true else {
+            return
+        }
+        guard let lastAutoPauseAt, now.timeIntervalSince(lastAutoPauseAt) <= 1800 else {
+            autoPausedSources = []
+            return
+        }
+
+        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
+        guard !resumedSources.isEmpty else {
+            return
+        }
+        autoPausedSources = []
+        latestHint = "Медиа: наушники вернулись, продолжил"
+        lastHintAt = now
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": "auto_resume",
+                    "reason": "camera_headphones_worn_confirmed",
+                    "resumed_sources": resumedSources.joined(separator: ", ")
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
     }
 
     private func pauseMediaIfHeadphonesObjectSuggestsRemoval(_ event: ObserverEvent, now: Date = Date()) {
@@ -4357,12 +4428,6 @@ final class ObserverController {
             pausedSources = [systemPause]
             usedSystemMediaKeyFallback = true
         }
-        let inferredPausedBySystem = pausedSources.isEmpty
-            ? playbackSnapshot?.sourceForObserverResume
-            : nil
-        if let inferredPausedBySystem {
-            pausedSources = [inferredPausedBySystem]
-        }
         guard !pausedSources.isEmpty else {
             return
         }
@@ -4370,19 +4435,17 @@ final class ObserverController {
         lastHeadphonesAutoPauseAt = now
         lastAutoPauseAt = now
         autoPausedSources = pausedSources
-        latestHint = inferredPausedBySystem == nil
-            ? "Медиа: наушники сняты, поставил на паузу"
-            : "Медиа: наушники сняты, пауза уже случилась"
+        latestHint = "Медиа: наушники сняты, поставил на паузу"
         lastHintAt = now
         append(
             .init(
                 type: .mediaPlayback,
                 payload: [
-                    "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
+                    "action": "auto_pause",
                     "reason": "camera_headphones_removed_object",
                     "pause_actor": usedSystemMediaKeyFallback
                         ? "observer_system_media_key"
-                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
+                        : "observer",
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "object_event_id": event.id.uuidString,
                     "object_class": objectClass,

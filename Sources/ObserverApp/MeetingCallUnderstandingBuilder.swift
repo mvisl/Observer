@@ -127,6 +127,33 @@ struct MeetingCallUnderstandingBuilder {
 }
 
 struct ObjectPresenceBuilder {
+    func normalizedClass(from classifierLabel: String) -> String? {
+        let label = classifierLabel.lowercased()
+        if ["headphone", "headset", "earphone", "airpod"].contains(where: label.contains) {
+            return "headphones"
+        }
+        if ["cell phone", "cellular telephone", "mobile phone", "smartphone", "telephone"].contains(where: label.contains) {
+            return "cell phone"
+        }
+        if label.contains("wine glass") { return "wine glass" }
+        if label.contains("bottle") { return "bottle" }
+        if label.contains("cup") || label.contains("mug") { return "cup" }
+        if label.contains("fork") { return "fork" }
+        if label.contains("spoon") { return "spoon" }
+        if label.contains("bowl") { return "bowl" }
+        if label.contains("sandwich") { return "sandwich" }
+        if label.contains("banana") { return "banana" }
+        if label.contains("apple") { return "apple" }
+        if label.contains("orange") { return "orange" }
+        if label.contains("broccoli") { return "broccoli" }
+        if label.contains("carrot") { return "carrot" }
+        if label.contains("hot dog") { return "hot dog" }
+        if label.contains("pizza") { return "pizza" }
+        if label.contains("donut") { return "donut" }
+        if label.contains("cake") { return "cake" }
+        return nil
+    }
+
     func payload(
         objectClass: String,
         inHand: Bool,

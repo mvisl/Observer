@@ -83,12 +83,16 @@ def capsule_highlight_alpha(x, y, cx, cy, rx, ry):
 
 def draw_icon(size, transparent=False):
     w = h = size
+    # Leave Dock-sized breathing room around the tile. The prior version filled
+    # the canvas so completely that it looked heavier than neighbouring apps.
+    scale = 0.80
+    inset = w * (1.0 - scale) / 2.0
     pixels = []
     for yy in range(h):
         row = []
         for xx in range(w):
-            x = xx + 0.5
-            y = yy + 0.5
+            x = (xx + 0.5 - inset) / scale
+            y = (yy + 0.5 - inset) / scale
             if transparent:
                 color = (0, 0, 0, 0)
             else:
@@ -99,6 +103,9 @@ def draw_icon(size, transparent=False):
                     color = blend(color, (7, 18, 48, min(1, tile)))
                     color = blend(color, (20, 62, 138, max(0, (1 - radial) * 0.58) * tile))
                     color = blend(color, (255, 255, 255, max(0, 1 - y / h) * 0.08 * tile))
+                    # A restrained rim makes the tile read as glass, not a flat square.
+                    top_rim = smoothstep(h * 0.16, h * 0.04, y) * smoothstep(w * 0.08, w * 0.20, x) * smoothstep(w * 0.92, w * 0.80, x)
+                    color = blend(color, (210, 230, 255, 0.18 * top_rim * tile))
 
             cx = w * 0.50
             cy = h * 0.485

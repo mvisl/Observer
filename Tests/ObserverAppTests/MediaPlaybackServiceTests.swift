@@ -39,4 +39,11 @@ struct MediaPlaybackServiceTests {
         #expect(playing.sourceForObserverResume == "Music")
         #expect(paused.sourceForObserverResume == nil)
     }
+
+    @Test func escapesJavaScriptForAppleScriptExecution() {
+        let literal = MediaPlaybackService.appleScriptStringLiteral(#"document.querySelector(\"video\").pause()"#)
+
+        #expect(literal.contains(#"\\\"video\\\""#))
+        #expect(literal.contains("pause()"))
+    }
 }
