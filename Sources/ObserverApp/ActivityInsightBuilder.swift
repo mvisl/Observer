@@ -18,6 +18,13 @@ struct ActivityInsightBuilder {
             return "Защита: экран заблокирован"
         }
 
+        if let attention,
+           let input,
+           input.secondsSinceAnyInput >= 20,
+           attention.isStrongPhoneLook {
+            return "\(intent.prefix): смотрит в телефон"
+        }
+
         if focusChangesLastMinute >= 4 {
             if intent == .socialFeed {
                 return "Соцсети: быстро переключает ленту"
@@ -26,13 +33,6 @@ struct ActivityInsightBuilder {
                 return "Веб-контекст: переключает вкладки"
             }
             return "Поиск / сравнение: много переключений"
-        }
-
-        if let attention,
-           let input,
-           input.secondsSinceAnyInput >= 45,
-           attention.isStrongPhoneLook {
-            return "\(intent.prefix): смотрит в телефон"
         }
 
         if let attention, attention.isLookingAway {
@@ -300,6 +300,9 @@ private extension AttentionSnapshot {
             return false
         }
         if isTemporarilyLostFace {
+            return false
+        }
+        if let yaw, abs(yaw) > 0.45 {
             return false
         }
         if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {

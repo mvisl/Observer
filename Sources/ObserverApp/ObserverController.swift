@@ -285,6 +285,10 @@ final class ObserverController {
             return protectionLine
         }
 
+        if let phoneLine = currentWidgetPhoneAttentionLine() {
+            return phoneLine
+        }
+
         if let attentionBoundaryLine = currentWidgetAttentionBoundaryLine() {
             return attentionBoundaryLine
         }
@@ -326,6 +330,24 @@ final class ObserverController {
             missingFaceSamples: consecutiveMissingFaceSamples,
             secondsSinceAnyInput: latestInputActivity?.secondsSinceAnyInput
         )
+    }
+
+    private func currentWidgetPhoneAttentionLine() -> String? {
+        guard let attention = latestAttention,
+              attention.facePresent,
+              !attention.isTemporarilyLostFace
+        else {
+            return nil
+        }
+        guard (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 20 else {
+            return nil
+        }
+        guard attention.looksLikePhoneAttention else {
+            return nil
+        }
+
+        let appName = currentFocus?.appName ?? "экран"
+        return "Фокус вне Mac: смотришь в телефон; не связываю паузу с \(appName)"
     }
 
     private func currentWidgetAttentionBoundaryLine() -> String? {
@@ -4403,6 +4425,24 @@ private extension WorkspaceTopology.DisplayRole {
         case .unknown:
             return "Экран"
         }
+    }
+}
+
+private extension AttentionSnapshot {
+    var looksLikePhoneAttention: Bool {
+        guard facePresent, !isTemporarilyLostFace else {
+            return false
+        }
+        if let yaw, abs(yaw) > 0.45 {
+            return false
+        }
+        if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {
+            return true
+        }
+        if let pitch, pitch < -0.25 {
+            return true
+        }
+        return false
     }
 }
 

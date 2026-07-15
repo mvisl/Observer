@@ -355,6 +355,26 @@ struct ActivityInsightBuilderTests {
         #expect(!text.contains("читает"))
     }
 
+    @Test func downGazeOnChromeIsPhoneNotResearch() {
+        let text = ActivityInsightBuilder().build(
+            attention: face(yaw: 0.05, position: .center, pitch: -0.34),
+            input: InputActivitySnapshot(
+                secondsSinceKeyboard: 27,
+                secondsSinceMouseMove: 27,
+                secondsSinceClick: 27,
+                secondsSinceAnyInput: 27
+            ),
+            topology: .defaultTwoDisplaySetup,
+            currentFocus: focus(appName: "Google Chrome", appID: "com.google.Chrome", displayRole: .productivity),
+            currentFocusStartedAt: Date().addingTimeInterval(-360),
+            focusChangesLastMinute: 0
+        )
+
+        #expect(text == "Веб-контекст: смотрит в телефон")
+        #expect(!text.contains("читает"))
+        #expect(!text.contains("исслед"))
+    }
+
     @Test func downGazeIdleOnFigmaIsPhoneNotInspectingLayout() {
         let text = ActivityInsightBuilder().build(
             attention: face(yaw: 0.05, position: .center),
