@@ -127,13 +127,13 @@ function PublicAccessGate() {
   const [status, setStatus] = useState<"idle" | "checking" | "allowed" | "blocked">(
     () => sessionStorage.getItem("observer_public_access") === "ok" ? "allowed" : "idle"
   );
-  const [message, setMessage] = useState("Доступ открыт только из Черногории и по коду.");
+  const [message, setMessage] = useState("");
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (code.trim() !== publicAccessCode) {
       setStatus("blocked");
-      setMessage("Код неверный.");
+      setMessage("Wrong PIN.");
       return;
     }
 
@@ -142,40 +142,34 @@ function PublicAccessGate() {
     if (result.allowed) {
       sessionStorage.setItem("observer_public_access", "ok");
       setStatus("allowed");
-      setMessage(result.reason);
+      setMessage("");
     } else {
       sessionStorage.removeItem("observer_public_access");
       setStatus("blocked");
-      setMessage(result.reason);
+      setMessage("Access unavailable.");
     }
   }
 
   if (status === "allowed") {
-    return <PublicDashboardShell geoMessage={message} />;
+    return <PublicDashboardShell />;
   }
 
   return (
     <main className="pairing public-gate">
       <div>
-        <p className="eyebrow">Observer Public Dashboard</p>
-        <h1>Доступ к витрине</h1>
-        <p className="muted">
-          Это публичная оболочка без личных данных. Живой дневник открывается только через локальный Observer Core.
-        </p>
+        <p className="eyebrow">Observer Dashboard</p>
+        <h1>Enter PIN</h1>
         <form onSubmit={submit}>
           <input
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="код доступа"
+            placeholder="PIN"
             inputMode="numeric"
             autoFocus
           />
-          <button disabled={status === "checking"}>{status === "checking" ? "Проверяю…" : "Войти"}</button>
+          <button disabled={status === "checking"}>{status === "checking" ? "Checking…" : "Unlock"}</button>
         </form>
-        <p className={status === "blocked" ? "danger public-note" : "muted public-note"}>{message}</p>
-        <p className="muted public-note">
-          Гео-фильтр на GitHub Pages работает на клиенте. Настоящая country-блокировка требует Cloudflare/серверный proxy.
-        </p>
+        {message && <p className={status === "blocked" ? "danger public-note" : "muted public-note"}>{message}</p>}
       </div>
     </main>
   );
@@ -192,61 +186,264 @@ async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: stri
     });
     const data = await response.json() as { country_code?: string; country_name?: string };
     if (data.country_code === "ME") {
-      return { allowed: true, reason: "Черногория подтверждена по IP." };
+      return { allowed: true, reason: "ok" };
     }
     if (timeZone === "Europe/Podgorica") {
-      return { allowed: true, reason: "IP не подтвердился, но системная зона Черногории совпала." };
+      return { allowed: true, reason: "ok" };
     }
-    return { allowed: false, reason: `Доступ закрыт: нужна Черногория, сейчас ${data.country_name ?? data.country_code ?? "неизвестная страна"}.` };
+    return { allowed: false, reason: "blocked" };
   } catch {
     if (timeZone === "Europe/Podgorica") {
-      return { allowed: true, reason: "Geo API недоступен; пускаю по системной зоне Черногории." };
+      return { allowed: true, reason: "ok" };
     }
-    return { allowed: false, reason: "Не смог проверить Черногорию. Попробуй из сети Черногории или через защищённый proxy." };
+    return { allowed: false, reason: "blocked" };
   } finally {
     window.clearTimeout(timeout);
   }
 }
 
-function PublicDashboardShell({ geoMessage }: { geoMessage: string }) {
-  const panels = [
-    ["Today", "Живой день открывается с Mac через локальный Core."],
-    ["Timeline", "Сегменты задач и эпизоды не публикуются в cloud."],
-    ["Contexts", "Темы, сущности и переписки остаются локальными."],
-    ["Review", "Разметка и correction loop доступны только после pairing."],
-    ["Readiness", "Готовность мозга считается на приватных данных."],
-    ["Report", "Отчёты дня не выгружаются на GitHub Pages."]
+function PublicDashboardShell() {
+  const workstreams = [
+    {
+      name: "Freelance / WhatToBuy board",
+      time: "4h 10m",
+      confidence: "high",
+      outcome: "Turn product feedback into a clearer market card system.",
+      subthreads: [
+        "Upcoming Dividends: replace raw ex-dividend date with a safer buy-by date.",
+        "Card hierarchy: move from question-level copy to teaser-level product signals.",
+        "Figma execution: translate the conversation with Andrey into visible layout decisions."
+      ]
+    },
+    {
+      name: "Observer brain and dashboard",
+      time: "3h 35m",
+      confidence: "medium",
+      outcome: "Push Observer from app-tracking toward intention tracking.",
+      subthreads: [
+        "Public dashboard: PIN gate, Pages deploy, app icon, simple access route.",
+        "Pill quality: reject stale sanitary statuses and bind insight to the current screen.",
+        "Reporting model: group the day by tasks, sub-tasks, decisions and evidence."
+      ]
+    },
+    {
+      name: "Product communication",
+      time: "1h 20m",
+      confidence: "medium",
+      outcome: "Use chats as source material for product decisions, not as separate noise.",
+      subthreads: [
+        "Andrey feedback becomes a design task, not just a message thread.",
+        "Personal chats stay personal unless they leave a measurable work effect.",
+        "Repeated disagreement becomes a decision backlog instead of emotional labels."
+      ]
+    }
+  ];
+  const timeline = [
+    ["Read", "Andrey's feedback", "Extracted requirement: the badge should reduce user calculation."],
+    ["Decide", "Dividend card logic", "Shifted from ex-date data display to buy-by date guidance."],
+    ["Apply", "Figma section", "Worked inside Upcoming Dividends card structure and labels."],
+    ["Review", "Observer dashboard", "Rejected app-based reporting; demanded intention-based task hierarchy."]
+  ];
+  const decisions = [
+    "A dashboard must answer what problem was advanced, not which app was open.",
+    "Every episode needs intent, evidence, output, next decision and uncertainty.",
+    "Tracker views should show task → subtask → episode, with apps only as supporting evidence."
+  ];
+  const weakSignals = [
+    "Current public page cannot yet stream local Core data from GitHub Pages.",
+    "Daily report still needs task taxonomy and merge logic across chat + Figma + AI.",
+    "Pill insight staleness needs stronger expiry when the screen context changes."
+  ];
+  const musicSignals = [
+    {
+      title: "Repeat / sustained listening",
+      detail: "A repeated or long-held track becomes a positive candidate only when you are present and do not skip it."
+    },
+    {
+      title: "Work aftermath",
+      detail: "The useful question is whether input rhythm, focus span or output quality improves after the track starts."
+    },
+    {
+      title: "Confounders",
+      detail: "If a message, call or visual task caused the reaction, the music signal stays uncertain until repeated."
+    }
+  ];
+  const attentionSwitches = [
+    {
+      type: "Within-task transition",
+      signal: "Chat → Figma → Chat around the same dividend-card question.",
+      meaning: "Not a task switch. Same intention, different evidence surfaces.",
+      measure: "Count inside one attention span; do not penalize as fragmentation."
+    },
+    {
+      type: "True task switch",
+      signal: "Dominant intention changes and the previous thread stops producing output.",
+      meaning: "Attention residue is likely: part of the old task remains active.",
+      measure: "Mark closure quality and time to stable output in the new task."
+    },
+    {
+      type: "Interruption + resumption",
+      signal: "External message/call/system event breaks an active work span.",
+      meaning: "The cost is not the interruption itself, but the lag before useful work resumes.",
+      measure: "Track resumption lag: return time → first meaningful edit/decision."
+    },
+    {
+      type: "Research scanning",
+      signal: "Many sources, tabs and short reads, all tied to one unresolved question.",
+      meaning: "High switching can still be one task if the question stays stable.",
+      measure: "Group by question/topic, not by browser tab count."
+    },
+    {
+      type: "Drift / avoidance candidate",
+      signal: "Repeated unrelated jumps with no artifact change and no decision output.",
+      meaning: "Only a candidate; needs evidence from context, input rhythm and return pattern.",
+      measure: "Surface only after repeated loops and failed resumption."
+    }
+  ];
+  const researchSources = [
+    ["Fragmented work", "Mark, Gonzalez & Harris: work is fragmented across working spheres, so switches must be interpreted by task context."],
+    ["Attention residue", "Leroy: switching tasks can leave attention attached to the previous goal, hurting the next task."],
+    ["Resumption lag", "Altmann & Trafton: interruption cost is measurable as time needed to collect the suspended goal and resume."]
   ];
   return (
     <main className="public-shell">
       <section className="public-hero">
-        <p className="eyebrow">Observer Web Dashboard</p>
-        <h1>Публичная витрина включена</h1>
+        <p className="eyebrow">Observer Intelligence Dashboard</p>
+        <h1>Work by intention, not by app</h1>
         <p>
-          Код принят. Эта страница доступна как оболочка dashboard, но не содержит личных логов,
-          камерных событий, переписок или отчётов.
+          A daily tracker should reconstruct the work as connected intentions: what you tried to move forward,
+          which conversations shaped it, what changed in the artifact, and what remains unresolved.
         </p>
         <div className="public-actions">
-          <a href="http://127.0.0.1:43127/">Открыть локальный Core</a>
-          <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Код dashboard</a>
+          <a href="http://127.0.0.1:43127/">Open Local Core</a>
+          <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>
           <a href="https://github.com/mvisl/Observer/tree/main/core/dashboard-api">Core API</a>
         </div>
-        <small>{geoMessage}</small>
       </section>
-      <section className="public-grid" aria-label="Dashboard sections">
-        {panels.map(([title, text]) => (
+
+      <section className="public-kpi-grid" aria-label="Daily summary">
+        <article>
+          <span>Primary intention</span>
+          <strong>Freelance product design</strong>
+          <p>Turning feedback into a clearer board/card system.</p>
+        </article>
+        <article>
+          <span>Context bridge</span>
+          <strong>Chat → Figma</strong>
+          <p>Andrey's notes became the dividend badge design task.</p>
+        </article>
+        <article>
+          <span>Tracker principle</span>
+          <strong>Intent first</strong>
+          <p>Apps are evidence; tasks and decisions are the report unit.</p>
+        </article>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>Workstreams</h2>
+          <span>task → subtask → evidence</span>
+        </div>
+        <div className="workstream-list">
+          {workstreams.map((stream) => (
+            <article key={stream.name} className="workstream-card">
+              <div>
+                <h3>{stream.name}</h3>
+                <p>{stream.outcome}</p>
+              </div>
+              <div className="workstream-meta">
+                <b>{stream.time}</b>
+                <span>{stream.confidence}</span>
+              </div>
+              <ul>
+                {stream.subthreads.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-two-column">
+        <article className="public-section">
+          <div className="section-head">
+            <h2>Episode Chain</h2>
+            <span>semantic sequence</span>
+          </div>
+          <div className="episode-chain">
+            {timeline.map(([phase, title, detail]) => (
+              <div key={`${phase}-${title}`} className="episode-step">
+                <span>{phase}</span>
+                <div>
+                  <h3>{title}</h3>
+                  <p>{detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="public-section">
+          <div className="section-head">
+            <h2>Decision Ledger</h2>
+            <span>what changed</span>
+          </div>
+          <ol className="decision-list">
+            {decisions.map((decision) => <li key={decision}>{decision}</li>)}
+          </ol>
+        </article>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>Weak Signals</h2>
+          <span>next improvements</span>
+        </div>
+        <div className="signal-grid">
+          {weakSignals.map((signal) => <p key={signal}>{signal}</p>)}
+        </div>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>Music Influence</h2>
+          <span>preference + productivity aftermath</span>
+        </div>
+        <div className="signal-grid">
+          {musicSignals.map((signal) => (
+            <article key={signal.title}>
+              <h3>{signal.title}</h3>
+              <p>{signal.detail}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>Attention Switch Model</h2>
+          <span>attention, not window focus</span>
+        </div>
+        <div className="attention-switch-list">
+          {attentionSwitches.map((item) => (
+            <article key={item.type}>
+              <div>
+                <h3>{item.type}</h3>
+                <p>{item.signal}</p>
+              </div>
+              <p>{item.meaning}</p>
+              <small>{item.measure}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section research-strip">
+        {researchSources.map(([title, detail]) => (
           <article key={title}>
-            <h2>{title}</h2>
-            <p>{text}</p>
+            <h3>{title}</h3>
+            <p>{detail}</p>
           </article>
         ))}
-      </section>
-      <section className="public-state">
-        <h2>Как открыть реальные данные</h2>
-        <p>
-          На рабочем Mac запусти Observer, открой меню и используй локальный dashboard или Tailscale Serve.
-          GitHub Pages остаётся только входной страницей и ссылкой на код.
-        </p>
       </section>
     </main>
   );

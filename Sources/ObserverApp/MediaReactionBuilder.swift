@@ -47,6 +47,54 @@ struct MediaReactionBuilder {
         )
     }
 
+    func sustainedListenReaction(
+        current: MediaPlaybackSnapshot,
+        listenSeconds: TimeInterval,
+        observationSamples: Int,
+        userAppearsAway: Bool,
+        inputActiveDuringTrack: Bool,
+        activeAppName: String?
+    ) -> MediaReaction? {
+        guard current.isPreferenceSource else {
+            return nil
+        }
+        guard !userAppearsAway else {
+            return nil
+        }
+        guard current.state == "playing" else {
+            return nil
+        }
+        guard listenSeconds >= 180, observationSamples >= 12 else {
+            return nil
+        }
+
+        var payload = currentPayload(
+            reaction: "sustained_listen",
+            preference: "positive_candidate",
+            current: current,
+            activeAppName: activeAppName
+        )
+        payload["listen_seconds"] = String(format: "%.1f", listenSeconds)
+        payload["observation_samples"] = "\(observationSamples)"
+        payload["preference_recorded"] = "true"
+        payload["productivity_after_music"] = inputActiveDuringTrack ? "active_input_during_track" : "unknown"
+        if inputActiveDuringTrack {
+            payload["productivity_signal"] = "input stayed active while track repeated or continued"
+        }
+
+        let base = inputActiveDuringTrack ? 0.64 : 0.54
+        let adjusted = adjustedConfidence(base, activeAppName: activeAppName, payload: &payload)
+        return MediaReaction(
+            name: "sustained_listen",
+            preference: "positive_candidate",
+            insight: current.isYouTube
+                ? "Контент: удерживает внимание, проверяю влияние на работу"
+                : "Музыка: трек держится, проверяю влияние на темп",
+            confidence: adjusted,
+            payload: payload
+        )
+    }
+
     private func quickSkipReaction(
         previous: MediaPlaybackSnapshot,
         current: MediaPlaybackSnapshot,
@@ -172,6 +220,37 @@ struct MediaReactionBuilder {
         }
         if let activityInsight {
             payload["activity_insight"] = activityInsight
+        }
+        if let activeAppName {
+            payload["app_name"] = activeAppName
+        }
+
+        return payload
+    }
+
+    private func currentPayload(
+        reaction: String,
+        preference: String,
+        current: MediaPlaybackSnapshot,
+        activeAppName: String?
+    ) -> [String: String] {
+        var payload: [String: String] = [
+            "reaction": reaction,
+            "preference": preference,
+            "source": current.source,
+            "source_family": current.sourceFamily,
+            "content_type": current.contentType,
+            "current_state": current.state
+        ]
+
+        if let title = current.title {
+            payload["current_title"] = title
+        }
+        if let artist = current.artist {
+            payload["current_artist"] = artist
+        }
+        if let currentVolume = current.volume {
+            payload["current_volume"] = "\(currentVolume)"
         }
         if let activeAppName {
             payload["app_name"] = activeAppName

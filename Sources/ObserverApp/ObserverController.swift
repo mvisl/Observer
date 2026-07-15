@@ -10,6 +10,15 @@ private struct PendingAwayPresenceIncident {
     let confidence: Double
 }
 
+private struct MediaListenSession {
+    var trackKey: String
+    var startedAt: Date
+    var lastSeenAt: Date
+    var observationSamples: Int
+    var inputActiveSamples: Int
+    var lastProfileEventAt: Date?
+}
+
 @MainActor
 final class ObserverController {
     enum Mode {
@@ -68,6 +77,7 @@ final class ObserverController {
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
     private var currentMediaTrackKey: String?
     private var currentMediaTrackStartedAt: Date?
+    private var currentMediaListenSession: MediaListenSession?
     private var lastMediaProbeFailureAt: Date?
     private var lastAutoPauseAt: Date?
     private var lastHeadphonesAutoPauseAt: Date?
@@ -3817,6 +3827,7 @@ final class ObserverController {
         lastMediaPlaybackKey = nil
         currentMediaTrackKey = nil
         currentMediaTrackStartedAt = nil
+        currentMediaListenSession = nil
         lastAudioOutputLooksLikeHeadphones = nil
     }
 
@@ -3832,12 +3843,20 @@ final class ObserverController {
             return
         }
 
+        let now = Date()
+        let userAppearsAway = userAppearsAwayForMediaPreference()
+        updateMediaListenSession(
+            snapshot,
+            now: now,
+            userAppearsAway: userAppearsAway,
+            activeAppName: currentFocus?.appName
+        )
+
         guard snapshot.identityKey != lastMediaPlaybackKey else {
             return
         }
 
         var payload = snapshot.eventPayload
-        let userAppearsAway = userAppearsAwayForMediaPreference()
         if userAppearsAway {
             payload["preference_eligible"] = "false"
             payload["preference_reason"] = "away_or_idle"
@@ -3856,7 +3875,6 @@ final class ObserverController {
                 payload["mouse_display_role"] = mouseDisplayRole.rawValue
             }
         }
-        let now = Date()
         let previousSnapshot = lastMediaPlaybackSnapshot
         let secondsOnPrevious = currentMediaTrackStartedAt.map { now.timeIntervalSince($0) }
         append(
@@ -3894,6 +3912,67 @@ final class ObserverController {
         }
         lastMediaPlaybackKey = snapshot.identityKey
         lastMediaPlaybackSnapshot = snapshot
+    }
+
+    private func updateMediaListenSession(
+        _ snapshot: MediaPlaybackSnapshot,
+        now: Date,
+        userAppearsAway: Bool,
+        activeAppName: String?
+    ) {
+        guard snapshot.state == "playing" else {
+            currentMediaListenSession = nil
+            return
+        }
+
+        let trackKey = snapshot.trackIdentityKey
+        let inputActive = (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 20
+
+        if currentMediaListenSession?.trackKey != trackKey {
+            currentMediaListenSession = MediaListenSession(
+                trackKey: trackKey,
+                startedAt: now,
+                lastSeenAt: now,
+                observationSamples: 1,
+                inputActiveSamples: inputActive ? 1 : 0,
+                lastProfileEventAt: nil
+            )
+            return
+        }
+
+        guard var session = currentMediaListenSession else {
+            return
+        }
+
+        session.lastSeenAt = now
+        session.observationSamples += 1
+        if inputActive {
+            session.inputActiveSamples += 1
+        }
+
+        let listenSeconds = now.timeIntervalSince(session.startedAt)
+        let canEmit = session.lastProfileEventAt.map { now.timeIntervalSince($0) >= 300 } ?? true
+        if canEmit,
+           let reaction = MediaReactionBuilder().sustainedListenReaction(
+                current: snapshot,
+                listenSeconds: listenSeconds,
+                observationSamples: session.observationSamples,
+                userAppearsAway: userAppearsAway,
+                inputActiveDuringTrack: session.inputActiveSamples >= 3,
+                activeAppName: activeAppName
+           ) {
+            session.lastProfileEventAt = now
+            append(
+                .init(
+                    type: .mediaReaction,
+                    confidence: reaction.confidence,
+                    payload: reaction.payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+
+        currentMediaListenSession = session
     }
 
     private func recordMediaProbeResultWithoutSnapshotIfNeeded(_ failures: [String], now: Date = Date()) {

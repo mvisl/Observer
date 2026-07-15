@@ -77,6 +77,35 @@ struct MediaReactionBuilderTests {
         #expect(reaction.confidence < 0.45)
     }
 
+    @Test func sustainedListenBecomesPositivePreferenceCandidate() throws {
+        let reaction = try #require(MediaReactionBuilder().sustainedListenReaction(
+            current: music(title: "Loop Song", artist: "Artist", volume: 42),
+            listenSeconds: 420,
+            observationSamples: 30,
+            userAppearsAway: false,
+            inputActiveDuringTrack: true,
+            activeAppName: "Figma"
+        ))
+
+        #expect(reaction.name == "sustained_listen")
+        #expect(reaction.preference == "positive_candidate")
+        #expect(reaction.payload["current_title"] == "Loop Song")
+        #expect(reaction.payload["productivity_after_music"] == "active_input_during_track")
+    }
+
+    @Test func awaySustainedListenDoesNotRecordPreference() {
+        let reaction = MediaReactionBuilder().sustainedListenReaction(
+            current: music(title: "Loop Song", artist: "Artist", volume: 42),
+            listenSeconds: 420,
+            observationSamples: 30,
+            userAppearsAway: true,
+            inputActiveDuringTrack: true,
+            activeAppName: "Figma"
+        )
+
+        #expect(reaction == nil)
+    }
+
     private func music(title: String, artist: String, volume: Int) -> MediaPlaybackSnapshot {
         MediaPlaybackSnapshot(
             source: "Music",
