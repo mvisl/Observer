@@ -228,7 +228,7 @@ function PublicDashboardShell() {
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "freelance" | "communication">("freelance");
+  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "personal">("work");
   const [selectedStream, setSelectedStream] = useState("Resolve Andrey's WhatToBuy feedback");
   const [selectedSubtask, setSelectedSubtask] = useState("Andrey feedback -> product decision");
 
@@ -255,9 +255,10 @@ function PublicDashboardShell() {
 
   const intentions = [
     {
-      lifeStream: "freelance",
+      lifeStream: "work",
       name: "Resolve Andrey's WhatToBuy feedback",
-      source: "Product: WhatToBuy board · Person: Andrey · Surface: Figma",
+      source: "Work → Libertex → WhatToBuy → Andrey Shevchishin",
+      path: ["Work", "Libertex", "WhatToBuy", "Andrey Shevchishin"],
       confidence: "high",
       question: "How should the market cards explain value without making the user calculate or compare too much?",
       outcome: rangeDays === 1
@@ -311,9 +312,10 @@ function PublicDashboardShell() {
       ]
     },
     {
-      lifeStream: "freelance",
+      lifeStream: "work",
       name: "Find Nebius cover visual direction",
-      source: "Project: Nebius cover · Surface: Figma · Tool: image generation",
+      source: "Work → Libertex/Market assets → Nebius cover → image generation",
+      path: ["Work", "Libertex", "Market assets", "Nebius cover"],
       confidence: "medium",
       question: "What visual metaphor should represent Nebius without becoming generic neon cloud noise?",
       outcome: rangeDays === 1
@@ -358,7 +360,8 @@ function PublicDashboardShell() {
     {
       lifeStream: "work",
       name: "Prioritize company product backlog",
-      source: "Stream: Work · Surface: Jira + browser · Role: product/design decisions",
+      source: "Work → Libertex → Product backlog → Jira triage",
+      path: ["Work", "Libertex", "Product backlog", "Jira triage"],
       confidence: "medium",
       question: "Which company issues deserve attention now, and what decision or clarification unblocks them?",
       outcome: rangeDays === 1
@@ -401,9 +404,10 @@ function PublicDashboardShell() {
       ]
     },
     {
-      lifeStream: "communication",
+      lifeStream: "personal",
       name: "Keep close communication connected without polluting work",
-      source: "Domain: Communication · Group: Family · People: wife and relatives",
+      source: "Personal → Communication → Family → wife / relatives",
+      path: ["Personal", "Communication", "Family", "wife / relatives"],
       confidence: "medium",
       question: "Which personal interactions change mood, recovery or schedule, and which should stay outside work analytics?",
       outcome: rangeDays === 1
@@ -448,7 +452,8 @@ function PublicDashboardShell() {
     {
       lifeStream: "work",
       name: "Rebuild Observer around intentions",
-      source: "Product: Observer · Surface: pill + dashboard + daily report",
+      source: "Work → Observer → Brain/dashboard → reporting model",
+      path: ["Work", "Observer", "Brain/dashboard", "reporting model"],
       confidence: "medium",
       question: "How should Observer explain the day by intentions, evidence and outcomes instead of windows?",
       outcome: rangeDays === 1
@@ -495,17 +500,12 @@ function PublicDashboardShell() {
     {
       id: "work" as const,
       name: "Work",
-      summary: "Company product/design work: Jira, research, work communication and product decisions."
+      summary: "Work tree: company/product/client contexts, then concrete products, tasks, people and evidence."
     },
     {
-      id: "freelance" as const,
-      name: "Freelance",
-      summary: "Client/product side work: WhatToBuy, Nebius, Figma execution and AI-assisted visuals."
-    },
-    {
-      id: "communication" as const,
-      name: "Communication",
-      summary: "People-centered context: family, close contacts and work contacts, grouped by relationship and effect."
+      id: "personal" as const,
+      name: "Personal",
+      summary: "Personal tree: communication and life context, linked to work only through visible aftermath."
     }
   ].map((stream) => ({
     ...stream,
@@ -532,7 +532,7 @@ function PublicDashboardShell() {
   ];
   const decisions = [
     "WhatToBuy is an Andrey/product intention. Chat is evidence inside the task, not a separate workstream.",
-    "The top dashboard layer is Work / Freelance / Communication; family is a nested communication group, not always a global stream.",
+    "The dashboard is a nested tree: Work → Libertex → WhatToBuy → Andrey communication, not flat buckets.",
     "A generation loop is useful only when it records the target visual criterion and why candidates failed.",
     "Every episode needs intent, source, artifact, output, next decision and uncertainty.",
     "Apps are supporting evidence; they never define the top-level task."
@@ -647,7 +647,7 @@ function PublicDashboardShell() {
       <section className="public-section">
         <div className="section-head">
           <h2>Global Streams</h2>
-          <span>{rangeLabel} · stream - domain/entity - intention - plane</span>
+          <span>{rangeLabel} · root - project - task - person/evidence</span>
         </div>
         <div className="life-stream-grid">
           {lifeStreams.map((stream) => (
@@ -664,7 +664,7 @@ function PublicDashboardShell() {
               <span>{stream.name}</span>
               <strong>{fmtMinutes(stream.minutes)}</strong>
               <p>{stream.summary}</p>
-              <small>{stream.intentions.length} intentions</small>
+              <small>{stream.intentions.length} branches</small>
             </button>
           ))}
         </div>
@@ -673,7 +673,7 @@ function PublicDashboardShell() {
       <section className="public-section">
         <div className="section-head">
           <h2>{selectedLifeStreamInfo.name} Intentions</h2>
-          <span>{rangeLabel} · intention - domain/entity - plane - evidence</span>
+          <span>{rangeLabel} · branch - plane - evidence</span>
         </div>
         <div className="workstream-list">
           {visibleIntentions.map((stream) => (
@@ -683,6 +683,9 @@ function PublicDashboardShell() {
             >
               <div>
                 <h3>{stream.name}</h3>
+                <div className="path-chain" aria-label={`${stream.name} hierarchy`}>
+                  {stream.path.map((part) => <span key={part}>{part}</span>)}
+                </div>
                 <span className="intention-source">{stream.source}</span>
                 <p>{stream.outcome}</p>
                 <p className="intention-question">{stream.question}</p>
@@ -729,6 +732,9 @@ function PublicDashboardShell() {
         <div className="intention-brief">
           <span>{activeStream.source}</span>
           <p>{activeStream.question}</p>
+          <div className="path-chain">
+            {activeStream.path.map((part) => <span key={part}>{part}</span>)}
+          </div>
         </div>
         <div className="subtask-detail-grid">
           {activeStream.subthreads.map((item) => (

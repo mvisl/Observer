@@ -485,6 +485,30 @@ p { margin: 0; }
 .intention-question {
   margin-top: var(--space-2);
 }
+.path-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.path-chain span {
+  position: relative;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: color-mix(in srgb, var(--surface-secondary) 78%, transparent);
+  font-size: 13px;
+}
+.path-chain span:not(:last-child)::after {
+  content: "→";
+  position: absolute;
+  right: -10px;
+  color: var(--text-muted);
+}
+.path-chain span:not(:last-child) {
+  margin-right: 10px;
+}
 .life-stream-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
