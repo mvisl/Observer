@@ -80,6 +80,66 @@ struct ContextFabricBuilderTests {
         #expect(result.contextSlices.first?["active_seconds"] == "210.0")
     }
 
+    @Test func linksOpenedArtifactBackToPriorCommunication() {
+        let now = Date()
+        let message = event(.contentContext, at: now, payload: [
+            "app_name": "Telegram",
+            "content_kind": "message",
+            "source_entity_display_name": "Andrey",
+            "topic": "PD-4366 deposit page redesign"
+        ])
+        let openedIssue = event(.screenContext, at: now.addingTimeInterval(120), payload: [
+            "app_name": "Google Chrome",
+            "window_title": "[M] Deposit page redesign [PD-4366] - Jira",
+            "url_host": "jira.fxclub.org",
+            "url_path": "/browse/PD-4366"
+        ])
+        let episode = episode(
+            at: now,
+            topic: "deposit page redesign from Andrey",
+            apps: "Telegram -> Google Chrome",
+            trace: [message, openedIssue]
+        )
+
+        let result = ContextFabricBuilder().build(events: [message, openedIssue, episode], now: now.addingTimeInterval(600))
+
+        #expect(result.artifactTransitions.count == 1)
+        #expect(result.artifactTransitions.first?["to_artifact_kind"] == "jira_issue")
+        #expect(result.artifactTransitions.first?["shared_identifier"] == "PD-4366")
+        #expect(result.artifactTransitions.first?["reason_codes"]?.contains("shared_artifact_identifier") == true)
+        #expect(result.artifactTransitions.first?["from_event_id"] == message.id.uuidString)
+        #expect(result.artifactTransitions.first?["to_event_id"] == openedIssue.id.uuidString)
+    }
+
+    @Test func redactsSecretsFromArtifactLabelsAndKeys() {
+        let now = Date()
+        let message = event(.contentContext, at: now, payload: [
+            "app_name": "Telegram",
+            "content_kind": "message",
+            "source_entity_display_name": "Andrey",
+            "topic": "PD-4366 password: hunter2 deposit redesign"
+        ])
+        let openedIssue = event(.screenContext, at: now.addingTimeInterval(60), payload: [
+            "app_name": "Google Chrome",
+            "window_title": "PD-4366 password: hunter2 deposit redesign",
+            "url_host": "jira.fxclub.org"
+        ])
+        let episode = episode(
+            at: now,
+            topic: "deposit page redesign",
+            apps: "Telegram -> Google Chrome",
+            trace: [message, openedIssue]
+        )
+
+        let result = ContextFabricBuilder().build(events: [message, openedIssue, episode], now: now.addingTimeInterval(600))
+
+        let artifactText = result.artifactIdentities.map { "\($0["display_name"] ?? "") \($0["canonical_key"] ?? "")" }.joined(separator: " ")
+        let transitionText = result.artifactTransitions.map { "\($0["artifact_label"] ?? "") \($0["source_context_label"] ?? "")" }.joined(separator: " ")
+        #expect(!artifactText.contains("hunter2"))
+        #expect(!transitionText.contains("hunter2"))
+        #expect(artifactText.contains("[secret]"))
+    }
+
     private func episode(
         at date: Date,
         duration: TimeInterval = 600,

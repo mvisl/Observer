@@ -75,6 +75,7 @@ enum ObserverEventType: String, Codable {
     case observationGap
     case activityThread
     case artifactIdentity
+    case artifactTransition
     case contextPackGenerated
     case contextLinkAudit
     case contextLinkUserLabel
@@ -101,6 +102,7 @@ extension ObserverEventType {
         switch self {
         case .activityThread,
              .artifactIdentity,
+             .artifactTransition,
              .attentionSpan,
              .behaviorCue,
              .boundReaction,

@@ -184,6 +184,7 @@ struct AttentionSnapshot: Sendable {
     let leftPupilY: Double?
     let rightPupilX: Double?
     let rightPupilY: Double?
+    let eyeVisibility: String?
     let smileScore: Double?
     let smileCandidate: Bool?
     let smileSignalSource: String?
@@ -212,6 +213,7 @@ struct AttentionSnapshot: Sendable {
         leftPupilY: Double? = nil,
         rightPupilX: Double? = nil,
         rightPupilY: Double? = nil,
+        eyeVisibility: String? = nil,
         smileScore: Double? = nil,
         smileCandidate: Bool? = nil,
         smileSignalSource: String? = nil,
@@ -239,6 +241,7 @@ struct AttentionSnapshot: Sendable {
         self.leftPupilY = leftPupilY
         self.rightPupilX = rightPupilX
         self.rightPupilY = rightPupilY
+        self.eyeVisibility = eyeVisibility
         self.smileScore = smileScore
         self.smileCandidate = smileCandidate
         self.smileSignalSource = smileSignalSource
@@ -318,6 +321,7 @@ struct AttentionSnapshot: Sendable {
             leftPupilY: eyeContact.leftPupilY,
             rightPupilX: eyeContact.rightPupilX,
             rightPupilY: eyeContact.rightPupilY,
+            eyeVisibility: eyeContact.eyeVisibility,
             smileScore: smile.score,
             smileCandidate: smile.isCandidate,
             smileSignalSource: smile.source,
@@ -348,6 +352,7 @@ struct AttentionSnapshot: Sendable {
             leftPupilY: leftPupilY,
             rightPupilX: rightPupilX,
             rightPupilY: rightPupilY,
+            eyeVisibility: eyeVisibility,
             smileScore: smileScore,
             smileCandidate: smileCandidate,
             smileSignalSource: smileSignalSource,
@@ -414,6 +419,9 @@ struct AttentionSnapshot: Sendable {
         }
         if let rightPupilY {
             payload["right_pupil_y"] = String(format: "%.3f", rightPupilY)
+        }
+        if let eyeVisibility {
+            payload["eye_visibility"] = eyeVisibility
         }
         if let smileScore {
             payload["smile_score"] = String(format: "%.3f", smileScore)
@@ -534,6 +542,7 @@ private struct EyeContactEstimate {
     let leftPupilY: Double?
     let rightPupilX: Double?
     let rightPupilY: Double?
+    let eyeVisibility: String?
 }
 
 private struct EyeContactEstimator {
@@ -559,9 +568,13 @@ private struct EyeContactEstimator {
                 leftPupilX: left.x,
                 leftPupilY: left.y,
                 rightPupilX: right.x,
-                rightPupilY: right.y
+                rightPupilY: right.y,
+                eyeVisibility: "pupil_landmarks"
             )
         }
+
+        let eyeLandmarksVisible = landmarks?.leftEye?.normalizedPoints.isEmpty == false
+            && landmarks?.rightEye?.normalizedPoints.isEmpty == false
 
         return EyeContactEstimate(
             score: headScore,
@@ -570,7 +583,8 @@ private struct EyeContactEstimator {
             leftPupilX: nil,
             leftPupilY: nil,
             rightPupilX: nil,
-            rightPupilY: nil
+            rightPupilY: nil,
+            eyeVisibility: eyeLandmarksVisible ? "eye_contours_only" : "occluded_or_unavailable"
         )
     }
 

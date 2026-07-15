@@ -46,8 +46,18 @@ function fmtDuration(seconds: number) {
 }
 
 function fmtMinutes(minutes: number) {
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const rest = safeMinutes % 60;
+  return `${hours}:${String(rest).padStart(2, "0")}`;
+}
+
+function pluralRu(count: number, one: string, few: string, many: string) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
 }
 
 function daysBetweenInclusive(startDate: string, endDate: string) {
@@ -334,6 +344,7 @@ function PublicDashboardShell() {
   const [selectedNodeId, setSelectedNodeId] = useState("intention-andrey");
   const [zoomNodeId, setZoomNodeId] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState<"decisions" | "evidence" | "digest" | null>(null);
+  const [openDigestKey, setOpenDigestKey] = useState<string | null>(null);
 
   function applyPreset(next: "today" | "7d" | "custom") {
     setRangePreset(next);
@@ -526,7 +537,8 @@ function PublicDashboardShell() {
       if (zoom && allNodes.some((item) => item.id === zoom)) setZoomNodeId(zoom);
       if (!zoom) setZoomNodeId(null);
       if (view === "structure" || view === "timeline") setViewMode(view);
-      if (range === "today" || range === "7d" || range === "custom") setRangePreset(range);
+      if (range === "day" || range === "today") setRangePreset("today");
+      if (range === "7d" || range === "custom") setRangePreset(range);
       if (start) setStartDate(start);
       if (end) setEndDate(end);
     };
@@ -539,7 +551,7 @@ function PublicDashboardShell() {
     localStorage.setItem("observer_public_view", viewMode);
     const params = new URLSearchParams();
     params.set("date", endDate);
-    params.set("range", rangePreset === "today" ? "day" : rangePreset);
+    params.set("range", rangePreset);
     params.set("start", startDate);
     params.set("end", endDate);
     params.set("view", viewMode);
@@ -603,8 +615,12 @@ function PublicDashboardShell() {
             <button className={rangePreset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>Today</button>
             <button className={rangePreset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>7 days</button>
             <button className={rangePreset === "custom" ? "selected" : ""} onClick={() => applyPreset("custom")}>Custom</button>
-            <input type="date" value={startDate} onChange={(event) => { setRangePreset("custom"); setStartDate(event.target.value); }} />
-            <input type="date" value={endDate} onChange={(event) => { setRangePreset("custom"); setEndDate(event.target.value); }} />
+            {rangePreset === "custom" && (
+              <>
+                <input type="date" value={startDate} onChange={(event) => { setRangePreset("custom"); setStartDate(event.target.value); }} />
+                <input type="date" value={endDate} onChange={(event) => { setRangePreset("custom"); setEndDate(event.target.value); }} />
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -625,14 +641,15 @@ function PublicDashboardShell() {
                 <div className="icicle-row" key={rowIndex}>
                   {row.map(({ node, x0, x1, parentMinutes }) => {
                     const width = Math.max(0, x1 - x0);
-                    const showTime = width >= 9;
+                    const showTime = width >= 7;
                     const showText = width >= 4;
+                    const nodeTitle = `${node.name} · ${fmtMinutes(node.minutes)} · ${Math.round((node.minutes / Math.max(1, parentMinutes)) * 100)}% parent · ${Math.round((node.minutes / root.minutes) * 100)}% day`;
                     return (
                       <button
                         key={node.id}
                         className={`icicle-node family-${activeFamily(node)} depth-${node.kind} ${selectedNode.id === node.id ? "selected" : ""}`}
                         style={{ left: `${x0}%`, width: `calc(${width}% - 2px)` }}
-                        title={`${node.name} · ${fmtMinutes(node.minutes)} · ${Math.round((node.minutes / Math.max(1, parentMinutes)) * 100)}% parent · ${Math.round((node.minutes / root.minutes) * 100)}% day`}
+                        title={nodeTitle}
                         onClick={() => selectNode(node)}
                         onDoubleClick={(event) => {
                           event.preventDefault();
@@ -640,7 +657,7 @@ function PublicDashboardShell() {
                           zoomInto(node);
                         }}
                         onKeyDown={(event) => handleIcicleKey(event, node)}
-                        aria-label={`${node.name}, ${fmtMinutes(node.minutes)}, ${Math.round((node.minutes / root.minutes) * 100)} percent of day`}
+                        aria-label={nodeTitle}
                       >
                         {showText && <span>{node.name}</span>}
                         {showTime && <b>{fmtMinutes(node.minutes)}</b>}
@@ -692,11 +709,23 @@ function PublicDashboardShell() {
               </button>
             ))}
           </div>
-          <div className="detail-footer">
-            <button onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>{selectedNode.decisions ?? 0} решений</button>
-            <button className="warning" onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>{selectedNode.unresolved ?? 0} нерешённое</button>
-            <button className="evidence" onClick={() => setOpenDrawer(openDrawer === "evidence" ? null : "evidence")}>evidence: {(selectedNode.evidenceKinds ?? ["чат", "Figma", "AI"]).join(" · ")}</button>
-          </div>
+          {Boolean((selectedNode.decisions ?? 0) || (selectedNode.unresolved ?? 0) || selectedNode.evidenceKinds?.length) && (
+            <div className="detail-footer">
+              {Boolean(selectedNode.decisions) && (
+                <button onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>
+                  {selectedNode.decisions} {pluralRu(selectedNode.decisions ?? 0, "решение", "решения", "решений")}
+                </button>
+              )}
+              {Boolean(selectedNode.unresolved) && (
+                <button className="warning" onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>
+                  {selectedNode.unresolved} {pluralRu(selectedNode.unresolved ?? 0, "нерешённое", "нерешённых", "нерешённых")}
+                </button>
+              )}
+              {Boolean(selectedNode.evidenceKinds?.length) && (
+                <button className="evidence" onClick={() => setOpenDrawer(openDrawer === "evidence" ? null : "evidence")}>evidence: {selectedNode.evidenceKinds?.join(" · ")}</button>
+              )}
+            </div>
+          )}
           {openDrawer === "decisions" && (
             <ol className="drawer-list">
               {decisionLedger.map((decision) => <li key={decision}>{decision}</li>)}
@@ -712,17 +741,17 @@ function PublicDashboardShell() {
 
       <section className="digest-row" aria-label="Сигналы дня">
         {digest.map((item) => (
-          <button key={item.short} className={item.status} onClick={() => setOpenDrawer(openDrawer === "digest" ? null : "digest")} title={item.full}>
+          <button
+            key={item.short}
+            className={item.status}
+            onClick={() => setOpenDigestKey(openDigestKey === item.short ? null : item.short)}
+            title={item.full}
+          >
             <i />
-            <span>{item.short}</span>
+            <span>{openDigestKey === item.short ? item.full : item.short}</span>
           </button>
         ))}
       </section>
-      {openDrawer === "digest" && (
-        <section className="digest-drawer">
-          {digest.map((item) => <p key={item.short}><b>{item.short}</b> {item.full}</p>)}
-        </section>
-      )}
 
       <footer className="public-footer">
         <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>

@@ -47,6 +47,7 @@ struct RawObservationView: Equatable {
 struct ContextFabricBuildResult {
     let cameraEvidence: [[String: String]]
     let artifactIdentities: [[String: String]]
+    let artifactTransitions: [[String: String]]
     let activityThreads: [[String: String]]
     let assignments: [[String: String]]
     let contextSlices: [[String: String]]
@@ -136,22 +137,31 @@ struct ContextFabricBuilder {
         let existingSlices = Set(events.filter { $0.type == .contextSlice }.compactMap { $0.payload["episode_event_id"] })
         let existingThreadKeys = Set(events.filter { $0.type == .activityThread }.compactMap { $0.payload["thread_key"] })
         let existingArtifactKeys = Set(events.filter { $0.type == .artifactIdentity }.compactMap { $0.payload["canonical_key"] })
+        let existingTransitionKeys = Set(events.filter { $0.type == .artifactTransition }.compactMap { $0.payload["transition_key"] })
 
         var artifactPayloads: [[String: String]] = []
+        var transitionPayloads: [[String: String]] = []
         var threadPayloads: [[String: String]] = []
         var assignmentPayloads: [[String: String]] = []
         var slicePayloads: [[String: String]] = []
         var auditPayloads: [[String: String]] = []
         var emittedThreadKeys = existingThreadKeys
         var emittedArtifactKeys = existingArtifactKeys
+        var emittedTransitionKeys = existingTransitionKeys
 
-        for episode in episodes where existingAssignments.contains(episode.id.uuidString) == false || existingSlices.contains(episode.id.uuidString) == false {
+        for episode in episodes {
             let episodeEvents = sourceEvents(for: episode, in: events)
             let artifacts = inferArtifacts(from: episode, events: episodeEvents)
             for artifact in artifacts where emittedArtifactKeys.contains(artifact["canonical_key"] ?? "") == false {
                 artifactPayloads.append(artifact)
                 if let key = artifact["canonical_key"] {
                     emittedArtifactKeys.insert(key)
+                }
+            }
+            for transition in inferArtifactTransitions(for: episode, episodeEvents: episodeEvents) where emittedTransitionKeys.contains(transition["transition_key"] ?? "") == false {
+                transitionPayloads.append(transition)
+                if let key = transition["transition_key"] {
+                    emittedTransitionKeys.insert(key)
                 }
             }
 
@@ -176,6 +186,7 @@ struct ContextFabricBuilder {
         return .init(
             cameraEvidence: [],
             artifactIdentities: artifactPayloads,
+            artifactTransitions: transitionPayloads,
             activityThreads: threadPayloads,
             assignments: assignmentPayloads,
             contextSlices: slicePayloads,
@@ -302,29 +313,103 @@ struct ContextFabricBuilder {
         return uniquePayloads(artifacts, key: "canonical_key")
     }
 
+    private func inferArtifactTransitions(for episode: ObserverEvent, episodeEvents: [ObserverEvent]) -> [[String: String]] {
+        let sortedEvents = episodeEvents.sorted { $0.timestamp < $1.timestamp }
+        let sourceEvents = sortedEvents.filter(isContextSourceEvent)
+        guard sourceEvents.isEmpty == false else {
+            return []
+        }
+
+        var transitions: [[String: String]] = []
+        for target in sortedEvents {
+            guard let artifact = artifactIdentity(from: target),
+                  let artifactKind = artifact["kind"],
+                  isOpenableArtifactKind(artifactKind)
+            else {
+                continue
+            }
+
+            let candidates = sourceEvents.compactMap { source -> (event: ObserverEvent, score: ArtifactTransitionScore)? in
+                guard source.id != target.id,
+                      source.timestamp <= target.timestamp,
+                      target.timestamp.timeIntervalSince(source.timestamp) <= 45 * 60
+                else {
+                    return nil
+                }
+                let score = transitionScore(from: source, to: target, artifact: artifact)
+                return score.confidence >= 0.42 ? (source, score) : nil
+            }
+            guard let best = candidates.max(by: { $0.score.confidence < $1.score.confidence }) else {
+                continue
+            }
+
+            let transitionKey = "transition:\(best.event.id.uuidString):\(target.id.uuidString):\(artifact["canonical_key"] ?? "")"
+            let sourceIDs = [episode.id.uuidString, best.event.id.uuidString, target.id.uuidString]
+            var payload: [String: String] = [
+                "artifact_transition_id": StableContextID.uuidString(for: transitionKey),
+                "transition_key": transitionKey,
+                "episode_event_id": episode.id.uuidString,
+                "episode_payload_id": episode.payload["episode_id"] ?? episode.id.uuidString,
+                "from_event_id": best.event.id.uuidString,
+                "to_event_id": target.id.uuidString,
+                "to_artifact_id": artifact["artifact_id"] ?? "",
+                "to_artifact_kind": artifactKind,
+                "to_artifact_key": artifact["canonical_key"] ?? "",
+                "artifact_label": safeDisplayName(artifact["display_name"] ?? ""),
+                "opened_after_seconds": String(format: "%.1f", target.timestamp.timeIntervalSince(best.event.timestamp)),
+                "inferred_reason": best.score.inferredReason,
+                "reason_codes": best.score.reasonCodes.joined(separator: ","),
+                "confidence": String(format: "%.2f", best.score.confidence),
+                "shadow_mode": "true",
+                "source_event_ids": sourceIDs.joined(separator: ","),
+                "evidence_event_ids": sourceIDs.joined(separator: ","),
+                "pipeline_version": ObserverPipeline.version
+            ]
+            if let sourceLabel = contextSourceLabel(for: best.event) {
+                payload["source_context_label"] = sourceLabel
+            }
+            if let issueKey = best.score.sharedIdentifiers.first {
+                payload["shared_identifier"] = issueKey
+            }
+            transitions.append(payload)
+        }
+        return uniquePayloads(transitions, key: "transition_key")
+    }
+
     private func artifactIdentity(from event: ObserverEvent) -> [String: String]? {
         let app = event.payload["app_name"] ?? event.appID ?? ""
-        let title = event.payload["window_title"] ?? event.payload["document_title"] ?? event.payload["topic"] ?? ""
+        let title = event.payload["window_title"] ?? event.payload["document_title"] ?? event.payload["title"] ?? event.payload["topic"] ?? ""
+        let safeTitle = safeDisplayName(title)
         let thread = event.payload["source_entity_id"] ?? event.payload["source_entity_display_name"] ?? event.payload["source_entity"] ?? ""
         let urlHash = event.payload["url_hash"] ?? event.payload["stable_url_hash"] ?? ""
+        let combined = "\(app) \(title) \(event.payload["url_host"] ?? "") \(event.payload["url_path"] ?? "")"
         let kind: String
         let key: String
-        if app.lowercased().contains("figma") || title.lowercased().contains("figma") {
+        if let issueKey = issueIdentifiers(in: combined).first {
+            kind = "jira_issue"
+            key = "jira:\(issueKey)"
+        } else if app.lowercased().contains("figma") || title.lowercased().contains("figma") {
             kind = "figma_file"
-            key = "figma:\(title.isEmpty ? app : title)"
+            key = "figma:\(title.isEmpty ? app : safeTitle)"
         } else if ["message", "email"].contains(event.payload["content_kind"]) || !thread.isEmpty {
             kind = event.payload["content_kind"] == "email" ? "email_thread" : "chat_thread"
-            key = "\(kind):\(thread.isEmpty ? title : thread)"
+            key = "\(kind):\(thread.isEmpty ? safeTitle : PrivacyRedactor.redact(thread))"
         } else if !urlHash.isEmpty {
             kind = "browser_page"
             key = "url:\(urlHash)"
+        } else if event.payload["file_path_hash"]?.isEmpty == false || event.payload["document_id"]?.isEmpty == false {
+            kind = "document"
+            key = "document:\(event.payload["file_path_hash"] ?? event.payload["document_id"] ?? safeTitle)"
+        } else if isBrowserApp(app), !title.isEmpty {
+            kind = "browser_page"
+            key = "browser:\(safeTitle)"
         } else if !title.isEmpty {
             kind = "browser_document"
-            key = "\(app):\(title)"
+            key = "\(app):\(safeTitle)"
         } else {
             return nil
         }
-        return artifactPayload(kind: kind, canonicalKey: key, displayName: title.isEmpty ? app : title, sourceApp: app, sourceIDs: event.id.uuidString)
+        return artifactPayload(kind: kind, canonicalKey: key, displayName: title.isEmpty ? app : safeTitle, sourceApp: app, sourceIDs: event.id.uuidString)
     }
 
     private func artifactPayload(kind: String, canonicalKey: String, displayName: String, sourceApp: String?, sourceIDs: String) -> [String: String] {
@@ -419,6 +504,8 @@ struct ContextFabricBuilder {
             return .clipboard
         case .artifactIdentity:
             return .artifact
+        case .artifactTransition:
+            return .artifact
         case .mediaPlayback, .mediaReaction:
             return .media
         case .userLabel, .contextLinkUserLabel, .userNote:
@@ -483,7 +570,7 @@ struct ContextFabricBuilder {
     }
 
     private func safeDisplayName(_ value: String) -> String {
-        let withoutSecretTokens = value
+        let withoutSecretTokens = PrivacyRedactor.redact(value)
             .replacingOccurrences(of: #"\[secret:[^\]]+\]"#, with: "[secret]", options: .regularExpression)
             .replacingOccurrences(of: #"https?://\S+"#, with: "[url]", options: .regularExpression)
             .replacingOccurrences(of: #"chatgpt\.com/c/\S+"#, with: "ChatGPT thread", options: .regularExpression)
@@ -547,6 +634,147 @@ struct ContextFabricBuilder {
             seen.insert(value)
             return true
         }
+    }
+
+    private struct ArtifactTransitionScore {
+        let confidence: Double
+        let reasonCodes: [String]
+        let inferredReason: String
+        let sharedIdentifiers: [String]
+    }
+
+    private func isContextSourceEvent(_ event: ObserverEvent) -> Bool {
+        let app = (event.payload["app_name"] ?? event.appID ?? "").lowercased()
+        let kind = event.payload["content_kind"] ?? ""
+        if ["message", "email", "prompt"].contains(kind) {
+            return true
+        }
+        if event.payload["source_entity_id"]?.isEmpty == false ||
+            event.payload["source_entity_display_name"]?.isEmpty == false ||
+            event.payload["source_entity"]?.isEmpty == false {
+            return true
+        }
+        return ["telegram", "whatsapp", "viber", "gmail", "inbox", "chatgpt", "claude", "slack", "teams"]
+            .contains { app.contains($0) }
+    }
+
+    private func isOpenableArtifactKind(_ kind: String) -> Bool {
+        ["jira_issue", "figma_file", "browser_page", "browser_document", "document"].contains(kind)
+    }
+
+    private func isBrowserApp(_ app: String) -> Bool {
+        let lowered = app.lowercased()
+        return ["chrome", "safari", "arc", "browser", "brave", "edge", "firefox"].contains { lowered.contains($0) }
+    }
+
+    private func transitionScore(from source: ObserverEvent, to target: ObserverEvent, artifact: [String: String]) -> ArtifactTransitionScore {
+        let delay = target.timestamp.timeIntervalSince(source.timestamp)
+        var score = 0.18
+        var reasons = ["opened_after_context"]
+
+        if delay <= 10 * 60 {
+            score += 0.16
+            reasons.append("short_time_distance")
+        } else {
+            score += 0.08
+        }
+
+        let sourceText = semanticText(for: source)
+        let targetText = semanticText(for: target) + " " + (artifact["display_name"] ?? "") + " " + (artifact["canonical_key"] ?? "")
+        let sharedIDs = Array(Set(issueIdentifiers(in: sourceText)).intersection(Set(issueIdentifiers(in: targetText)))).sorted()
+        if sharedIDs.isEmpty == false {
+            score += 0.42
+            reasons.append("shared_artifact_identifier")
+        }
+
+        let overlap = tokenOverlap(sourceText, targetText)
+        if overlap.count >= 2 {
+            score += min(0.28, Double(overlap.count) * 0.07)
+            reasons.append("shared_topic_terms")
+        }
+
+        if isContextSourceEvent(source) {
+            score += 0.06
+            reasons.append("communication_or_prompt_source")
+        }
+
+        let inferredReason: String
+        if sharedIDs.isEmpty == false {
+            inferredReason = "opened_artifact_from_prior_context"
+        } else if overlap.count >= 2 {
+            inferredReason = "opened_related_link_or_file_after_context"
+        } else {
+            inferredReason = "opened_after_recent_context"
+        }
+
+        return ArtifactTransitionScore(
+            confidence: min(0.92, score),
+            reasonCodes: Array(Set(reasons)).sorted(),
+            inferredReason: inferredReason,
+            sharedIdentifiers: sharedIDs
+        )
+    }
+
+    private func semanticText(for event: ObserverEvent) -> String {
+        [
+            event.payload["topic"],
+            event.payload["goal"],
+            event.payload["summary"],
+            event.payload["interpretation"],
+            event.payload["window_title"],
+            event.payload["document_title"],
+            event.payload["title"],
+            event.payload["app_name"],
+            event.payload["content_kind"],
+            event.payload["source_entity_display_name"],
+            event.payload["source_entity"],
+            event.payload["url_host"],
+            event.payload["url_path"]
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+
+    private func contextSourceLabel(for event: ObserverEvent) -> String? {
+        let entity = event.payload["source_entity_display_name"] ?? event.payload["source_entity"] ?? event.payload["source_entity_id"]
+        let topic = event.payload["topic"] ?? event.payload["summary"] ?? event.payload["window_title"]
+        let label = [entity, topic]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return label.isEmpty ? nil : safeDisplayName(label)
+    }
+
+    private func issueIdentifiers(in value: String) -> [String] {
+        let pattern = #"\b[A-Z][A-Z0-9]+-\d+\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let uppercased = value.uppercased()
+        let nsRange = NSRange(uppercased.startIndex..<uppercased.endIndex, in: uppercased)
+        return regex.matches(in: uppercased, range: nsRange).compactMap { match in
+            guard let range = Range(match.range, in: uppercased) else {
+                return nil
+            }
+            return String(uppercased[range])
+        }
+    }
+
+    private func tokenOverlap(_ lhs: String, _ rhs: String) -> Set<String> {
+        tokens(in: lhs).intersection(tokens(in: rhs))
+    }
+
+    private func tokens(in value: String) -> Set<String> {
+        let stopwords: Set<String> = [
+            "with", "from", "that", "this", "page", "https", "http", "www", "com",
+            "google", "chrome", "safari", "figma", "jira", "open", "opened",
+            "and", "the", "for", "you", "your", "что", "это", "как", "для", "или",
+            "уже", "надо", "нужно", "там", "тут", "страница", "окно"
+        ]
+        return Set(value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 && stopwords.contains($0) == false })
     }
 }
 

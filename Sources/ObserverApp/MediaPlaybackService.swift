@@ -251,8 +251,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        tell t to execute javascript "document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); window.__observerPaused = true; } }); window.__observerPaused ? 'paused' : '';"
-                        set didPause to true
+                        set pauseInfo to execute javascript "(function(){ let didPause = false; document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();"
+                        if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
             end repeat
@@ -273,8 +273,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        do JavaScript "document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); window.__observerPaused = true; } }); window.__observerPaused ? 'paused' : '';" in t
-                        set didPause to true
+                        set pauseInfo to do JavaScript "(function(){ let didPause = false; document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();" in t
+                        if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
             end repeat
@@ -321,8 +321,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        tell t to execute javascript "document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); window.__observerResumed = true; } }); window.__observerResumed ? 'resumed' : '';"
-                        set didResume to true
+                        set resumeInfo to execute javascript "(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();"
+                        if resumeInfo is "resumed" then set didResume to true
                     end if
                 end repeat
             end repeat
@@ -343,8 +343,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        do JavaScript "document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); window.__observerResumed = true; } }); window.__observerResumed ? 'resumed' : '';" in t
-                        set didResume to true
+                        set resumeInfo to do JavaScript "(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();" in t
+                        if resumeInfo is "resumed" then set didResume to true
                     end if
                 end repeat
             end repeat

@@ -101,15 +101,15 @@ def draw_icon(size, transparent=False):
                     color = blend(color, (255, 255, 255, max(0, 1 - y / h) * 0.08 * tile))
 
             cx = w * 0.50
-            cy = h * 0.51
-            shadow = ellipse_alpha(x, y, cx, cy + h * 0.09, w * 0.32, h * 0.24, 1.7)
+            cy = h * 0.485
+            shadow = ellipse_alpha(x, y, cx, cy + h * 0.105, w * 0.34, h * 0.25, 1.7)
             if shadow > 0:
                 color = blend(color, (0, 0, 0, min(0.24, shadow * 0.24)))
 
             # Organic nazar glass: intentionally less geometric than the old target-like icon.
-            body = organic_disk_alpha(x, y, cx, cy, w * 0.360, h * 0.330)
+            body = organic_disk_alpha(x, y, cx, cy, w * 0.382, h * 0.350)
             if body > 0:
-                dist = math.sqrt(((x - cx) / (w * 0.37)) ** 2 + ((y - cy) / (h * 0.34)) ** 2)
+                dist = math.sqrt(((x - cx) / (w * 0.39)) ** 2 + ((y - cy) / (h * 0.36)) ** 2)
                 light = max(0.0, 1.0 - math.sqrt((x - w * 0.39) ** 2 + (y - h * 0.35) ** 2) / (w * 0.46))
                 base = (
                     8 + 22 * light,
@@ -122,28 +122,28 @@ def draw_icon(size, transparent=False):
                 color = blend(color, (10, 48, 185, 0.30 * edge))
                 color = blend(color, (70, 166, 255, 0.18 * smoothstep(1.02, 0.88, dist) * body))
 
-            rim = soft_circle_ring(x, y, cx, cy, w * 0.345, w * 0.034) * organic_disk_alpha(x, y, cx, cy, w * 0.37, h * 0.34)
+            rim = soft_circle_ring(x, y, cx, cy, w * 0.365, w * 0.036) * organic_disk_alpha(x, y, cx, cy, w * 0.39, h * 0.36)
             if rim > 0:
                 color = blend(color, (58, 135, 255, 0.34 * rim))
 
-            white_drop = droplet_alpha(x, y, cx, cy + h * 0.004, w * 0.220, h * 0.400)
+            white_drop = droplet_alpha(x, y, cx, cy + h * 0.004, w * 0.235, h * 0.425)
             if white_drop > 0:
                 color = blend(color, (246, 250, 255, 0.97 * white_drop))
 
-            iris_outer = ellipse_alpha(x, y, cx + w * 0.010, cy + h * 0.050, w * 0.112, h * 0.110, 2.3)
+            iris_outer = ellipse_alpha(x, y, cx + w * 0.010, cy + h * 0.050, w * 0.120, h * 0.118, 2.3)
             if iris_outer > 0:
                 color = blend(color, (35, 190, 230, 0.84 * iris_outer))
-            iris_inner = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.050, w * 0.074, h * 0.071, 2.4)
+            iris_inner = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.050, w * 0.079, h * 0.076, 2.4)
             if iris_inner > 0:
                 color = blend(color, (102, 216, 246, 0.60 * iris_inner))
 
-            pupil = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.050, w * 0.043, h * 0.049, 2.4)
+            pupil = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.050, w * 0.046, h * 0.052, 2.4)
             if pupil > 0:
                 color = blend(color, (6, 12, 30, min(1, pupil)))
-            highlight = ellipse_alpha(x, y, w * 0.455, h * 0.425, w * 0.030, h * 0.030, 2.5)
+            highlight = ellipse_alpha(x, y, w * 0.455, h * 0.405, w * 0.032, h * 0.032, 2.5)
             if highlight > 0:
                 color = blend(color, (255, 255, 255, min(0.82, highlight * 0.82)))
-            gloss = capsule_highlight_alpha(x, y, w * 0.40, h * 0.34, w * 0.13, h * 0.050)
+            gloss = capsule_highlight_alpha(x, y, w * 0.39, h * 0.315, w * 0.14, h * 0.054)
             if gloss > 0:
                 color = blend(color, (255, 255, 255, min(0.24, gloss * 0.24)))
             row.append((

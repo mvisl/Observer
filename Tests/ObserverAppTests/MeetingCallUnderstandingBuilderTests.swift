@@ -77,7 +77,7 @@ struct ObjectPresenceBuilderTests {
         #expect(payload?["evidence_role"] == "refuel_break_candidate")
     }
 
-    @Test func headphonesAreRejectedBecauseAudioRouteIsBetter() {
+    @Test func headphonesBecomeMediaPauseEvidenceWithoutDisplay() {
         let payload = ObjectPresenceBuilder().payload(
             objectClass: "headphones",
             inHand: false,
@@ -85,6 +85,8 @@ struct ObjectPresenceBuilderTests {
             confidence: 0.91
         )
 
-        #expect(payload == nil)
+        #expect(payload?["object_class"] == "headphones")
+        #expect(payload?["evidence_role"] == "media_pause_resume_evidence")
+        #expect(payload?["display_eligible"] == "false")
     }
 }

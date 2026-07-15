@@ -134,9 +134,6 @@ struct ObjectPresenceBuilder {
         confidence: Double
     ) -> [String: String]? {
         let normalized = objectClass.lowercased().replacingOccurrences(of: "_", with: " ")
-        guard normalized != "headphones", normalized != "earphones", normalized != "airpods" else {
-            return nil
-        }
         guard supportedClasses.contains(normalized) else {
             return nil
         }
@@ -155,6 +152,9 @@ struct ObjectPresenceBuilder {
 
         if normalized == "cell phone" && inHand {
             payload["evidence_role"] = "screen_break_or_wandering_disambiguation"
+        } else if ["headphones", "earphones", "airpods"].contains(normalized) {
+            payload["evidence_role"] = "media_pause_resume_evidence"
+            payload["display_eligible"] = "false"
         } else if ["cup", "bottle", "wine glass", "fork", "spoon", "bowl", "sandwich", "banana", "apple", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake"].contains(normalized) {
             payload["evidence_role"] = "refuel_break_candidate"
         } else {
@@ -181,7 +181,10 @@ struct ObjectPresenceBuilder {
             "hot dog",
             "pizza",
             "donut",
-            "cake"
+            "cake",
+            "headphones",
+            "earphones",
+            "airpods"
         ]
     }
 }

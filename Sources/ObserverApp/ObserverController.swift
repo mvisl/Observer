@@ -121,7 +121,7 @@ final class ObserverController {
     }
 
     var hasGeminiAPIKey: Bool {
-        KeychainStore.geminiAPIKey.hasPassword()
+        GeminiKeyStore(directory: environment.dataDirectory).hasKey()
     }
 
     var stateSnapshot: ObserverViewState {
@@ -283,6 +283,10 @@ final class ObserverController {
     private func currentWidgetContextText(now: Date = Date()) -> String {
         if let protectionLine = currentWidgetProtectionLine() {
             return protectionLine
+        }
+
+        if cameraEyesAreUnavailableForVisualClaims(now: now) {
+            return "Глаза закрыты: не связываю это с экраном"
         }
 
         if let phoneLine = currentWidgetPhoneAttentionLine() {
@@ -501,6 +505,10 @@ final class ObserverController {
     }
 
     private func latestExternalWidgetInsightLine(now: Date = Date()) -> String? {
+        guard !cameraEyesAreUnavailableForVisualClaims(now: now) else {
+            return nil
+        }
+
         let maxAge: TimeInterval = 120
         return ((try? environment.eventStore.recentEvents(limit: 80)) ?? [])
             .reversed()
@@ -667,6 +675,10 @@ final class ObserverController {
     }
 
     private func usableCurrentContextLine(_ line: String?, now: Date = Date(), maxAge: TimeInterval) -> String? {
+        guard !cameraEyesAreUnavailableForVisualClaims(now: now) else {
+            return nil
+        }
+
         guard let latestContextLineAt,
               now.timeIntervalSince(latestContextLineAt) <= maxAge,
               let cleaned = usableWidgetContextLine(line),
@@ -675,6 +687,18 @@ final class ObserverController {
             return nil
         }
         return cleaned
+    }
+
+    private func cameraEyesAreUnavailableForVisualClaims(now: Date = Date()) -> Bool {
+        guard let latestAttention,
+              latestAttention.facePresent,
+              let latestAttentionAt,
+              now.timeIntervalSince(latestAttentionAt) <= 45
+        else {
+            return false
+        }
+
+        return latestAttention.eyeVisibility == "occluded_or_unavailable"
     }
 
     private func insightLineMatchesCurrentFocus(_ line: String) -> Bool {
@@ -1219,6 +1243,16 @@ final class ObserverController {
                     .init(
                         type: .artifactIdentity,
                         confidence: Double(payload["confidence"] ?? "") ?? 0.75,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.artifactTransitions {
+                append(
+                    .init(
+                        type: .artifactTransition,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
                         payload: payload,
                         workspaceTopologyVersion: environment.topology.version
                     )
@@ -1899,34 +1933,30 @@ final class ObserverController {
         }
 
         do {
-            try KeychainStore.geminiAPIKey.setPassword(trimmed)
+            try GeminiKeyStore(directory: environment.dataDirectory).setAPIKey(trimmed)
             append(
                 .init(
                     type: .geminiKeyUpdated,
-                    payload: ["storage": "keychain"],
+                    payload: ["storage": "local_private_file"],
                     workspaceTopologyVersion: environment.topology.version
                 )
             )
-            print("Gemini API key saved in Keychain.")
+            print("Gemini API key saved locally for Observer.")
         } catch {
             print("Failed to save Gemini API key: \(error)")
         }
     }
 
     func deleteGeminiAPIKey() {
-        do {
-            try KeychainStore.geminiAPIKey.deletePassword()
-            append(
-                .init(
-                    type: .geminiKeyDeleted,
-                    payload: ["storage": "keychain"],
-                    workspaceTopologyVersion: environment.topology.version
-                )
+        GeminiKeyStore(directory: environment.dataDirectory).deleteAPIKey()
+        append(
+            .init(
+                type: .geminiKeyDeleted,
+                payload: ["storage": "local_private_file"],
+                workspaceTopologyVersion: environment.topology.version
             )
-            print("Gemini API key deleted from Keychain.")
-        } catch {
-            print("Failed to delete Gemini API key: \(error)")
-        }
+        )
+        print("Gemini API key deleted.")
     }
 
     func generateGeminiInsight() {
@@ -1943,11 +1973,8 @@ final class ObserverController {
             return
         }
 
-        let keyFromKeychain = try? KeychainStore.geminiAPIKey.password()
-        let keyFromEnvironment = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]
-            ?? ProcessInfo.processInfo.environment["GOOGLE_API_KEY"]
-        let apiKey = (keyFromKeychain ?? keyFromEnvironment)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = GeminiKeyStore(directory: environment.dataDirectory)
+            .apiKey(allowKeychainMigration: false)
 
         guard let apiKey, !apiKey.isEmpty else {
             append(
@@ -2277,6 +2304,9 @@ final class ObserverController {
             try environment.eventStore.append(eventToWrite)
         } catch {
             print("Failed to write event: \(error)")
+        }
+        if eventToWrite.type == .objectPresence {
+            pauseMediaIfHeadphonesObjectSuggestsRemoval(eventToWrite)
         }
     }
 
@@ -4192,6 +4222,74 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+    }
+
+    private func pauseMediaIfHeadphonesObjectSuggestsRemoval(_ event: ObserverEvent, now: Date = Date()) {
+        guard environment.settings.autoPauseMediaWhenAway else {
+            return
+        }
+        guard mode == .observing else {
+            return
+        }
+        let objectClass = (event.payload["object_class"] ?? "")
+            .lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+        guard ["headphones", "earphones", "airpods"].contains(objectClass) else {
+            return
+        }
+        let relation = (event.payload["object_relation"] ?? event.payload["placement"] ?? event.payload["state"] ?? "")
+            .lowercased()
+        let looksRemoved = event.payload["in_hand"] == "true"
+            || ["removed", "put_down", "on_table", "not_on_head", "away_from_head"].contains(relation)
+        guard looksRemoved else {
+            return
+        }
+        guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
+            return
+        }
+
+        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
+            ? lastMediaPlaybackSnapshot
+            : MediaPlaybackService().currentPlayback()
+        guard playbackSnapshot?.state == "playing" else {
+            return
+        }
+
+        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let inferredPausedBySystem = pausedSources.isEmpty
+            ? playbackSnapshot?.sourceForObserverResume
+            : nil
+        if let inferredPausedBySystem {
+            pausedSources = [inferredPausedBySystem]
+        }
+        guard !pausedSources.isEmpty else {
+            return
+        }
+
+        lastHeadphonesAutoPauseAt = now
+        lastAutoPauseAt = now
+        autoPausedSources = pausedSources
+        latestHint = inferredPausedBySystem == nil
+            ? "Медиа: наушники сняты, поставил на паузу"
+            : "Медиа: наушники сняты, пауза уже случилась"
+        lastHintAt = now
+        append(
+            .init(
+                type: .mediaPlayback,
+                payload: [
+                    "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
+                    "reason": "camera_headphones_removed_object",
+                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
+                    "paused_sources": pausedSources.joined(separator: ", "),
+                    "object_event_id": event.id.uuidString,
+                    "object_class": objectClass,
+                    "source": playbackSnapshot?.source ?? "unknown",
+                    "title": playbackSnapshot?.title ?? ""
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        notifyStateChanged()
     }
 
     private func pauseMediaIfUserAppearsAway() {
