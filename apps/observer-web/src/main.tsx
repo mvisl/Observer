@@ -14,10 +14,21 @@ function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function localDateString(date = new Date()) {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
 function fmtDuration(seconds: number) {
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}м`;
   return `${Math.floor(minutes / 60)}ч ${minutes % 60}м`;
+}
+
+function fmtMinutes(minutes: number) {
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function fmtTime(value?: string) {
@@ -203,41 +214,110 @@ async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: stri
 }
 
 function PublicDashboardShell() {
+  const today = localDateString();
+  const sevenDaysAgo = localDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
+  const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [selectedStream, setSelectedStream] = useState("Freelance / WhatToBuy board");
+  const [selectedSubtask, setSelectedSubtask] = useState("Upcoming Dividends logic");
+
+  function applyPreset(next: "today" | "7d" | "custom") {
+    setRangePreset(next);
+    if (next === "today") {
+      setStartDate(today);
+      setEndDate(today);
+    }
+    if (next === "7d") {
+      setStartDate(sevenDaysAgo);
+      setEndDate(today);
+    }
+  }
+
   const workstreams = [
     {
       name: "Freelance / WhatToBuy board",
-      time: "4h 10m",
       confidence: "high",
       outcome: "Turn product feedback into a clearer market card system.",
       subthreads: [
-        "Upcoming Dividends: replace raw ex-dividend date with a safer buy-by date.",
-        "Card hierarchy: move from question-level copy to teaser-level product signals.",
-        "Figma execution: translate the conversation with Andrey into visible layout decisions."
+        {
+          name: "Upcoming Dividends logic",
+          minutes: 74,
+          summary: "Replace raw ex-dividend date with a safer buy-by date.",
+          evidence: ["Andrey feedback", "Figma dividend section", "badge copy rewrite"]
+        },
+        {
+          name: "Card hierarchy",
+          minutes: 63,
+          summary: "Move from question-level copy to teaser-level product signals.",
+          evidence: ["product card review", "teaser vs question debate", "priority comments"]
+        },
+        {
+          name: "Figma execution",
+          minutes: 113,
+          summary: "Translate the conversation with Andrey into visible layout decisions.",
+          evidence: ["Figma canvas", "selected section", "iterative design edits"]
+        }
       ]
     },
     {
       name: "Observer brain and dashboard",
-      time: "3h 35m",
       confidence: "medium",
       outcome: "Push Observer from app-tracking toward intention tracking.",
       subthreads: [
-        "Public dashboard: PIN gate, Pages deploy, app icon, simple access route.",
-        "Pill quality: reject stale sanitary statuses and bind insight to the current screen.",
-        "Reporting model: group the day by tasks, sub-tasks, decisions and evidence."
+        {
+          name: "Public dashboard",
+          minutes: 68,
+          summary: "PIN gate, Pages deploy, icon and simple access route.",
+          evidence: ["GitHub Pages deploy", "public shell", "PIN 2501"]
+        },
+        {
+          name: "Pill quality",
+          minutes: 72,
+          summary: "Reject stale sanitary statuses and bind insight to the current screen.",
+          evidence: ["wrong status screenshots", "focus mismatch fixes", "sanitary-message policy"]
+        },
+        {
+          name: "Reporting model",
+          minutes: 75,
+          summary: "Group the day by tasks, sub-tasks, decisions and evidence.",
+          evidence: ["daily report critique", "intention-driven hierarchy", "episode layer"]
+        }
       ]
     },
     {
       name: "Product communication",
-      time: "1h 20m",
       confidence: "medium",
       outcome: "Use chats as source material for product decisions, not as separate noise.",
       subthreads: [
-        "Andrey feedback becomes a design task, not just a message thread.",
-        "Personal chats stay personal unless they leave a measurable work effect.",
-        "Repeated disagreement becomes a decision backlog instead of emotional labels."
+        {
+          name: "Andrey feedback",
+          minutes: 39,
+          summary: "Turn comments into design tasks, not a separate message thread.",
+          evidence: ["Google Chat", "dividend recommendation", "question vs teaser argument"]
+        },
+        {
+          name: "Personal context boundary",
+          minutes: 21,
+          summary: "Keep personal chats out unless they leave a measurable work effect.",
+          evidence: ["WhatsApp context", "music link", "no work artifact change"]
+        },
+        {
+          name: "Decision backlog",
+          minutes: 20,
+          summary: "Repeated disagreement becomes a decision backlog instead of an emotional label.",
+          evidence: ["friction language", "priority discussion", "follow-up task"]
+        }
       ]
     }
   ];
+  const activeStream = workstreams.find((stream) => stream.name === selectedStream) ?? workstreams[0];
+  const activeSubtask = activeStream.subthreads.find((item) => item.name === selectedSubtask) ?? activeStream.subthreads[0];
+  const activeStreamMinutes = activeStream.subthreads.reduce((sum, item) => sum + item.minutes, 0);
+  const totalMinutes = workstreams.reduce(
+    (sum, stream) => sum + stream.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
+    0
+  );
   const timeline = [
     ["Read", "Andrey's feedback", "Extracted requirement: the badge should reduce user calculation."],
     ["Decide", "Dividend card logic", "Shifted from ex-date data display to buy-by date guidance."],
@@ -308,12 +388,29 @@ function PublicDashboardShell() {
   return (
     <main className="public-shell">
       <section className="public-hero">
-        <p className="eyebrow">Observer Intelligence Dashboard</p>
-        <h1>Work by intention, not by app</h1>
-        <p>
-          A daily tracker should reconstruct the work as connected intentions: what you tried to move forward,
-          which conversations shaped it, what changed in the artifact, and what remains unresolved.
-        </p>
+        <div className="public-hero-top">
+          <div>
+            <p className="eyebrow">Observer Intelligence Dashboard</p>
+            <h1>Work by intention, not by app</h1>
+            <p>
+              A daily tracker should reconstruct the work as connected intentions: what you tried to move forward,
+              which conversations shaped it, what changed in the artifact, and what remains unresolved.
+            </p>
+          </div>
+          <div className="date-range-panel" aria-label="Date range">
+            <span>Reporting range</span>
+            <strong>{startDate === endDate ? startDate : `${startDate} - ${endDate}`}</strong>
+            <div className="range-buttons">
+              <button className={rangePreset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>Today</button>
+              <button className={rangePreset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>7 days</button>
+              <button className={rangePreset === "custom" ? "selected" : ""} onClick={() => applyPreset("custom")}>Custom</button>
+            </div>
+            <div className="date-inputs">
+              <input type="date" value={startDate} onChange={(event) => { setRangePreset("custom"); setStartDate(event.target.value); }} />
+              <input type="date" value={endDate} onChange={(event) => { setRangePreset("custom"); setEndDate(event.target.value); }} />
+            </div>
+          </div>
+        </div>
         <div className="public-actions">
           <a href="http://127.0.0.1:43127/">Open Local Core</a>
           <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>
@@ -333,31 +430,77 @@ function PublicDashboardShell() {
           <p>Andrey's notes became the dividend badge design task.</p>
         </article>
         <article>
-          <span>Tracker principle</span>
-          <strong>Intent first</strong>
-          <p>Apps are evidence; tasks and decisions are the report unit.</p>
+          <span>Tracked structure</span>
+          <strong>{fmtMinutes(totalMinutes)}</strong>
+          <p>Grouped as tasks, sub-tasks and evidence, not app-window time.</p>
         </article>
       </section>
 
       <section className="public-section">
         <div className="section-head">
           <h2>Workstreams</h2>
-          <span>task → subtask → evidence</span>
+          <span>task - subtask - evidence</span>
         </div>
         <div className="workstream-list">
           {workstreams.map((stream) => (
-            <article key={stream.name} className="workstream-card">
+            <article
+              key={stream.name}
+              className={`workstream-card ${stream.name === activeStream.name ? "selected" : ""}`}
+            >
               <div>
                 <h3>{stream.name}</h3>
                 <p>{stream.outcome}</p>
               </div>
               <div className="workstream-meta">
-                <b>{stream.time}</b>
+                <b>{fmtMinutes(stream.subthreads.reduce((sum, item) => sum + item.minutes, 0))}</b>
                 <span>{stream.confidence}</span>
               </div>
-              <ul>
-                {stream.subthreads.map((item) => <li key={item}>{item}</li>)}
-              </ul>
+              <div className="subtask-minute-list">
+                {stream.subthreads.map((item) => (
+                  <button
+                    key={item.name}
+                    className={`subtask-pill ${stream.name === activeStream.name && item.name === activeSubtask.name ? "selected" : ""}`}
+                    onClick={() => {
+                      setSelectedStream(stream.name);
+                      setSelectedSubtask(item.name);
+                    }}
+                    aria-pressed={stream.name === activeStream.name && item.name === activeSubtask.name}
+                  >
+                    <span>{item.name}</span>
+                    <b>{fmtMinutes(item.minutes)}</b>
+                  </button>
+                ))}
+              </div>
+              <button
+                className="drill-button"
+                onClick={() => {
+                  setSelectedStream(stream.name);
+                  setSelectedSubtask(stream.subthreads[0].name);
+                }}
+              >
+                {stream.name === activeStream.name ? "Selected" : "Open details"}
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section drilldown-section">
+        <div className="section-head">
+          <h2>{activeStream.name}</h2>
+          <span>{fmtMinutes(activeStreamMinutes)} in selected range · selected: {activeSubtask.name}</span>
+        </div>
+        <div className="subtask-detail-grid">
+          {activeStream.subthreads.map((item) => (
+            <article key={item.name} className={item.name === activeSubtask.name ? "selected" : ""}>
+              <div className="subtask-detail-head">
+                <h3>{item.name}</h3>
+                <strong>{fmtMinutes(item.minutes)}</strong>
+              </div>
+              <p>{item.summary}</p>
+              <div className="evidence-tags">
+                {item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}
+              </div>
             </article>
           ))}
         </div>
