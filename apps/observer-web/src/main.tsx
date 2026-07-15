@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, RouterProvider, createBrowserRouter, useLocation, useSearchParams } from "react-router-dom";
@@ -225,6 +225,9 @@ async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: stri
 function PublicDashboardShell() {
   const today = localDateString();
   const sevenDaysAgo = localDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
+  const branchMapRef = useRef<HTMLElement | null>(null);
+  const intentionsRef = useRef<HTMLElement | null>(null);
+  const drilldownRef = useRef<HTMLElement | null>(null);
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
@@ -519,10 +522,44 @@ function PublicDashboardShell() {
   const activeSubtask = activeStream.subthreads.find((item) => item.name === selectedSubtask) ?? activeStream.subthreads[0];
   const activeStreamMinutes = activeStream.subthreads.reduce((sum, item) => sum + item.minutes, 0);
   const selectedLifeStreamInfo = lifeStreams.find((stream) => stream.id === selectedLifeStream) ?? lifeStreams[0];
+  const selectedBranches = Array.from(new Set(visibleIntentions.map((intent) => intent.path[1] ?? intent.name))).map((branch) => {
+    const branchIntentions = visibleIntentions.filter((intent) => (intent.path[1] ?? intent.name) === branch);
+    const minutes = branchIntentions.reduce(
+      (sum, intent) => sum + intent.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
+      0
+    );
+    const tasks = Array.from(new Set(branchIntentions.map((intent) => intent.path[2] ?? intent.name)));
+    return { name: branch, intentions: branchIntentions, minutes, tasks };
+  });
   const totalMinutes = intentions.reduce(
     (sum, stream) => sum + stream.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
     0
   );
+  const fatigueSignals = [
+    {
+      title: "Load concentration",
+      value: "High",
+      detail: "Most work is packed into a few dense intention loops; this usually feels heavier than the same time spread across clean blocks."
+    },
+    {
+      title: "Resumption cost",
+      value: "Watch",
+      detail: "Frequent jumps are acceptable inside one task, but fatigue rises when returning to useful output takes longer after each jump."
+    },
+    {
+      title: "Friction loops",
+      value: "Visible",
+      detail: "Repeated AI/Figma/browser loops around the same unresolved criterion are stronger fatigue evidence than app switching alone."
+    },
+    {
+      title: "Recovery signals",
+      value: "Unknown",
+      detail: "Music, short breaks and warm communication should be tested by aftermath: input rhythm and next stable focus block, not instant mood labels."
+    }
+  ];
+  function scrollTo(target: React.RefObject<HTMLElement | null>) {
+    window.setTimeout(() => target.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
   const timeline = [
     ["Source", "Andrey / WhatToBuy", "Feedback defines the job: turn card comments into a clearer product decision."],
     ["Decide", "Dividend logic", "Shift from showing raw ex-date data to guiding the safe buy-by action."],
@@ -658,6 +695,7 @@ function PublicDashboardShell() {
                 setSelectedLifeStream(stream.id);
                 setSelectedStream(stream.intentions[0].name);
                 setSelectedSubtask(stream.intentions[0].subthreads[0].name);
+                scrollTo(branchMapRef);
               }}
               aria-pressed={stream.id === selectedLifeStream}
             >
@@ -670,7 +708,33 @@ function PublicDashboardShell() {
         </div>
       </section>
 
-      <section className="public-section">
+      <section className="public-section branch-map-section" ref={branchMapRef}>
+        <div className="section-head">
+          <h2>{selectedLifeStreamInfo.name} Branch Map</h2>
+          <span>{rangeLabel} · click branch to open tasks</span>
+        </div>
+        <div className="branch-map-grid">
+          {selectedBranches.map((branch) => (
+            <button
+              key={branch.name}
+              className={`branch-card ${activeStream.path[1] === branch.name ? "selected" : ""}`}
+              onClick={() => {
+                const first = branch.intentions[0];
+                setSelectedStream(first.name);
+                setSelectedSubtask(first.subthreads[0].name);
+                scrollTo(intentionsRef);
+              }}
+            >
+              <span>{selectedLifeStreamInfo.name} → {branch.name}</span>
+              <strong>{fmtMinutes(branch.minutes)}</strong>
+              <p>{branch.tasks.join(" · ")}</p>
+              <small>{branch.intentions.length} intention branches</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section" ref={intentionsRef}>
         <div className="section-head">
           <h2>{selectedLifeStreamInfo.name} Intentions</h2>
           <span>{rangeLabel} · branch - plane - evidence</span>
@@ -702,6 +766,7 @@ function PublicDashboardShell() {
                     onClick={() => {
                       setSelectedStream(stream.name);
                       setSelectedSubtask(item.name);
+                      scrollTo(drilldownRef);
                     }}
                     aria-pressed={stream.name === activeStream.name && item.name === activeSubtask.name}
                   >
@@ -715,6 +780,7 @@ function PublicDashboardShell() {
                 onClick={() => {
                   setSelectedStream(stream.name);
                   setSelectedSubtask(stream.subthreads[0].name);
+                  scrollTo(drilldownRef);
                 }}
               >
                 {stream.name === activeStream.name ? "Selected" : "Open details"}
@@ -724,7 +790,7 @@ function PublicDashboardShell() {
         </div>
       </section>
 
-      <section className="public-section drilldown-section">
+      <section className="public-section drilldown-section" ref={drilldownRef}>
         <div className="section-head">
           <h2>{activeStream.name}</h2>
           <span>{fmtMinutes(activeStreamMinutes)} in {rangeLabel.toLowerCase()} · selected: {activeSubtask.name}</span>
@@ -748,6 +814,22 @@ function PublicDashboardShell() {
               <div className="evidence-tags">
                 {item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}
               </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>Fatigue Load</h2>
+          <span>behavioral evidence, not diagnosis</span>
+        </div>
+        <div className="signal-grid">
+          {fatigueSignals.map((signal) => (
+            <article key={signal.title}>
+              <span className="subtask-kind">{signal.title}</span>
+              <h3>{signal.value}</h3>
+              <p>{signal.detail}</p>
             </article>
           ))}
         </div>

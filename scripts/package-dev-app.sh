@@ -32,7 +32,6 @@ fi
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string ObserverApp" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ObserverIcon" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string APPL" "$CONTENTS_DIR/Info.plist"
-/usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHumanReadableCopyright string Local development build" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string Observer uses the camera locally to estimate coarse attention signals. Frames are not stored." "$CONTENTS_DIR/Info.plist"
 

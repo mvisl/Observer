@@ -11,7 +11,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     private var dashboardServer: DashboardHTTPServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         configureApplicationIcon()
 
         do {

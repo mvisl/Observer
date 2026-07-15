@@ -462,3 +462,90 @@ Work / Libertex / WhatToBuy / Andrey feedback / evidence
 ```
 
 with time, confidence, source events, and user corrections attached.
+
+## 13. Fatigue / Workload Report Model
+
+The user also wants a report of how much the work itself appears to tire him. This should be behavioral, not medical and not personality/diagnostic language.
+
+Useful research framing:
+
+- Work fragmentation: Mark, Gonzalez & Harris, "No Task Left Behind?" found information work is naturally fragmented, so switches must be interpreted as working-sphere/task-context switches, not raw app changes. Source: https://dl.acm.org/doi/10.1145/1054972.1055017
+- Attention residue: Leroy, "Why is it so hard to do my work?" argues that switching between tasks can leave attention attached to the previous task, reducing performance on the next one. Source: https://www.sciencedirect.com/science/article/pii/S0749597809000399
+- Resumption lag: Altmann & Trafton / interruption literature treats the time to resume a suspended goal as a measurable cost of interruption. Source: https://act-r.psy.cmu.edu/wordpress/wp-content/uploads/2012/12/6ema_jgt_2002_a.pdf
+
+Observer should therefore estimate fatigue load from behavioral aftermath, not from a single facial cue.
+
+### Inputs
+
+```text
+intention density:
+  active minutes per intention, number of nested subtask loops, unresolved decisions
+
+fragmentation:
+  true task switches, not app switches; app switches inside one intention are allowed
+
+resumption lag:
+  time from interruption / communication / phone / break back to first stable useful output
+
+friction loops:
+  repeated AI -> Figma -> browser -> AI cycles around the same unresolved criterion
+
+input dynamics:
+  typing rhythm, pause length, deletion ratio, burst stability vs personal baseline
+
+camera:
+  PERCLOS, confirmed yawn trajectories, posture changes; weak evidence only
+
+media / recovery:
+  music repeat, volume changes, skips, post-music focus span; only useful through aftermath
+```
+
+### Output shape
+
+```text
+Fatigue Load
+  Work -> Libertex -> WhatToBuy
+    load: medium-high
+    why:
+      - high decision density
+      - repeated design/AI loops
+      - unresolved hierarchy question
+      - return-to-output cost after communication
+    not enough evidence:
+      - camera yawn/smile alone
+      - music effect until repeated across sessions
+
+  Work -> Observer -> Dashboard/reporting
+    load: high
+    why:
+      - many corrections to the same conceptual model
+      - repeated mismatch between expected insight and system output
+      - high cognitive reorientation: implementation + critique + product philosophy
+```
+
+### Rules
+
+1. Do not say "you are tired" from one cue.
+2. Say "this work block looks costly" only when there is evidence in the aftermath.
+3. Separate productive intensity from harmful fatigue.
+4. A dense same-intention loop can be good focus, not fragmentation.
+5. Fatigue claims need evidence from at least two classes: input/activity + context/outcome, or resumption lag + repeated friction.
+6. Camera events are supporting evidence, not primary proof.
+
+### Dashboard representation
+
+The dashboard should add a fatigue section per branch:
+
+```text
+Branch: Work -> Libertex -> WhatToBuy
+Fatigue load: medium-high
+Evidence:
+  - 4 subtask loops
+  - repeated design hierarchy dispute
+  - AI/Figma iteration loop
+  - negative/friction writing signals
+Recovery:
+  - measure next stable focus block after break/music/chat
+```
+
+This gives the user a practical answer: not just "you worked 4h", but "this branch consumed attention because the decision criteria were unstable."
