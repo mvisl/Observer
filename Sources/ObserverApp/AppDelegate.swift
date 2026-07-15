@@ -12,6 +12,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        configureApplicationIcon()
 
         do {
             let environment = try AppEnvironment.bootstrap()
@@ -32,6 +33,16 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             runDeveloperAutomationIfRequested()
         } catch {
             presentStartupFailure(error)
+        }
+    }
+
+    private func configureApplicationIcon() {
+        if let url = Bundle.main.url(forResource: "ObserverIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = image
+        } else if let url = Bundle.main.url(forResource: "ObserverStatus", withExtension: "png"),
+                  let image = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = image
         }
     }
 

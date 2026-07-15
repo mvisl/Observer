@@ -280,15 +280,15 @@ final class ObserverController {
         }
 
         if currentFocus?.isObserverApp == true {
-            if let latestContextLine = usableWidgetContextLine(latestContextLine) {
+            if let latestContextLine = usableCurrentContextLine(latestContextLine, now: now, maxAge: 45) {
                 return latestContextLine
             }
         }
 
         if let latestContextLine,
            let latestContextLineAt,
-           now.timeIntervalSince(latestContextLineAt) <= 150,
-           let usableLine = usableWidgetContextLine(latestContextLine) {
+           now.timeIntervalSince(latestContextLineAt) <= 75,
+           let usableLine = usableCurrentContextLine(latestContextLine, now: now, maxAge: 75) {
             return usableLine
         }
 
@@ -296,7 +296,8 @@ final class ObserverController {
             return line
         }
 
-        if let hypothesis = currentWorkHypothesisLine(now: now) {
+        if let hypothesis = currentWorkHypothesisLine(now: now),
+           insightLineMatchesCurrentFocus(hypothesis) {
             return hypothesis
         }
 
@@ -342,7 +343,8 @@ final class ObserverController {
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
         let events = ((try? environment.eventStore.recentEvents(limit: 120)) ?? [])
             .filter { now.timeIntervalSince($0.timestamp) <= 10 * 60 }
-        if let spanLine = latestAttentionSpanFallbackLine(events: events) {
+        if let spanLine = latestAttentionSpanFallbackLine(events: events),
+           insightLineMatchesCurrentFocus(spanLine) {
             return spanLine
         }
 
@@ -377,6 +379,12 @@ final class ObserverController {
             || appName.contains("mail") {
             return "Переписка: связываешь разговор с текущим рабочим контекстом"
         }
+        if currentFocus.isCommunicationContext {
+            return personalCommunicationLine(events: events) ?? "Переписка: личный разговор, рабочие шаблоны не применяю"
+        }
+        if currentFocus.isJiraContext {
+            return "Jira: выбираешь рабочий фронт, а не просто смотришь список"
+        }
         if appName.contains("chrome") || appName.contains("safari") {
             if joinedApps.contains("chatgpt") || joinedApps.contains("claude") {
                 return "Связка ИИ + веб: проверяешь гипотезу через внешний контекст"
@@ -387,6 +395,33 @@ final class ObserverController {
             return "Исследование: отбираешь материал для текущего решения"
         }
         return "Рабочий фрагмент: собираешь несколько сигналов в один эпизод"
+    }
+
+    private func personalCommunicationLine(events: [ObserverEvent]) -> String? {
+        let joined = events
+            .filter { $0.type == .contentContext || $0.type == .userNote }
+            .suffix(8)
+            .compactMap { event in
+                [
+                    event.payload["source_entity_display_name"],
+                    event.payload["entity_name"],
+                    event.payload["topic"],
+                    event.payload["raw_fragment"],
+                    event.payload["summary"],
+                    event.payload["note"]
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            }
+            .joined(separator: " ")
+            .lowercased()
+        if joined.contains("wife") || joined.contains("жена") || joined.contains("najoua") || joined.contains("beloved") {
+            if joined.contains("song") || joined.contains("music") || joined.contains("chorus") || joined.contains("песня") {
+                return "Переписка с женой: обсуждаете музыку и вкус, не рабочее исследование"
+            }
+            return "Переписка с женой: личный контекст, не рабочая задача"
+        }
+        return nil
     }
 
     private func latestAttentionSpanFallbackLine(events: [ObserverEvent]) -> String? {
@@ -434,7 +469,7 @@ final class ObserverController {
     }
 
     private func latestExternalWidgetInsightLine(now: Date = Date()) -> String? {
-        let maxAge = max(600, environment.settings.geminiAutoInsightIntervalSeconds * 1.5)
+        let maxAge: TimeInterval = 120
         return ((try? environment.eventStore.recentEvents(limit: 80)) ?? [])
             .reversed()
             .first { event in
@@ -442,7 +477,14 @@ final class ObserverController {
                     && now.timeIntervalSince(event.timestamp) <= maxAge
                     && event.payload["request_kind"] == "widget_sensemaking"
             }
-            .flatMap { usableWidgetContextLine($0.payload["widget_line"]) }
+            .flatMap { event in
+                guard let cleaned = usableWidgetContextLine(event.payload["widget_line"]),
+                      insightLineMatchesCurrentFocus(cleaned)
+                else {
+                    return nil
+                }
+                return cleaned
+            }
     }
 
     private func currentWorkHypothesisLine(now: Date = Date()) -> String? {
@@ -590,6 +632,52 @@ final class ObserverController {
             return nil
         }
         return cleaned
+    }
+
+    private func usableCurrentContextLine(_ line: String?, now: Date = Date(), maxAge: TimeInterval) -> String? {
+        guard let latestContextLineAt,
+              now.timeIntervalSince(latestContextLineAt) <= maxAge,
+              let cleaned = usableWidgetContextLine(line),
+              insightLineMatchesCurrentFocus(cleaned)
+        else {
+            return nil
+        }
+        return cleaned
+    }
+
+    private func insightLineMatchesCurrentFocus(_ line: String) -> Bool {
+        guard let currentFocus else {
+            return true
+        }
+        let lower = line.lowercased()
+        if currentFocus.isCommunicationContext {
+            return lower.hasPrefix("переписк")
+                || lower.hasPrefix("сообщен")
+                || lower.hasPrefix("почта")
+                || lower.contains("жена")
+                || lower.contains("личн")
+        }
+        if currentFocus.isJiraContext {
+            return lower.hasPrefix("jira")
+                || lower.contains("рабочий фронт")
+                || lower.contains("приоритет")
+                || lower.contains("разбор задач")
+        }
+        if currentFocus.isObserverApp {
+            return lower.hasPrefix("observer")
+                || lower.hasPrefix("пилюл")
+                || lower.hasPrefix("контекст")
+        }
+        if lower.hasPrefix("переписк") || lower.hasPrefix("сообщен") {
+            return currentFocus.isCommunicationContext
+        }
+        if lower.hasPrefix("observer") {
+            return currentFocus.isObserverApp
+        }
+        if lower.hasPrefix("jira") {
+            return currentFocus.isJiraContext
+        }
+        return true
     }
 
     private func usableSemanticTopic(_ topic: String?) -> String? {
@@ -4202,6 +4290,22 @@ private extension AppFocusSnapshot {
             "gmail",
             "messenger",
             "viber"
+        ])
+    }
+
+    var isJiraContext: Bool {
+        [
+            appName,
+            appID ?? "",
+            windowTitle ?? ""
+        ]
+        .joined(separator: " ")
+        .lowercased()
+        .containsAny([
+            "jira",
+            "atlassian",
+            "issue navigator",
+            "issues"
         ])
     }
 }

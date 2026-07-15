@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { NavLink, RouterProvider, createBrowserRouter, useSearchParams } from "react-router-dom";
+import { NavLink, RouterProvider, createBrowserRouter, useLocation, useSearchParams } from "react-router-dom";
 import { getDailyMarkdown, getDaySnapshot, getSession, pairDevice, submitCorrection } from "./api";
 import type { DayDashboardSnapshot, SensorChannel, ThreadSummary, TimelineSegment } from "./types";
 import "./styles.css";
 
 const queryClient = new QueryClient();
+const publicDashboardMode = import.meta.env.VITE_OBSERVER_PUBLIC_DASHBOARD === "1" || window.location.hostname.endsWith("github.io");
+const publicAccessCode = "2501";
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -109,7 +111,7 @@ function AppShell() {
 }
 
 function PageSwitch() {
-  const path = location.pathname;
+  const { pathname: path } = useLocation();
   if (path.startsWith("/timeline")) return <TimelinePage />;
   if (path.startsWith("/contexts")) return <ContextsPage />;
   if (path.startsWith("/review")) return <ReviewPage />;
@@ -118,6 +120,136 @@ function PageSwitch() {
   if (path.startsWith("/readiness")) return <ReadinessPage />;
   if (path.startsWith("/report")) return <ReportPage />;
   return <TodayPage />;
+}
+
+function PublicAccessGate() {
+  const [code, setCode] = useState("");
+  const [status, setStatus] = useState<"idle" | "checking" | "allowed" | "blocked">(
+    () => sessionStorage.getItem("observer_public_access") === "ok" ? "allowed" : "idle"
+  );
+  const [message, setMessage] = useState("Доступ открыт только из Черногории и по коду.");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (code.trim() !== publicAccessCode) {
+      setStatus("blocked");
+      setMessage("Код неверный.");
+      return;
+    }
+
+    setStatus("checking");
+    const result = await checkMontenegroAccess();
+    if (result.allowed) {
+      sessionStorage.setItem("observer_public_access", "ok");
+      setStatus("allowed");
+      setMessage(result.reason);
+    } else {
+      sessionStorage.removeItem("observer_public_access");
+      setStatus("blocked");
+      setMessage(result.reason);
+    }
+  }
+
+  if (status === "allowed") {
+    return <PublicDashboardShell geoMessage={message} />;
+  }
+
+  return (
+    <main className="pairing public-gate">
+      <div>
+        <p className="eyebrow">Observer Public Dashboard</p>
+        <h1>Доступ к витрине</h1>
+        <p className="muted">
+          Это публичная оболочка без личных данных. Живой дневник открывается только через локальный Observer Core.
+        </p>
+        <form onSubmit={submit}>
+          <input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            placeholder="код доступа"
+            inputMode="numeric"
+            autoFocus
+          />
+          <button disabled={status === "checking"}>{status === "checking" ? "Проверяю…" : "Войти"}</button>
+        </form>
+        <p className={status === "blocked" ? "danger public-note" : "muted public-note"}>{message}</p>
+        <p className="muted public-note">
+          Гео-фильтр на GitHub Pages работает на клиенте. Настоящая country-блокировка требует Cloudflare/серверный proxy.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: string }> {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch("https://ipapi.co/json/", {
+      cache: "no-store",
+      signal: controller.signal
+    });
+    const data = await response.json() as { country_code?: string; country_name?: string };
+    if (data.country_code === "ME") {
+      return { allowed: true, reason: "Черногория подтверждена по IP." };
+    }
+    if (timeZone === "Europe/Podgorica") {
+      return { allowed: true, reason: "IP не подтвердился, но системная зона Черногории совпала." };
+    }
+    return { allowed: false, reason: `Доступ закрыт: нужна Черногория, сейчас ${data.country_name ?? data.country_code ?? "неизвестная страна"}.` };
+  } catch {
+    if (timeZone === "Europe/Podgorica") {
+      return { allowed: true, reason: "Geo API недоступен; пускаю по системной зоне Черногории." };
+    }
+    return { allowed: false, reason: "Не смог проверить Черногорию. Попробуй из сети Черногории или через защищённый proxy." };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function PublicDashboardShell({ geoMessage }: { geoMessage: string }) {
+  const panels = [
+    ["Today", "Живой день открывается с Mac через локальный Core."],
+    ["Timeline", "Сегменты задач и эпизоды не публикуются в cloud."],
+    ["Contexts", "Темы, сущности и переписки остаются локальными."],
+    ["Review", "Разметка и correction loop доступны только после pairing."],
+    ["Readiness", "Готовность мозга считается на приватных данных."],
+    ["Report", "Отчёты дня не выгружаются на GitHub Pages."]
+  ];
+  return (
+    <main className="public-shell">
+      <section className="public-hero">
+        <p className="eyebrow">Observer Web Dashboard</p>
+        <h1>Публичная витрина включена</h1>
+        <p>
+          Код принят. Эта страница доступна как оболочка dashboard, но не содержит личных логов,
+          камерных событий, переписок или отчётов.
+        </p>
+        <div className="public-actions">
+          <a href="http://127.0.0.1:43127/">Открыть локальный Core</a>
+          <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Код dashboard</a>
+          <a href="https://github.com/mvisl/Observer/tree/main/core/dashboard-api">Core API</a>
+        </div>
+        <small>{geoMessage}</small>
+      </section>
+      <section className="public-grid" aria-label="Dashboard sections">
+        {panels.map(([title, text]) => (
+          <article key={title}>
+            <h2>{title}</h2>
+            <p>{text}</p>
+          </article>
+        ))}
+      </section>
+      <section className="public-state">
+        <h2>Как открыть реальные данные</h2>
+        <p>
+          На рабочем Mac запусти Observer, открой меню и используй локальный dashboard или Tailscale Serve.
+          GitHub Pages остаётся только входной страницей и ссылкой на код.
+        </p>
+      </section>
+    </main>
+  );
 }
 
 function SnapshotState({ snapshot, children }: { snapshot?: DayDashboardSnapshot; children: (snapshot: DayDashboardSnapshot) => React.ReactNode }) {
@@ -373,12 +505,15 @@ function threadColor(id: string) {
   return `var(${colors[hash % colors.length]})`;
 }
 
-const router = createBrowserRouter([{ path: "*", element: <AuthGate><AppShell /></AuthGate> }]);
+const router = createBrowserRouter(
+  [{ path: "*", element: <AuthGate><AppShell /></AuthGate> }],
+  { basename: import.meta.env.BASE_URL === "/" ? undefined : import.meta.env.BASE_URL.replace(/\/$/, "") }
+);
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {publicDashboardMode ? <PublicAccessGate /> : <RouterProvider router={router} />}
     </QueryClientProvider>
   </React.StrictMode>
 );
