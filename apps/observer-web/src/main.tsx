@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, RouterProvider, createBrowserRouter, useLocation, useSearchParams } from "react-router-dom";
@@ -241,18 +241,99 @@ async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: stri
   }
 }
 
+
+type PublicNodeKind = "root" | "stream" | "branch" | "intention" | "subtask";
+
+type PublicNode = {
+  id: string;
+  name: string;
+  minutes: number;
+  kind: PublicNodeKind;
+  question?: string;
+  decisions?: number;
+  unresolved?: number;
+  evidenceKinds?: string[];
+  status?: "neutral" | "warning";
+  children?: PublicNode[];
+};
+
+type PublicLayoutNode = {
+  node: PublicNode;
+  level: number;
+  x0: number;
+  x1: number;
+  parentMinutes: number;
+};
+
+type PublicEpisode = {
+  id: string;
+  nodeId: string;
+  start: string;
+  end: string;
+  startMinute: number;
+  endMinute: number;
+  label: string;
+};
+
+function flattenPublicNodes(node: PublicNode): PublicNode[] {
+  return [node, ...(node.children ?? []).flatMap(flattenPublicNodes)];
+}
+
+function findPublicNode(root: PublicNode, id?: string | null): PublicNode | undefined {
+  if (!id) return undefined;
+  return flattenPublicNodes(root).find((node) => node.id === id);
+}
+
+function publicNodePath(root: PublicNode, targetId: string): PublicNode[] {
+  const walk = (node: PublicNode, path: PublicNode[]): PublicNode[] | undefined => {
+    const next = [...path, node];
+    if (node.id === targetId) return next;
+    for (const child of node.children ?? []) {
+      const found = walk(child, next);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return walk(root, []) ?? [root];
+}
+
+function formatDateWords(startDate: string, endDate: string, rangePreset: "today" | "7d" | "custom") {
+  const formatter = new Intl.DateTimeFormat("ru", { day: "numeric", month: "long" });
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  if (startDate === endDate) return rangePreset === "today" ? `сегодня, ${formatter.format(end)}` : formatter.format(end);
+  return rangePreset === "7d" ? `неделя ${formatter.format(start)} - ${formatter.format(end)}` : `${formatter.format(start)} - ${formatter.format(end)}`;
+}
+
+function buildPublicIcicle(root: PublicNode, displayRoot: PublicNode): PublicLayoutNode[] {
+  const rows: PublicLayoutNode[] = [];
+  const walk = (node: PublicNode, level: number, x0: number, x1: number) => {
+    if (level > 3) return;
+    const children = node.children ?? [];
+    const total = Math.max(1, children.reduce((sum, child) => sum + child.minutes, 0));
+    let cursor = x0;
+    for (const child of children) {
+      const width = (x1 - x0) * (child.minutes / total);
+      const nextX = cursor + width;
+      rows.push({ node: child, level, x0: cursor, x1: nextX, parentMinutes: node.minutes || root.minutes });
+      walk(child, level + 1, cursor, nextX);
+      cursor = nextX;
+    }
+  };
+  walk(displayRoot, 0, 0, 100);
+  return rows;
+}
+
 function PublicDashboardShell() {
   const today = localDateString();
   const sevenDaysAgo = localDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
-  const branchMapRef = useRef<HTMLElement | null>(null);
-  const intentionsRef = useRef<HTMLElement | null>(null);
-  const drilldownRef = useRef<HTMLElement | null>(null);
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "personal">("work");
-  const [selectedStream, setSelectedStream] = useState("Resolve Andrey's WhatToBuy feedback");
-  const [selectedSubtask, setSelectedSubtask] = useState("Andrey feedback -> product decision");
+  const [viewMode, setViewMode] = useState<"structure" | "timeline">(() => (localStorage.getItem("observer_public_view") === "timeline" ? "timeline" : "structure"));
+  const [selectedNodeId, setSelectedNodeId] = useState("intention-andrey");
+  const [zoomNodeId, setZoomNodeId] = useState<string | null>(null);
+  const [openDrawer, setOpenDrawer] = useState<"decisions" | "evidence" | "digest" | null>(null);
 
   function applyPreset(next: "today" | "7d" | "custom") {
     setRangePreset(next);
@@ -267,675 +348,387 @@ function PublicDashboardShell() {
   }
 
   const rangeDays = daysBetweenInclusive(startDate, endDate);
-  const rangeLabel = rangeDays === 1 ? "Today" : `${rangeDays} days`;
   const rangeMultiplier = rangePreset === "today"
     ? 1
     : rangePreset === "7d"
       ? 2.85
       : Math.max(0.35, Math.min(4.2, rangeDays * 0.52));
   const scaledMinutes = (minutes: number, weight = 1) => Math.max(5, Math.round(minutes * rangeMultiplier * weight));
+  const dateWords = formatDateWords(startDate, endDate, rangePreset);
+  const observedMinutes = scaledMinutes(726);
+  const coverage = rangePreset === "today" ? 94 : rangePreset === "7d" ? 82 : Math.max(41, Math.min(97, Math.round(94 - rangeDays * 2.2)));
 
-  const intentions = [
-    {
-      lifeStream: "work",
-      name: "Resolve Andrey's WhatToBuy feedback",
-      source: "Work → Libertex → WhatToBuy → Andrey Shevchishin",
-      path: ["Work", "Libertex", "WhatToBuy", "Andrey Shevchishin"],
-      confidence: "high",
-      question: "How should the market cards explain value without making the user calculate or compare too much?",
-      outcome: rangeDays === 1
-        ? "Turn Andrey's notes into concrete product decisions for the WhatToBuy board."
-        : "Connect Andrey's feedback, Figma edits and follow-up decisions into one product-design thread.",
-      subthreads: [
-        {
-          name: "Andrey feedback -> product decision",
-          kind: "communication evidence",
-          minutes: scaledMinutes(39, rangeDays > 1 ? 1.35 : 1),
-          summary: rangeDays === 1
-            ? "The chat is not a separate task: it defines the product question and the acceptance criteria."
-            : "Feedback loops from Andrey become decision inputs for the board, not a generic communication bucket.",
-          evidence: rangeDays === 1
-            ? ["Andrey", "WhatToBuy", "question vs teaser", "dividend comments"]
-            : ["Andrey", "WhatToBuy", "question vs teaser", "dividend comments", "follow-up decision trail"]
-        },
-        {
-          name: "Upcoming Dividends logic",
-          kind: "product logic",
-          minutes: scaledMinutes(74, rangeDays > 1 ? 1.15 : 1),
-          summary: rangeDays === 1
-            ? "Replace raw ex-dividend date with a user-safe buy-by date and reduce mental calculation."
-            : "Refine dividend guidance across buy-by date, badge hierarchy and user-safe wording.",
-          evidence: rangeDays === 1
-            ? ["ex-dividend date", "buy-by date", "badge copy rewrite"]
-            : ["ex-dividend date", "buy-by date", "badge copy rewrite", "follow-up card review"]
-        },
-        {
-          name: "Card hierarchy",
-          kind: "information architecture",
-          minutes: scaledMinutes(63, rangeDays > 1 ? 1.25 : 1),
-          summary: rangeDays === 1
-            ? "Move from question-level copy to teaser-level product signals."
-            : "Work through hierarchy conflicts across product cards and recommendation blocks.",
-          evidence: rangeDays === 1
-            ? ["product card review", "teaser vs question debate", "priority comments"]
-            : ["product card review", "teaser vs question debate", "priority comments", "market-card comparisons"]
-        },
-        {
-          name: "Figma execution",
-          kind: "artifact work",
-          minutes: scaledMinutes(113, rangeDays > 1 ? 0.95 : 1),
-          summary: rangeDays === 1
-            ? "Translate the conversation with Andrey into visible layout decisions."
-            : "Apply design decisions across several board sections and verify visual consistency.",
-          evidence: rangeDays === 1
-            ? ["Figma canvas", "selected section", "iterative design edits"]
-            : ["Figma canvas", "selected sections", "iterative design edits", "component consistency"]
-        }
-      ]
-    },
-    {
-      lifeStream: "work",
-      name: "Find Nebius cover visual direction",
-      source: "Work → Libertex/Market assets → Nebius cover → image generation",
-      path: ["Work", "Libertex", "Market assets", "Nebius cover"],
-      confidence: "medium",
-      question: "What visual metaphor should represent Nebius without becoming generic neon cloud noise?",
-      outcome: rangeDays === 1
-        ? "Generate a cover image that matches the brand/task instead of accepting the first pretty render."
-        : "Iterate visual assets by intent: brand fit, composition, and why a generated result fails.",
-      subthreads: [
-        {
-          name: "Prompting image candidates",
-          kind: "AI-assisted visual search",
-          minutes: scaledMinutes(28, rangeDays > 1 ? 1.4 : 1),
-          summary: rangeDays === 1
-            ? "Several outputs are being tested against a specific visual bar; mismatch is the source of frustration."
-            : "Generated image attempts are grouped by the visual criterion they failed: brand fit, density, or composition.",
-          evidence: rangeDays === 1
-            ? ["Nebius cover", "generated image", "rejected composition", "frustration reaction"]
-            : ["Nebius cover", "generated images", "rejected compositions", "frustration reactions"]
-        },
-        {
-          name: "Visual criterion refinement",
-          kind: "creative direction",
-          minutes: scaledMinutes(22, rangeDays > 1 ? 1.1 : 1),
-          summary: rangeDays === 1
-            ? "The useful insight is the criterion: calm data infrastructure, not an overloaded glowing cloud."
-            : "Rejected candidates clarify the target style and become reusable prompt constraints.",
-          evidence: rangeDays === 1
-            ? ["reference strip", "blue data field", "too-neon candidate"]
-            : ["reference strip", "blue data field", "too-neon candidates", "style constraints"]
-        },
-        {
-          name: "Reaction binding",
-          kind: "behavior + artifact",
-          minutes: scaledMinutes(16, rangeDays > 1 ? 0.9 : 1),
-          summary: rangeDays === 1
-            ? "The anger is bound to failing the image task, not to Chrome or ChatGPT as apps."
-            : "Repeated reactions are attached to the artifact and criterion so future reports explain why the loop happened.",
-          evidence: rangeDays === 1
-            ? ["rapid attempts", "artifact mismatch", "explicit correction"]
-            : ["rapid attempts", "artifact mismatch", "explicit corrections", "boundReaction"]
-        }
-      ]
-    },
-    {
-      lifeStream: "work",
-      name: "Prioritize company product backlog",
-      source: "Work → Libertex → Product backlog → Jira triage",
-      path: ["Work", "Libertex", "Product backlog", "Jira triage"],
-      confidence: "medium",
-      question: "Which company issues deserve attention now, and what decision or clarification unblocks them?",
-      outcome: rangeDays === 1
-        ? "Scan assigned product issues and separate real next actions from raw ticket noise."
-        : "Keep company backlog review grouped by decision intent, not by Jira rows or browser tabs.",
-      subthreads: [
-        {
-          name: "Jira issue triage",
-          kind: "backlog review",
-          minutes: scaledMinutes(34, rangeDays > 1 ? 1.45 : 1),
-          summary: rangeDays === 1
-            ? "Rows in Jira are interpreted as candidate decisions, priorities and blockers."
-            : "Repeated Jira reviews are grouped by issue intent and priority movement.",
-          evidence: rangeDays === 1
-            ? ["Jira", "assigned issues", "priority numbers", "open status"]
-            : ["Jira", "assigned issues", "priority numbers", "status changes", "review loop"]
-        },
-        {
-          name: "Research for current decision",
-          kind: "research plane",
-          minutes: scaledMinutes(42, rangeDays > 1 ? 1.2 : 1),
-          summary: rangeDays === 1
-            ? "Browser sources support a current product decision rather than forming a separate browsing task."
-            : "Research spans are attached to the decision question they support.",
-          evidence: rangeDays === 1
-            ? ["browser sources", "active issue", "decision context"]
-            : ["browser sources", "active issues", "decision context", "source comparisons"]
-        },
-        {
-          name: "Communication follow-up",
-          kind: "communication plane",
-          minutes: scaledMinutes(24, rangeDays > 1 ? 1.05 : 1),
-          summary: rangeDays === 1
-            ? "Messages are only counted here when they unblock or reshape a work decision."
-            : "Work communication becomes evidence for the issue, not a separate app bucket.",
-          evidence: rangeDays === 1
-            ? ["work chat", "clarification", "decision handoff"]
-            : ["work chat", "clarifications", "decision handoffs", "follow-up owners"]
-        }
-      ]
-    },
-    {
-      lifeStream: "personal",
-      name: "Keep close communication connected without polluting work",
-      source: "Personal → Communication → Family → wife / relatives",
-      path: ["Personal", "Communication", "Family", "wife / relatives"],
-      confidence: "medium",
-      question: "Which personal interactions change mood, recovery or schedule, and which should stay outside work analytics?",
-      outcome: rangeDays === 1
-        ? "Treat close communication as personal context unless it visibly affects focus, mood or next actions."
-        : "Separate communication groups from work tasks while preserving measurable aftermath.",
-      subthreads: [
-        {
-          name: "Family / wife chat",
-          kind: "family communication",
-          minutes: scaledMinutes(26, rangeDays > 1 ? 1.3 : 1),
-          summary: rangeDays === 1
-            ? "The important signal is emotional context and possible music/mood aftermath, not the messenger app."
-            : "Repeated warm interactions can be linked to recovery or later work rhythm only when the aftermath is visible.",
-          evidence: rangeDays === 1
-            ? ["wife chat", "music link", "warm tone", "after-work context"]
-            : ["wife chat", "music links", "warm tone", "after-work context", "mood aftermath"]
-        },
-        {
-          name: "Family logistics",
-          kind: "family coordination",
-          minutes: scaledMinutes(18, rangeDays > 1 ? 1.1 : 1),
-          summary: rangeDays === 1
-            ? "Small coordination moments belong to Family unless they interrupt a work span."
-            : "Family logistics are measured by interruption and recovery cost, not message count.",
-          evidence: rangeDays === 1
-            ? ["family messages", "schedule context", "brief interruption"]
-            : ["family messages", "schedule context", "interruptions", "recovery lag"]
-        },
-        {
-          name: "Communication boundary rule",
-          kind: "privacy / analytics rule",
-          minutes: scaledMinutes(12, rangeDays > 1 ? 0.8 : 1),
-          summary: rangeDays === 1
-            ? "Personal content stays out of task reports unless it creates a measurable work effect."
-            : "The dashboard keeps family as a global stream but avoids turning private chat into fake work tasks.",
-          evidence: rangeDays === 1
-            ? ["personal context boundary", "no artifact change", "state aftermath"]
-            : ["personal context boundary", "no artifact change", "state aftermath", "privacy split"]
-        }
-      ]
-    },
-    {
-      lifeStream: "work",
-      name: "Rebuild Observer around intentions",
-      source: "Work → Observer → Brain/dashboard → reporting model",
-      path: ["Work", "Observer", "Brain/dashboard", "reporting model"],
-      confidence: "medium",
-      question: "How should Observer explain the day by intentions, evidence and outcomes instead of windows?",
-      outcome: rangeDays === 1
-        ? "Push Observer from app-tracking toward intention tracking."
-        : "Move Observer from raw sensing toward a dashboard that explains the day by intention.",
-      subthreads: [
-        {
-          name: "Public dashboard",
-          kind: "dashboard shell",
-          minutes: scaledMinutes(68, rangeDays > 1 ? 0.8 : 1),
-          summary: rangeDays === 1
-            ? "PIN gate, Pages deploy, icon and simple access route."
-            : "Keep the public dashboard deployable while preserving local/private data boundaries.",
-          evidence: rangeDays === 1
-            ? ["GitHub Pages deploy", "public shell", "PIN 2501"]
-            : ["GitHub Pages deploy", "public shell", "PIN 2501", "public/private split"]
-        },
-        {
-          name: "Pill quality",
-          kind: "live insight quality",
-          minutes: scaledMinutes(72, rangeDays > 1 ? 1.35 : 1),
-          summary: rangeDays === 1
-            ? "Reject stale sanitary statuses and bind insight to the current screen."
-            : "Reduce stale and sanitary widget lines across many observed context mistakes.",
-          evidence: rangeDays === 1
-            ? ["wrong status screenshots", "focus mismatch fixes", "sanitary-message policy"]
-            : ["wrong status screenshots", "phone-gaze fixes", "sanitary-message policy", "stale context expiry"]
-        },
-        {
-          name: "Reporting model",
-          kind: "daily reconstruction",
-          minutes: scaledMinutes(75, rangeDays > 1 ? 1.2 : 1),
-          summary: rangeDays === 1
-            ? "Group the day by tasks, sub-tasks, decisions and evidence."
-            : "Turn daily reports into task/subtask timelines instead of app usage summaries.",
-          evidence: rangeDays === 1
-            ? ["daily report critique", "intention-driven hierarchy", "episode layer"]
-            : ["daily report critique", "intention-driven hierarchy", "episode layer", "range drilldown"]
-        }
-      ]
-    }
+  const root = useMemo<PublicNode>(() => ({
+    id: "day",
+    name: "День",
+    kind: "root",
+    minutes: observedMinutes,
+    children: [
+      {
+        id: "stream-work",
+        name: "Work",
+        kind: "stream",
+        minutes: scaledMinutes(670),
+        children: [
+          {
+            id: "branch-libertex",
+            name: "Libertex",
+            kind: "branch",
+            minutes: scaledMinutes(455),
+            children: [
+              {
+                id: "intention-andrey",
+                name: "Фидбек Андрея -> решения по WhatToBuy",
+                kind: "intention",
+                minutes: scaledMinutes(289),
+                question: "Как карточкам объяснять ценность без вычислений со стороны юзера?",
+                decisions: 5,
+                unresolved: 1,
+                evidenceKinds: ["чат", "Figma", "AI"],
+                children: [
+                  { id: "subtask-andrey-feedback", name: "Фидбек -> решение", kind: "subtask", minutes: scaledMinutes(39), evidenceKinds: ["чат"] },
+                  { id: "subtask-dividends", name: "Dividends logic", kind: "subtask", minutes: scaledMinutes(74), evidenceKinds: ["чат", "Figma"] },
+                  { id: "subtask-card-hierarchy", name: "Card hierarchy", kind: "subtask", minutes: scaledMinutes(63), evidenceKinds: ["чат", "Figma"] },
+                  { id: "subtask-figma-execution", name: "Figma execution", kind: "subtask", minutes: scaledMinutes(113), evidenceKinds: ["Figma"] }
+                ]
+              },
+              {
+                id: "intention-nebius",
+                name: "Nebius cover visual direction",
+                kind: "intention",
+                minutes: scaledMinutes(66),
+                question: "Какой образ Nebius не превращается в generic neon cloud?",
+                decisions: 2,
+                unresolved: 1,
+                evidenceKinds: ["Figma", "AI", "реакция"],
+                children: [
+                  { id: "subtask-nebius-prompts", name: "Prompt candidates", kind: "subtask", minutes: scaledMinutes(28), evidenceKinds: ["AI"] },
+                  { id: "subtask-nebius-criterion", name: "Visual criterion", kind: "subtask", minutes: scaledMinutes(22), evidenceKinds: ["Figma"] },
+                  { id: "subtask-nebius-reaction", name: "Reaction binding", kind: "subtask", minutes: scaledMinutes(16), evidenceKinds: ["камера", "текст"] }
+                ]
+              },
+              {
+                id: "intention-backlog",
+                name: "Backlog / Jira prioritization",
+                kind: "intention",
+                minutes: scaledMinutes(100),
+                question: "Какие issue требуют решения сейчас, а какие просто шумят?",
+                decisions: 3,
+                unresolved: 2,
+                evidenceKinds: ["Jira", "чат", "web"],
+                children: [
+                  { id: "subtask-jira-triage", name: "Jira issue triage", kind: "subtask", minutes: scaledMinutes(34), evidenceKinds: ["Jira"] },
+                  { id: "subtask-research", name: "Research for decision", kind: "subtask", minutes: scaledMinutes(42), evidenceKinds: ["web"] },
+                  { id: "subtask-followup", name: "Communication follow-up", kind: "subtask", minutes: scaledMinutes(24), evidenceKinds: ["чат"] }
+                ]
+              }
+            ]
+          },
+          {
+            id: "branch-observer",
+            name: "Observer",
+            kind: "branch",
+            minutes: scaledMinutes(215),
+            children: [
+              {
+                id: "intention-observer-brain",
+                name: "Brain / dashboard",
+                kind: "intention",
+                minutes: scaledMinutes(215),
+                question: "Как объяснять день намерениями, evidence и outcome вместо окон?",
+                decisions: 6,
+                unresolved: 3,
+                evidenceKinds: ["Codex", "dashboard", "пилюля"],
+                children: [
+                  { id: "subtask-public-dashboard", name: "Public dashboard", kind: "subtask", minutes: scaledMinutes(68), evidenceKinds: ["GitHub Pages"] },
+                  { id: "subtask-pill-quality", name: "Pill quality", kind: "subtask", minutes: scaledMinutes(72), evidenceKinds: ["пилюля"] },
+                  { id: "subtask-reporting-model", name: "Reporting model", kind: "subtask", minutes: scaledMinutes(75), evidenceKinds: ["отчёт"] }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: "stream-personal",
+        name: "Личное",
+        kind: "stream",
+        minutes: scaledMinutes(56),
+        children: [
+          {
+            id: "branch-communication",
+            name: "Общение",
+            kind: "branch",
+            minutes: scaledMinutes(56),
+            children: [
+              {
+                id: "intention-family",
+                name: "Family / close communication",
+                kind: "intention",
+                minutes: scaledMinutes(56),
+                question: "Что меняет настроение/восстановление, а что остаётся личным контекстом?",
+                decisions: 1,
+                unresolved: 0,
+                evidenceKinds: ["WhatsApp", "music", "aftermath"],
+                children: [
+                  { id: "subtask-wife-chat", name: "Family / wife chat", kind: "subtask", minutes: scaledMinutes(26), evidenceKinds: ["WhatsApp"] },
+                  { id: "subtask-family-logistics", name: "Family logistics", kind: "subtask", minutes: scaledMinutes(18), evidenceKinds: ["чат"] },
+                  { id: "subtask-boundary", name: "Boundary rule", kind: "subtask", minutes: scaledMinutes(12), evidenceKinds: ["privacy"] }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }), [observedMinutes, rangeMultiplier]);
+
+  const allNodes = useMemo(() => flattenPublicNodes(root), [root]);
+  const selectedNode = findPublicNode(root, selectedNodeId) ?? findPublicNode(root, "intention-andrey") ?? root;
+  const zoomNode = findPublicNode(root, zoomNodeId) ?? root;
+  const selectedPath = publicNodePath(root, selectedNode.id).filter((node) => node.kind !== "root");
+  const detailChildren = selectedNode.children ?? [];
+  const detailTotal = Math.max(1, detailChildren.reduce((sum, child) => sum + child.minutes, 0));
+  const layout = buildPublicIcicle(root, zoomNode);
+  const levels = [0, 1, 2, 3].map((level) => layout.filter((item) => item.level === level));
+  const episodes: PublicEpisode[] = [
+    { id: "ep-andrey-chat", nodeId: "intention-andrey", start: "10:04", end: "10:43", startMinute: 64, endMinute: 103, label: "Andrey feedback" },
+    { id: "ep-dividends", nodeId: "subtask-dividends", start: "10:50", end: "12:04", startMinute: 110, endMinute: 184, label: "Dividend logic" },
+    { id: "ep-figma", nodeId: "subtask-figma-execution", start: "12:20", end: "14:13", startMinute: 200, endMinute: 313, label: "Figma execution" },
+    { id: "ep-observer", nodeId: "intention-observer-brain", start: "14:25", end: "16:38", startMinute: 325, endMinute: 458, label: "Observer brain" },
+    { id: "ep-nebius", nodeId: "intention-nebius", start: "16:46", end: "17:52", startMinute: 466, endMinute: 532, label: "Nebius cover" },
+    { id: "ep-family", nodeId: "intention-family", start: "18:08", end: "19:04", startMinute: 548, endMinute: 604, label: "Family / music" }
   ];
-  const lifeStreams = [
-    {
-      id: "work" as const,
-      name: "Work",
-      summary: "Work tree: company/product/client contexts, then concrete products, tasks, people and evidence."
-    },
-    {
-      id: "personal" as const,
-      name: "Personal",
-      summary: "Personal tree: communication and life context, linked to work only through visible aftermath."
-    }
-  ].map((stream) => ({
-    ...stream,
-    intentions: intentions.filter((intent) => intent.lifeStream === stream.id),
-    minutes: intentions
-      .filter((intent) => intent.lifeStream === stream.id)
-      .reduce((sum, intent) => sum + intent.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0), 0)
-  }));
-  const visibleIntentions = intentions.filter((stream) => stream.lifeStream === selectedLifeStream);
-  const activeStream = visibleIntentions.find((stream) => stream.name === selectedStream) ?? visibleIntentions[0];
-  const activeSubtask = activeStream.subthreads.find((item) => item.name === selectedSubtask) ?? activeStream.subthreads[0];
-  const activeStreamMinutes = activeStream.subthreads.reduce((sum, item) => sum + item.minutes, 0);
-  const selectedLifeStreamInfo = lifeStreams.find((stream) => stream.id === selectedLifeStream) ?? lifeStreams[0];
-  const selectedBranches = Array.from(new Set(visibleIntentions.map((intent) => intent.path[1] ?? intent.name))).map((branch) => {
-    const branchIntentions = visibleIntentions.filter((intent) => (intent.path[1] ?? intent.name) === branch);
-    const minutes = branchIntentions.reduce(
-      (sum, intent) => sum + intent.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
-      0
-    );
-    const tasks = Array.from(new Set(branchIntentions.map((intent) => intent.path[2] ?? intent.name)));
-    return { name: branch, intentions: branchIntentions, minutes, tasks };
-  });
-  const totalMinutes = intentions.reduce(
-    (sum, stream) => sum + stream.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
-    0
-  );
-  const fatigueSignals = [
-    {
-      title: "Load concentration",
-      value: "High",
-      detail: "Most work is packed into a few dense intention loops; this usually feels heavier than the same time spread across clean blocks."
-    },
-    {
-      title: "Resumption cost",
-      value: "Watch",
-      detail: "Frequent jumps are acceptable inside one task, but fatigue rises when returning to useful output takes longer after each jump."
-    },
-    {
-      title: "Friction loops",
-      value: "Visible",
-      detail: "Repeated AI/Figma/browser loops around the same unresolved criterion are stronger fatigue evidence than app switching alone."
-    },
-    {
-      title: "Recovery signals",
-      value: "Unknown",
-      detail: "Music, short breaks and warm communication should be tested by aftermath: input rhythm and next stable focus block, not instant mood labels."
-    }
+  const digest = [
+    { status: "warning", short: "2 плотные петли: WhatToBuy и Observer дают основную нагрузку", full: "Нагрузка идёт не от Chrome/Figma, а от повторного уточнения критериев: что считать хорошим результатом и как это доказать артефактом." },
+    { status: "neutral", short: "Andrey chat является evidence внутри Libertex → WhatToBuy", full: "Коммуникация с Андреем не отдельный поток. Это нижний слой задачи WhatToBuy: Source → Decide → Apply в Figma." },
+    { status: "warning", short: "Nebius cover: злость привязана к провалу визуального критерия", full: "Повторные генерации полезны только если система хранит, какой именно критерий не выполнен: спокойная дата-инфраструктура вместо generic neon cloud." },
+    { status: "neutral", short: "Музыка пока кандидат влияния, нужен aftermath по темпу и фокусу", full: "Повтор песни — сильный сигнал предпочтения, но влияние на продуктивность нужно мерить по следующему устойчивому блоку работы." }
   ];
-  function scrollTo(target: React.RefObject<HTMLElement | null>) {
-    window.setTimeout(() => target.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  const decisionLedger = [
+    "WhatToBuy: показывать buy-by date вместо сырой ex-dividend даты.",
+    "Andrey feedback входит в задачу Libertex / WhatToBuy, а не в общий communication bucket.",
+    "В отчётах приложения не являются верхним уровнем: они только evidence.",
+    "Nebius: фиксировать критерий провала генерации, а не просто факт раздражения.",
+    "Пилюля не должна публиковать санитарку; лучше sensing/stale, чем ложный insight."
+  ];
+
+  useEffect(() => {
+    const hydrateFromHash = () => {
+      const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const node = params.get("node");
+      const zoom = params.get("zoom");
+      const view = params.get("view");
+      const range = params.get("range");
+      const start = params.get("start");
+      const end = params.get("end");
+      if (node && allNodes.some((item) => item.id === node)) setSelectedNodeId(node);
+      if (zoom && allNodes.some((item) => item.id === zoom)) setZoomNodeId(zoom);
+      if (!zoom) setZoomNodeId(null);
+      if (view === "structure" || view === "timeline") setViewMode(view);
+      if (range === "today" || range === "7d" || range === "custom") setRangePreset(range);
+      if (start) setStartDate(start);
+      if (end) setEndDate(end);
+    };
+    hydrateFromHash();
+    window.addEventListener("hashchange", hydrateFromHash);
+    return () => window.removeEventListener("hashchange", hydrateFromHash);
+  }, [allNodes]);
+
+  useEffect(() => {
+    localStorage.setItem("observer_public_view", viewMode);
+    const params = new URLSearchParams();
+    params.set("date", endDate);
+    params.set("range", rangePreset === "today" ? "day" : rangePreset);
+    params.set("start", startDate);
+    params.set("end", endDate);
+    params.set("view", viewMode);
+    params.set("node", selectedNode.id);
+    if (zoomNodeId) params.set("zoom", zoomNodeId);
+    const nextHash = `#${params.toString()}`;
+    if (window.location.hash !== nextHash) window.history.replaceState(null, "", nextHash);
+  }, [endDate, rangePreset, selectedNode.id, startDate, viewMode, zoomNodeId]);
+
+  function selectNode(node: PublicNode) {
+    setSelectedNodeId((current) => current === node.id ? "day" : node.id);
+    setOpenDrawer(null);
   }
-  const timeline = [
-    ["Source", "Andrey / WhatToBuy", "Feedback defines the job: turn card comments into a clearer product decision."],
-    ["Decide", "Dividend logic", "Shift from showing raw ex-date data to guiding the safe buy-by action."],
-    ["Apply", "Figma board", "Make the hierarchy visible in Upcoming Dividends and related card sections."],
-    ["Bind", "Nebius cover attempts", "Repeated failed generations explain the irritation: visual criterion is not being met."],
-    ["Review", "Observer dashboard", "Reject app buckets; group the day by intention, subtask, evidence and outcome."]
-  ];
-  const decisions = [
-    "WhatToBuy is an Andrey/product intention. Chat is evidence inside the task, not a separate workstream.",
-    "The dashboard is a nested tree: Work → Libertex → WhatToBuy → Andrey communication, not flat buckets.",
-    "A generation loop is useful only when it records the target visual criterion and why candidates failed.",
-    "Every episode needs intent, source, artifact, output, next decision and uncertainty.",
-    "Apps are supporting evidence; they never define the top-level task."
-  ];
-  const weakSignals = [
-    "Current public page cannot yet stream local Core data from GitHub Pages.",
-    "Daily report still needs task taxonomy and merge logic across chat + Figma + AI.",
-    "Pill insight staleness needs stronger expiry when the screen context changes."
-  ];
-  const musicSignals = [
-    {
-      title: "Repeat / sustained listening",
-      detail: "A repeated or long-held track becomes a positive candidate only when you are present and do not skip it."
-    },
-    {
-      title: "Work aftermath",
-      detail: "The useful question is whether input rhythm, focus span or output quality improves after the track starts."
-    },
-    {
-      title: "Confounders",
-      detail: "If a message, call or visual task caused the reaction, the music signal stays uncertain until repeated."
+
+  function zoomInto(node: PublicNode) {
+    if ((node.children ?? []).length > 0) setZoomNodeId(node.id);
+  }
+
+  function activeFamily(node: PublicNode) {
+    const path = publicNodePath(root, node.id);
+    if (path.some((item) => item.id === "branch-observer")) return "observer";
+    if (path.some((item) => item.id === "branch-communication")) return "personal";
+    if (path.some((item) => item.id === "intention-nebius")) return "nebius";
+    if (path.some((item) => item.id === "intention-backlog")) return "backlog";
+    if (path.some((item) => item.id === "branch-libertex")) return "libertex";
+    return "neutral";
+  }
+
+  function handleIcicleKey(event: React.KeyboardEvent<HTMLButtonElement>, node: PublicNode) {
+    const siblings = (() => {
+      const path = publicNodePath(root, node.id);
+      const parent = path[path.length - 2];
+      return parent?.children ?? [];
+    })();
+    const index = siblings.findIndex((item) => item.id === node.id);
+    if (event.key === "Enter") zoomInto(node);
+    if (event.key === "Escape") setZoomNodeId(null);
+    if (event.key === "ArrowRight" && siblings[index + 1]) selectNode(siblings[index + 1]);
+    if (event.key === "ArrowLeft" && siblings[index - 1]) selectNode(siblings[index - 1]);
+    if (event.key === "ArrowUp") {
+      const path = publicNodePath(root, node.id);
+      const parent = path[path.length - 2];
+      if (parent) selectNode(parent);
     }
-  ];
-  const attentionSwitches = [
-    {
-      type: "Within-task transition",
-      signal: "Chat → Figma → Chat around the same dividend-card question.",
-      meaning: "Not a task switch. Same intention, different evidence surfaces.",
-      measure: "Count inside one attention span; do not penalize as fragmentation."
-    },
-    {
-      type: "True task switch",
-      signal: "Dominant intention changes and the previous thread stops producing output.",
-      meaning: "Attention residue is likely: part of the old task remains active.",
-      measure: "Mark closure quality and time to stable output in the new task."
-    },
-    {
-      type: "Interruption + resumption",
-      signal: "External message/call/system event breaks an active work span.",
-      meaning: "The cost is not the interruption itself, but the lag before useful work resumes.",
-      measure: "Track resumption lag: return time → first meaningful edit/decision."
-    },
-    {
-      type: "Research scanning",
-      signal: "Many sources, tabs and short reads, all tied to one unresolved question.",
-      meaning: "High switching can still be one task if the question stays stable.",
-      measure: "Group by question/topic, not by browser tab count."
-    },
-    {
-      type: "Drift / avoidance candidate",
-      signal: "Repeated unrelated jumps with no artifact change and no decision output.",
-      meaning: "Only a candidate; needs evidence from context, input rhythm and return pattern.",
-      measure: "Surface only after repeated loops and failed resumption."
-    }
-  ];
-  const researchSources = [
-    ["Fragmented work", "Mark, Gonzalez & Harris: work is fragmented across working spheres, so switches must be interpreted by task context."],
-    ["Attention residue", "Leroy: switching tasks can leave attention attached to the previous goal, hurting the next task."],
-    ["Resumption lag", "Altmann & Trafton: interruption cost is measurable as time needed to collect the suspended goal and resume."]
-  ];
+    if (event.key === "ArrowDown" && node.children?.[0]) selectNode(node.children[0]);
+  }
+
   return (
-    <main className="public-shell">
-      <section className="public-hero">
-        <div className="public-hero-top">
-          <div>
-            <p className="eyebrow">Observer Intelligence Dashboard</p>
-            <h1>Work by intention, not by app</h1>
-            <p>
-              A daily tracker should reconstruct the work as connected intentions: what you tried to move forward,
-              which conversations shaped it, what changed in the artifact, and what remains unresolved.
-            </p>
+    <main className="public-shell public-dashboard-app">
+      <header className="public-day-header">
+        <div>
+          <h1>{dateWords}</h1>
+          <span>наблюдалось {fmtMinutes(observedMinutes)} · coverage {coverage}%</span>
+        </div>
+        <div className="dashboard-controls">
+          <div className="segmented-control" aria-label="Dashboard view">
+            <button className={viewMode === "structure" ? "selected" : ""} onClick={() => setViewMode("structure")}>Структура</button>
+            <button className={viewMode === "timeline" ? "selected" : ""} onClick={() => setViewMode("timeline")}>Таймлайн</button>
           </div>
-          <div className="date-range-panel" aria-label="Date range">
-            <span>Reporting range</span>
-            <strong>{startDate === endDate ? startDate : `${startDate} - ${endDate}`}</strong>
-            <div className="range-buttons">
-              <button className={rangePreset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>Today</button>
-              <button className={rangePreset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>7 days</button>
-              <button className={rangePreset === "custom" ? "selected" : ""} onClick={() => applyPreset("custom")}>Custom</button>
-            </div>
-            <div className="date-inputs">
-              <input type="date" value={startDate} onChange={(event) => { setRangePreset("custom"); setStartDate(event.target.value); }} />
-              <input type="date" value={endDate} onChange={(event) => { setRangePreset("custom"); setEndDate(event.target.value); }} />
-            </div>
+          <div className="compact-range" aria-label="Reporting range">
+            <button className={rangePreset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>Today</button>
+            <button className={rangePreset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>7 days</button>
+            <button className={rangePreset === "custom" ? "selected" : ""} onClick={() => applyPreset("custom")}>Custom</button>
+            <input type="date" value={startDate} onChange={(event) => { setRangePreset("custom"); setStartDate(event.target.value); }} />
+            <input type="date" value={endDate} onChange={(event) => { setRangePreset("custom"); setEndDate(event.target.value); }} />
           </div>
         </div>
-        <div className="public-actions">
-          <a href="http://127.0.0.1:43127/">Open Local Core</a>
-          <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>
-          <a href="https://github.com/mvisl/Observer/tree/main/core/dashboard-api">Core API</a>
-        </div>
-      </section>
+      </header>
 
-      <section className="public-kpi-grid" aria-label="Daily summary">
-        <article>
-          <span>Primary stream</span>
-          <strong>{selectedLifeStreamInfo.name}</strong>
-          <p>{selectedLifeStreamInfo.summary}</p>
-        </article>
-        <article>
-          <span>Active intention</span>
-          <strong>{activeStream.name}</strong>
-          <p>{activeStream.source}</p>
-        </article>
-        <article>
-          <span>Tracked structure</span>
-          <strong>{fmtMinutes(totalMinutes)}</strong>
-          <p>Grouped as tasks, sub-tasks and evidence, not app-window time.</p>
-        </article>
-      </section>
-
-      <section className="public-section">
-        <div className="section-head">
-          <h2>Global Streams</h2>
-          <span>{rangeLabel} · root - project - task - person/evidence</span>
-        </div>
-        <div className="life-stream-grid">
-          {lifeStreams.map((stream) => (
-            <button
-              key={stream.id}
-              className={`life-stream-card ${stream.id === selectedLifeStream ? "selected" : ""}`}
-              onClick={() => {
-                setSelectedLifeStream(stream.id);
-                setSelectedStream(stream.intentions[0].name);
-                setSelectedSubtask(stream.intentions[0].subthreads[0].name);
-                scrollTo(branchMapRef);
-              }}
-              aria-pressed={stream.id === selectedLifeStream}
-            >
-              <span>{stream.name}</span>
-              <strong>{fmtMinutes(stream.minutes)}</strong>
-              <p>{stream.summary}</p>
-              <small>{stream.intentions.length} branches</small>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section branch-map-section" ref={branchMapRef}>
-        <div className="section-head">
-          <h2>{selectedLifeStreamInfo.name} Branch Map</h2>
-          <span>{rangeLabel} · click branch to open tasks</span>
-        </div>
-        <div className="branch-map-grid">
-          {selectedBranches.map((branch) => (
-            <button
-              key={branch.name}
-              className={`branch-card ${activeStream.path[1] === branch.name ? "selected" : ""}`}
-              onClick={() => {
-                const first = branch.intentions[0];
-                setSelectedStream(first.name);
-                setSelectedSubtask(first.subthreads[0].name);
-                scrollTo(intentionsRef);
-              }}
-            >
-              <span>{selectedLifeStreamInfo.name} → {branch.name}</span>
-              <strong>{fmtMinutes(branch.minutes)}</strong>
-              <p>{branch.tasks.join(" · ")}</p>
-              <small>{branch.intentions.length} intention branches</small>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section" ref={intentionsRef}>
-        <div className="section-head">
-          <h2>{selectedLifeStreamInfo.name} Intentions</h2>
-          <span>{rangeLabel} · branch - plane - evidence</span>
-        </div>
-        <div className="workstream-list">
-          {visibleIntentions.map((stream) => (
-            <article
-              key={stream.name}
-              className={`workstream-card ${stream.name === activeStream.name ? "selected" : ""}`}
-            >
-              <div>
-                <h3>{stream.name}</h3>
-                <div className="path-chain" aria-label={`${stream.name} hierarchy`}>
-                  {stream.path.map((part) => <span key={part}>{part}</span>)}
+      <section className="dashboard-workbench" aria-label="Иерархия дня">
+        <div className="structure-pane">
+          {zoomNode.id !== "day" && (
+            <div className="zoom-crumbs">
+              {publicNodePath(root, zoomNode.id).filter((node) => node.id !== zoomNode.id).map((node) => (
+                <button key={node.id} onClick={() => setZoomNodeId(node.id === "day" ? null : node.id)}>{node.name}</button>
+              ))}
+              <span>{zoomNode.name}</span>
+            </div>
+          )}
+          {viewMode === "structure" ? (
+            <div className="icicle-chart" role="tree" aria-label="Intention hierarchy">
+              {levels.map((row, rowIndex) => (
+                <div className="icicle-row" key={rowIndex}>
+                  {row.map(({ node, x0, x1, parentMinutes }) => {
+                    const width = Math.max(0, x1 - x0);
+                    const showTime = width >= 9;
+                    const showText = width >= 4;
+                    return (
+                      <button
+                        key={node.id}
+                        className={`icicle-node family-${activeFamily(node)} depth-${node.kind} ${selectedNode.id === node.id ? "selected" : ""}`}
+                        style={{ left: `${x0}%`, width: `calc(${width}% - 2px)` }}
+                        title={`${node.name} · ${fmtMinutes(node.minutes)} · ${Math.round((node.minutes / Math.max(1, parentMinutes)) * 100)}% parent · ${Math.round((node.minutes / root.minutes) * 100)}% day`}
+                        onClick={() => selectNode(node)}
+                        onDoubleClick={(event) => {
+                          event.preventDefault();
+                          setSelectedNodeId(node.id);
+                          zoomInto(node);
+                        }}
+                        onKeyDown={(event) => handleIcicleKey(event, node)}
+                        aria-label={`${node.name}, ${fmtMinutes(node.minutes)}, ${Math.round((node.minutes / root.minutes) * 100)} percent of day`}
+                      >
+                        {showText && <span>{node.name}</span>}
+                        {showTime && <b>{fmtMinutes(node.minutes)}</b>}
+                      </button>
+                    );
+                  })}
                 </div>
-                <span className="intention-source">{stream.source}</span>
-                <p>{stream.outcome}</p>
-                <p className="intention-question">{stream.question}</p>
+              ))}
+            </div>
+          ) : (
+            <div className="timeline-track" aria-label="Timeline">
+              <div className="timeline-axis"><span>09:00</span><span>15 июля</span><span>20:00</span></div>
+              <div className="timeline-lane">
+                {episodes.map((episode) => {
+                  const node = findPublicNode(root, episode.nodeId) ?? root;
+                  const left = (episode.startMinute / 660) * 100;
+                  const width = ((episode.endMinute - episode.startMinute) / 660) * 100;
+                  return (
+                    <button
+                      key={episode.id}
+                      className={`timeline-block family-${activeFamily(node)} ${selectedNode.id === node.id ? "selected" : ""}`}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      onClick={() => selectNode(node)}
+                      title={`${episode.start}-${episode.end}: ${episode.label}`}
+                    >
+                      <span>{episode.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="workstream-meta">
-                <b>{fmtMinutes(stream.subthreads.reduce((sum, item) => sum + item.minutes, 0))}</b>
-                <span>{stream.confidence}</span>
-              </div>
-              <div className="subtask-minute-list">
-                {stream.subthreads.map((item) => (
-                  <button
-                    key={item.name}
-                    className={`subtask-pill ${stream.name === activeStream.name && item.name === activeSubtask.name ? "selected" : ""}`}
-                    onClick={() => {
-                      setSelectedStream(stream.name);
-                      setSelectedSubtask(item.name);
-                      scrollTo(drilldownRef);
-                    }}
-                    aria-pressed={stream.name === activeStream.name && item.name === activeSubtask.name}
-                  >
-                    <span>{item.name}</span>
-                    <b>{fmtMinutes(item.minutes)}</b>
-                  </button>
-                ))}
-              </div>
-              <button
-                className="drill-button"
-                onClick={() => {
-                  setSelectedStream(stream.name);
-                  setSelectedSubtask(stream.subthreads[0].name);
-                  scrollTo(drilldownRef);
-                }}
-              >
-                {stream.name === activeStream.name ? "Selected" : "Open details"}
+            </div>
+          )}
+        </div>
+
+        <section className="detail-panel" aria-label="Детали">
+          <div className="detail-title-row">
+            <h2>{selectedNode.name}</h2>
+            <strong>{fmtMinutes(selectedNode.minutes)}</strong>
+          </div>
+          <p className="detail-path">
+            {selectedPath.map((node) => node.name).join(" / ") || "День"}{selectedNode.question ? ` · ${selectedNode.question}` : ""}
+          </p>
+          <div className="detail-grid" role="list">
+            {(detailChildren.length ? detailChildren : root.children ?? []).map((child) => (
+              <button key={child.id} className="detail-row" onClick={() => selectNode(child)} role="listitem">
+                <span>{child.name}</span>
+                <i><b style={{ width: `${Math.max(6, (child.minutes / detailTotal) * 100)}%` }} /></i>
+                <strong>{fmtMinutes(child.minutes)}</strong>
               </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section drilldown-section" ref={drilldownRef}>
-        <div className="section-head">
-          <h2>{activeStream.name}</h2>
-          <span>{fmtMinutes(activeStreamMinutes)} in {rangeLabel.toLowerCase()} · selected: {activeSubtask.name}</span>
-        </div>
-        <div className="intention-brief">
-          <span>{activeStream.source}</span>
-          <p>{activeStream.question}</p>
-          <div className="path-chain">
-            {activeStream.path.map((part) => <span key={part}>{part}</span>)}
-          </div>
-        </div>
-        <div className="subtask-detail-grid">
-          {activeStream.subthreads.map((item) => (
-            <article key={item.name} className={item.name === activeSubtask.name ? "selected" : ""}>
-              <div className="subtask-detail-head">
-                <h3>{item.name}</h3>
-                <strong>{fmtMinutes(item.minutes)}</strong>
-              </div>
-              <span className="subtask-kind">{item.kind}</span>
-              <p>{item.summary}</p>
-              <div className="evidence-tags">
-                {item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section">
-        <div className="section-head">
-          <h2>Fatigue Load</h2>
-          <span>behavioral evidence, not diagnosis</span>
-        </div>
-        <div className="signal-grid">
-          {fatigueSignals.map((signal) => (
-            <article key={signal.title}>
-              <span className="subtask-kind">{signal.title}</span>
-              <h3>{signal.value}</h3>
-              <p>{signal.detail}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-two-column">
-        <article className="public-section">
-          <div className="section-head">
-            <h2>Episode Chain</h2>
-            <span>semantic sequence</span>
-          </div>
-          <div className="episode-chain">
-            {timeline.map(([phase, title, detail]) => (
-              <div key={`${phase}-${title}`} className="episode-step">
-                <span>{phase}</span>
-                <div>
-                  <h3>{title}</h3>
-                  <p>{detail}</p>
-                </div>
-              </div>
             ))}
           </div>
-        </article>
-
-        <article className="public-section">
-          <div className="section-head">
-            <h2>Decision Ledger</h2>
-            <span>what changed</span>
+          <div className="detail-footer">
+            <button onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>{selectedNode.decisions ?? 0} решений</button>
+            <button className="warning" onClick={() => setOpenDrawer(openDrawer === "decisions" ? null : "decisions")}>{selectedNode.unresolved ?? 0} нерешённое</button>
+            <button className="evidence" onClick={() => setOpenDrawer(openDrawer === "evidence" ? null : "evidence")}>evidence: {(selectedNode.evidenceKinds ?? ["чат", "Figma", "AI"]).join(" · ")}</button>
           </div>
-          <ol className="decision-list">
-            {decisions.map((decision) => <li key={decision}>{decision}</li>)}
-          </ol>
-        </article>
+          {openDrawer === "decisions" && (
+            <ol className="drawer-list">
+              {decisionLedger.map((decision) => <li key={decision}>{decision}</li>)}
+            </ol>
+          )}
+          {openDrawer === "evidence" && (
+            <div className="episode-chain compact-chain">
+              {episodes.slice(0, 5).map((episode) => <p key={episode.id}><b>{episode.start}-{episode.end}</b> {episode.label}</p>)}
+            </div>
+          )}
+        </section>
       </section>
 
-      <section className="public-section">
-        <div className="section-head">
-          <h2>Weak Signals</h2>
-          <span>next improvements</span>
-        </div>
-        <div className="signal-grid">
-          {weakSignals.map((signal) => <p key={signal}>{signal}</p>)}
-        </div>
-      </section>
-
-      <section className="public-section">
-        <div className="section-head">
-          <h2>Music Influence</h2>
-          <span>preference + productivity aftermath</span>
-        </div>
-        <div className="signal-grid">
-          {musicSignals.map((signal) => (
-            <article key={signal.title}>
-              <h3>{signal.title}</h3>
-              <p>{signal.detail}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section">
-        <div className="section-head">
-          <h2>Attention Switch Model</h2>
-          <span>attention, not window focus</span>
-        </div>
-        <div className="attention-switch-list">
-          {attentionSwitches.map((item) => (
-            <article key={item.type}>
-              <div>
-                <h3>{item.type}</h3>
-                <p>{item.signal}</p>
-              </div>
-              <p>{item.meaning}</p>
-              <small>{item.measure}</small>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="public-section research-strip">
-        {researchSources.map(([title, detail]) => (
-          <article key={title}>
-            <h3>{title}</h3>
-            <p>{detail}</p>
-          </article>
+      <section className="digest-row" aria-label="Сигналы дня">
+        {digest.map((item) => (
+          <button key={item.short} className={item.status} onClick={() => setOpenDrawer(openDrawer === "digest" ? null : "digest")} title={item.full}>
+            <i />
+            <span>{item.short}</span>
+          </button>
         ))}
       </section>
+      {openDrawer === "digest" && (
+        <section className="digest-drawer">
+          {digest.map((item) => <p key={item.short}><b>{item.short}</b> {item.full}</p>)}
+        </section>
+      )}
+
+      <footer className="public-footer">
+        <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>
+        <a href="https://github.com/mvisl/Observer">Repository</a>
+        <a href="https://github.com/mvisl/Observer/blob/main/docs/observer-claude-brief-intention-model.md">About / Methodology</a>
+      </footer>
     </main>
   );
 }
