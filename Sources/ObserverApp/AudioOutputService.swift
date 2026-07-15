@@ -82,4 +82,50 @@ struct AudioOutputService {
             "науш"
         ].contains { normalized.contains($0) }
     }
+
+    /// Tier 1 media signal: this is intentionally binary. It remains useful
+    /// even when a browser or player refuses to reveal its current track.
+    func isAudioActive() -> Bool? {
+        guard let deviceID = currentOutputDeviceID() else {
+            return nil
+        }
+        var running: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size,
+            &running
+        )
+        guard status == noErr else {
+            return nil
+        }
+        return running != 0
+    }
+
+    private func currentOutputDeviceID() -> AudioDeviceID? {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+        return status == noErr && deviceID != 0 ? deviceID : nil
+    }
 }

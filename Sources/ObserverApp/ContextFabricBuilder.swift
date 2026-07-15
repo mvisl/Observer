@@ -52,6 +52,9 @@ struct ContextFabricBuildResult {
     let assignments: [[String: String]]
     let contextSlices: [[String: String]]
     let linkAudits: [[String: String]]
+    let intentionAnchors: [[String: String]]
+    let spanIntentionAssignments: [[String: String]]
+    let chainLinks: [[String: String]]
 }
 
 struct ContextFabricBuilder {
@@ -183,6 +186,8 @@ struct ContextFabricBuilder {
             }
         }
 
+        let intentionAttribution = IntentionAttributionBuilder().build(events: events)
+
         return .init(
             cameraEvidence: [],
             artifactIdentities: artifactPayloads,
@@ -190,7 +195,10 @@ struct ContextFabricBuilder {
             activityThreads: threadPayloads,
             assignments: assignmentPayloads,
             contextSlices: slicePayloads,
-            linkAudits: auditPayloads
+            linkAudits: auditPayloads,
+            intentionAnchors: intentionAttribution.anchors,
+            spanIntentionAssignments: intentionAttribution.spanAssignments,
+            chainLinks: intentionAttribution.chainLinks
         )
     }
 

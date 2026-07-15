@@ -248,7 +248,23 @@ struct DashboardReadModelBuilder {
                     evidenceEventIds: parseList(event.payload["evidence_event_ids"] ?? event.payload["source_event_ids"])
                 )
             }
-        return DashboardCausalSummary(hypotheses: hypotheses)
+        let chains = events
+            .filter { $0.type == .chainLink }
+            .suffix(80)
+            .compactMap { event -> DashboardEpisodeChain? in
+                guard let from = event.payload["from_episode_event_id"],
+                      let to = event.payload["to_episode_event_id"]
+                else { return nil }
+                return DashboardEpisodeChain(
+                    id: event.id.uuidString,
+                    fromEpisodeId: from,
+                    toEpisodeId: to,
+                    kind: event.payload["kind"] ?? "episode_link",
+                    confidence: Double(event.payload["confidence"] ?? "") ?? event.confidence,
+                    evidenceEventIds: parseList(event.payload["source_event_ids"])
+                )
+            }
+        return DashboardCausalSummary(hypotheses: hypotheses, episodeChains: chains)
     }
 
     private func invariantErrors(totals: DashboardTotals, segments: [DashboardTimelineSegment]) -> [String] {

@@ -11,7 +11,7 @@ struct AttentionSpanBuilderTests {
             focus("Figma", at: start.addingTimeInterval(70))
         ]
 
-        let span = AttentionSpanBuilder().build(from: events, now: start.addingTimeInterval(100))
+        let span = AttentionSpanBuilder().build(from: events, now: start.addingTimeInterval(240))
 
         #expect(span?.payload["span_kind"] == "ai_assisted_design")
         #expect(span?.payload["apps"] == "ChatGPT -> Google Chrome -> Figma")
@@ -22,11 +22,11 @@ struct AttentionSpanBuilderTests {
         let start = Date(timeIntervalSince1970: 1_000)
         let events = [
             focus("ChatGPT", at: start),
-            focus("Google Chrome", at: start.addingTimeInterval(95)),
-            focus("Claude", at: start.addingTimeInterval(120))
+            focus("Google Chrome", at: start.addingTimeInterval(220)),
+            focus("Claude", at: start.addingTimeInterval(250))
         ]
 
-        let span = AttentionSpanBuilder().build(from: events, now: start.addingTimeInterval(130))
+        let span = AttentionSpanBuilder().build(from: events, now: start.addingTimeInterval(460))
 
         #expect(span?.payload["apps"] == "Google Chrome -> Claude")
         #expect(span?.payload["switches_within_span"] == "1")

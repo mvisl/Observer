@@ -31,9 +31,13 @@ struct ReadinessReportBuilder {
             events: events.filter { $0.timestamp >= sevenDayStart },
             calendar: calendar
         )
+        let todayIntentions = IntentionAttributionMetrics(events: events.filter { $0.timestamp >= dayStart })
+        let rollingIntentions = IntentionAttributionMetrics(events: events.filter { $0.timestamp >= sevenDayStart })
 
         let payload = todayMetrics.payload(prefix: "today_")
             .merging(rollingMetrics.payload(prefix: "rolling_7d_")) { current, _ in current }
+            .merging(todayIntentions.payload(prefix: "today_intention_")) { current, _ in current }
+            .merging(rollingIntentions.payload(prefix: "rolling_7d_intention_")) { current, _ in current }
         let markdown = """
         ## Episode Readiness Funnel
 
@@ -44,6 +48,15 @@ struct ReadinessReportBuilder {
         | --- | ---: | ---: | ---: | ---: | ---: |
         | Today | \(todayMetrics.episodes) | \(todayMetrics.independentDays) | \(todayMetrics.percent(todayMetrics.contentCoverage)) | \(todayMetrics.percent(todayMetrics.lineageCoverage)) | \(todayMetrics.percent(todayMetrics.unsupportedClaimRate)) |
         | 7d | \(rollingMetrics.episodes) | \(rollingMetrics.independentDays) | \(rollingMetrics.percent(rollingMetrics.contentCoverage)) | \(rollingMetrics.percent(rollingMetrics.lineageCoverage)) | \(rollingMetrics.percent(rollingMetrics.unsupportedClaimRate)) |
+
+        ## Intention Attribution
+
+        | Window | Prompt anchors | Current spans | Legacy spans | Task-linked spans | Coverage | Median span |
+        | --- | ---: | ---: | ---: | ---: | ---: |
+        | Today | \(todayIntentions.anchors) | \(todayIntentions.currentSpans) | \(todayIntentions.legacySpans) | \(todayIntentions.assignedSpans) | \(todayIntentions.percent(todayIntentions.coverage)) | \(todayIntentions.durationLabel) |
+        | 7d | \(rollingIntentions.anchors) | \(rollingIntentions.currentSpans) | \(rollingIntentions.legacySpans) | \(rollingIntentions.assignedSpans) | \(rollingIntentions.percent(rollingIntentions.coverage)) | \(rollingIntentions.durationLabel) |
+
+        Object presence: \(todayIntentions.objectPresenceStatus).
         """
 
         return FunnelReport(payload: payload, markdown: markdown)
@@ -206,6 +219,52 @@ struct ReadinessReportBuilder {
             return "media"
         }
         return "input"
+    }
+}
+
+private struct IntentionAttributionMetrics {
+    let events: [ObserverEvent]
+
+    var anchors: Int { events.filter { $0.type == .intentionAnchor }.count }
+    var spans: Int { events.filter { $0.type == .attentionSpan }.count }
+    var currentSpans: Int {
+        events.filter {
+            $0.type == .attentionSpan
+                && ($0.payload["segmentation"] ?? "").hasPrefix("attention_unit_v2_")
+        }.count
+    }
+    var legacySpans: Int { spans - currentSpans }
+    var assignedSpans: Int {
+        Set(events.filter { $0.type == .spanIntentionAssignment }.compactMap { $0.payload["attention_span_id"] }).count
+    }
+    var coverage: Double { spans > 0 ? Double(assignedSpans) / Double(spans) : 0 }
+    var objectPresenceStatus: String {
+        let count = events.filter { $0.type == .objectPresence }.count
+        return count == 0
+            ? "no observations; object detector is not wired into the camera producer"
+            : "\(count) shadow observations"
+    }
+    var durationLabel: String {
+        let values = events
+            .filter { $0.type == .attentionSpan }
+            .compactMap { Double($0.payload["duration_seconds"] ?? "") }
+            .sorted()
+        guard values.isEmpty == false else { return "n/a" }
+        let median = values[values.count / 2]
+        return "\(Int(median / 60))m"
+    }
+    func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+    func payload(prefix: String) -> [String: String] {
+        [
+            "\(prefix)anchors": "\(anchors)",
+            "\(prefix)spans": "\(spans)",
+            "\(prefix)current_spans": "\(currentSpans)",
+            "\(prefix)legacy_spans": "\(legacySpans)",
+            "\(prefix)assigned_spans": "\(assignedSpans)",
+            "\(prefix)span_task_coverage": String(format: "%.3f", coverage),
+            "\(prefix)median_span_seconds": durationLabel,
+            "\(prefix)object_presence_status": objectPresenceStatus
+        ]
     }
 }
 

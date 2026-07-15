@@ -7,12 +7,16 @@ struct AttentionSpanCandidate: Equatable {
 }
 
 struct AttentionSpanBuilder {
-    var maximumGapSeconds: TimeInterval = 90
+    // A span is an attention unit, not an app-focus tick. Ten-minute buckets
+    // keep the log inspectable while preserving closely related tool hops.
+    var maximumGapSeconds: TimeInterval = 180
+    var minimumDurationSeconds: TimeInterval = 180
+    var emissionBucketSeconds: TimeInterval = 600
 
     func build(from events: [ObserverEvent], now: Date = Date()) -> AttentionSpanCandidate? {
         let focusEvents = events
             .filter { $0.type == .appFocus }
-            .suffix(20)
+            .suffix(80)
         guard let latest = focusEvents.last else {
             return nil
         }
@@ -32,7 +36,7 @@ struct AttentionSpanBuilder {
         let switches = max(0, spanEvents.count - 1)
         let duration = now.timeIntervalSince(spanEvents.first?.timestamp ?? latest.timestamp)
 
-        guard switches >= 1 || duration >= 30 else {
+        guard switches >= 1, duration >= minimumDurationSeconds else {
             return nil
         }
 
@@ -40,7 +44,7 @@ struct AttentionSpanBuilder {
         let signature = [
             kind,
             uniqueApps.joined(separator: ">"),
-            String(Int((spanEvents.first?.timestamp ?? latest.timestamp).timeIntervalSince1970 / maximumGapSeconds))
+            String(Int((spanEvents.first?.timestamp ?? latest.timestamp).timeIntervalSince1970 / emissionBucketSeconds))
         ].joined(separator: "|")
 
         let eventIDs = spanEvents.map(\.id.uuidString).joined(separator: ",")
@@ -53,7 +57,7 @@ struct AttentionSpanBuilder {
             "apps_count": "\(uniqueApps.count)",
             "switches_within_span": "\(switches)",
             "trace_event_ids": eventIDs,
-            "segmentation": "gap_under_\(Int(maximumGapSeconds))s"
+            "segmentation": "attention_unit_v2_gap_under_\(Int(maximumGapSeconds))s_bucket_\(Int(emissionBucketSeconds))s"
         ]
 
         return AttentionSpanCandidate(
@@ -91,7 +95,7 @@ struct AttentionSpanBuilder {
         if hasAI {
             return "ai_assisted_work"
         }
-        if hasCommunication {
+        if hasCommunication && apps.count == 1 {
             return "communication"
         }
         if hasDesign {

@@ -31,7 +31,9 @@ struct MediaPlaybackSnapshot: Equatable {
     var eventPayload: [String: String] {
         var payload: [String: String] = [
             "source": source,
-            "state": state
+            "state": state,
+            "sensor_tier": "tier2_source_metadata",
+            "track_identified": (title?.isEmpty == false) ? "true" : "false"
         ]
         if let title, !title.isEmpty {
             payload["title"] = title

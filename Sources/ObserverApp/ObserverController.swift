@@ -82,6 +82,8 @@ final class ObserverController {
     private var lastAutoPauseAt: Date?
     private var lastHeadphonesAutoPauseAt: Date?
     private var lastAudioOutputLooksLikeHeadphones: Bool?
+    private var lastAudioActive: Bool?
+    private var lastAudioActivityEventAt: Date?
     private var autoPausedSources: [String] = []
     private var scheduleOverride: ScheduleOverride?
     private var currentObservationIntervalStartedAt: Date?
@@ -1288,6 +1290,36 @@ final class ObserverController {
                     )
                 )
             }
+            for payload in result.intentionAnchors {
+                append(
+                    .init(
+                        type: .intentionAnchor,
+                        confidence: 0.88,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.spanIntentionAssignments {
+                append(
+                    .init(
+                        type: .spanIntentionAssignment,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
+            for payload in result.chainLinks {
+                append(
+                    .init(
+                        type: .chainLink,
+                        confidence: Double(payload["confidence"] ?? "") ?? 0.5,
+                        payload: payload,
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+            }
         }
         if environment.settings.contextFabric.activityTrackerEnabled {
             for payload in result.contextSlices {
@@ -2445,7 +2477,9 @@ final class ObserverController {
     }
 
     private func recordAttentionSpanIfNeeded(currentFocusEvent: ObserverEvent) {
-        var events = (try? environment.eventStore.recentEvents(limit: 40)) ?? []
+        // Spans can bridge a short sequence of tool changes; 40 events was too
+        // shallow to see that sequence once camera and input telemetry were present.
+        var events = (try? environment.eventStore.recentEvents(limit: 120)) ?? []
         if events.last?.id != currentFocusEvent.id {
             events.append(currentFocusEvent)
         }
@@ -2799,16 +2833,26 @@ final class ObserverController {
             )
         }
 
-        append(
-            .init(
-                type: .contentContext,
-                displayRole: context.displayRole,
-                appID: context.appID,
-                confidence: context.confidence,
-                payload: payload,
-                workspaceTopologyVersion: environment.topology.version
-            )
+        let contentEvent = ObserverEvent(
+            type: .contentContext,
+            displayRole: context.displayRole,
+            appID: context.appID,
+            confidence: context.confidence,
+            payload: payload,
+            workspaceTopologyVersion: environment.topology.version
         )
+        append(contentEvent)
+        if annotation.contentKind == "prompt",
+           let anchor = IntentionAttributionBuilder().anchorPayload(for: contentEvent) {
+            append(
+                .init(
+                    type: .intentionAnchor,
+                    confidence: 0.88,
+                    payload: anchor,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
 
         guard !environment.settings.fullContextMode else {
             return
@@ -3504,7 +3548,10 @@ final class ObserverController {
                 type: .boundReaction,
                 displayRole: cueEvent.displayRole,
                 appID: cueEvent.appID,
-                confidence: min(0.9, cueEvent.confidence + 0.2),
+                confidence: min(
+                    Double(payload["confidence_cap"] ?? "") ?? 0.9,
+                    min(0.9, cueEvent.confidence + 0.2)
+                ),
                 payload: payload,
                 workspaceTopologyVersion: environment.topology.version
             )
@@ -3881,6 +3928,8 @@ final class ObserverController {
         currentMediaTrackStartedAt = nil
         currentMediaListenSession = nil
         lastAudioOutputLooksLikeHeadphones = nil
+        lastAudioActive = nil
+        lastAudioActivityEventAt = nil
     }
 
     private func sampleMediaPlayback() {
@@ -3888,6 +3937,7 @@ final class ObserverController {
             return
         }
         handleAudioOutputTransition()
+        recordAudioActivityStateIfNeeded()
 
         let probe = MediaPlaybackService().currentPlaybackProbe()
         guard let snapshot = probe.snapshot else {
@@ -4051,6 +4101,35 @@ final class ObserverController {
     private func userAppearsAwayForMediaPreference() -> Bool {
         consecutiveMissingFaceSamples >= 4
             && (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 45
+    }
+
+    private func recordAudioActivityStateIfNeeded(now: Date = Date()) {
+        let audio = AudioOutputService()
+        guard let active = audio.isAudioActive() else {
+            return
+        }
+        let stateChanged = lastAudioActive != active
+        let minuteElapsed = lastAudioActivityEventAt.map { now.timeIntervalSince($0) >= 60 } ?? true
+        guard stateChanged || minuteElapsed else {
+            return
+        }
+        lastAudioActive = active
+        lastAudioActivityEventAt = now
+        append(
+            .init(
+                type: .mediaPlayback,
+                confidence: 0.92,
+                payload: [
+                    "source": "system_audio",
+                    "state": active ? "playing" : "stopped",
+                    "audio_active": active ? "true" : "false",
+                    "sensor_tier": "tier1_output_activity",
+                    "track_identified": "false",
+                    "display_eligible": "false"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func handleAudioOutputTransition() {

@@ -34,6 +34,7 @@ enum ObserverEventType: String, Codable {
     case experiment
     case hintCandidate
     case inputActivity
+    case intentionAnchor
     case typingRhythm
     case mouseDynamics
     case scrollProfile
@@ -54,6 +55,7 @@ enum ObserverEventType: String, Codable {
     case objectPresence
     case mediaPlayback
     case mediaReaction
+    case chainLink
     case personalBaseline
     case personalCausalPattern
     case prediction
@@ -64,6 +66,7 @@ enum ObserverEventType: String, Codable {
     case scheduleOverride
     case securityIncident
     case sequencePattern
+    case spanIntentionAssignment
     case situationModel
     case stateTransition
     case localSummary
@@ -110,6 +113,7 @@ extension ObserverEventType {
              .cameraCueTrajectory,
              .cameraDetectorABReport,
              .cameraTier2Sample,
+             .chainLink,
              .causalAntecedent,
              .causalHypothesis,
              .causalUnderstandingReport,
@@ -128,6 +132,7 @@ extension ObserverEventType {
              .funnelReport,
              .geminiInsight,
              .hintCandidate,
+             .intentionAnchor,
              .interventionCandidate,
              .interventionDecision,
              .interventionOutcome,
@@ -143,6 +148,7 @@ extension ObserverEventType {
              .researchDigest,
              .resumptionLag,
              .sequencePattern,
+             .spanIntentionAssignment,
              .situationModel,
              .stateTransition,
              .weeklyReport:

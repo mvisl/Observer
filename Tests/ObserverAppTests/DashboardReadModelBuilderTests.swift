@@ -90,6 +90,30 @@ struct DashboardReadModelBuilderTests {
         #expect(channelNames.contains("Input"))
     }
 
+    @Test
+    func exportsEpisodeChainsWithoutRawContext() {
+        let now = Date()
+        let from = UUID().uuidString
+        let to = UUID().uuidString
+        let snapshot = DashboardReadModelBuilder().buildDaySnapshot(
+            events: [
+                event(type: .chainLink, at: now, payload: [
+                    "from_episode_event_id": from,
+                    "to_episode_event_id": to,
+                    "kind": "communication_to_decision",
+                    "confidence": "0.70",
+                    "source_event_ids": "event-a,event-b"
+                ])
+            ],
+            date: now,
+            settings: .defaults
+        )
+
+        #expect(snapshot.causalSummary.episodeChains.count == 1)
+        #expect(snapshot.causalSummary.episodeChains[0].kind == "communication_to_decision")
+        #expect(snapshot.causalSummary.episodeChains[0].evidenceEventIds == ["event-a", "event-b"])
+    }
+
     private func event(
         id: UUID = UUID(),
         type: ObserverEventType,

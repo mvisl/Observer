@@ -131,6 +131,9 @@ final class DashboardHTTPServer: @unchecked Sendable {
         if path == "/api/v1/causal/hypotheses" {
             return jsonResponse(snapshot(for: request).causalSummary.hypotheses)
         }
+        if path == "/api/v1/causal/chains" {
+            return jsonResponse(snapshot(for: request).causalSummary.episodeChains)
+        }
         if path == "/api/v1/readiness" {
             return jsonResponse(snapshot(for: request).readinessSummary)
         }

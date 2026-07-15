@@ -63,6 +63,27 @@ struct BoundReactionBuilderTests {
         #expect(payload?["evidence_event_ids"]?.contains(media.id.uuidString) == true)
     }
 
+    @Test func capsAttributionWhenOnlyBinaryAudioSignalIsKnown() {
+        let now = Date()
+        let cue = event(type: .behaviorCue, timestamp: now, payload: ["cue": "positive_reaction_candidate"])
+        let content = event(type: .contentContext, timestamp: now, payload: [
+            "topic": "сообщение",
+            "content_kind": "message"
+        ])
+        let audio = event(type: .mediaPlayback, timestamp: now.addingTimeInterval(-30), payload: [
+            "source": "system_audio",
+            "audio_active": "true",
+            "state": "playing",
+            "sensor_tier": "tier1_output_activity",
+            "track_identified": "false"
+        ])
+
+        let payload = BoundReactionBuilder().build(cueEvent: cue, recentEvents: [audio, content, cue])
+
+        #expect(payload?["media_blind"] == "true")
+        #expect(payload?["confidence_cap"] == "0.50")
+    }
+
     private func event(
         type: ObserverEventType,
         timestamp: Date,

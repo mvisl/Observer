@@ -113,6 +113,7 @@ struct DashboardSensorChannel: Codable, Identifiable {
 
 struct DashboardCausalSummary: Codable {
     let hypotheses: [DashboardCausalHypothesis]
+    let episodeChains: [DashboardEpisodeChain]
 }
 
 struct DashboardCausalHypothesis: Codable, Identifiable {
@@ -120,6 +121,15 @@ struct DashboardCausalHypothesis: Codable, Identifiable {
     let transition: String
     let mechanism: String
     let maturity: String
+    let confidence: Double
+    let evidenceEventIds: [String]
+}
+
+struct DashboardEpisodeChain: Codable, Identifiable {
+    let id: String
+    let fromEpisodeId: String
+    let toEpisodeId: String
+    let kind: String
     let confidence: Double
     let evidenceEventIds: [String]
 }
