@@ -16,6 +16,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$ROOT_DIR/.build/debug/ObserverApp" "$MACOS_DIR/ObserverApp"
+python3 "$ROOT_DIR/scripts/generate-app-icon.py" "$RESOURCES_DIR"
+iconutil -c icns "$RESOURCES_DIR/ObserverIcon.iconset" -o "$RESOURCES_DIR/ObserverIcon.icns"
+rm -rf "$RESOURCES_DIR/ObserverIcon.iconset"
 if [[ -d "$ROOT_DIR/apps/observer-web/dist" ]]; then
   cp -R "$ROOT_DIR/apps/observer-web/dist" "$RESOURCES_DIR/observer-web"
 fi
@@ -27,6 +30,7 @@ fi
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 0.1.0" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 0.1.0" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string ObserverApp" "$CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ObserverIcon" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string APPL" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHumanReadableCopyright string Local development build" "$CONTENTS_DIR/Info.plist"

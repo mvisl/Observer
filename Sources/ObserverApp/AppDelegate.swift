@@ -36,10 +36,23 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     }
 
     private func configureStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "Observer: Paused"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        configureStatusItemIcon(item)
         item.menu = makeMenu()
         statusItem = item
+    }
+
+    private func configureStatusItemIcon(_ item: NSStatusItem) {
+        if let url = Bundle.main.url(forResource: "ObserverStatus", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = false
+            item.button?.image = image
+            item.button?.imagePosition = .imageOnly
+        } else {
+            item.button?.title = "O"
+        }
+        item.button?.toolTip = "Observer: Paused"
     }
 
     private func makeMenu() -> NSMenu {
@@ -133,22 +146,22 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func startObserving() {
         controller?.startObserving()
-        statusItem?.button?.title = "Observer: Watching"
+        statusItem?.button?.toolTip = "Observer: Watching"
     }
 
     @objc private func pauseObserving() {
         controller?.pauseObserving()
-        statusItem?.button?.title = "Observer: Paused"
+        statusItem?.button?.toolTip = "Observer: Paused"
     }
 
     @objc private func observeOneMoreHour() {
         controller?.extendObservation(hours: 1)
-        statusItem?.button?.title = "Observer: Watching"
+        statusItem?.button?.toolTip = "Observer: Watching"
     }
 
     @objc private func observeTwoMoreHours() {
         controller?.extendObservation(hours: 2)
-        statusItem?.button?.title = "Observer: Watching"
+        statusItem?.button?.toolTip = "Observer: Watching"
     }
 
     @objc private func startCameraAttention() {
