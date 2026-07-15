@@ -459,7 +459,15 @@ struct ContextFabricBuilder {
         let ids = (episode.payload["trace_event_ids"] ?? episode.payload["source_event_ids"] ?? "")
             .split(separator: ",")
             .map(String.init)
-        let byID = Dictionary(uniqueKeysWithValues: events.map { ($0.id.uuidString, $0) })
+        // Persisted event batches can briefly contain the same event twice while a
+        // session is being closed. Keep the freshest copy instead of trapping.
+        let byID = events.reduce(into: [String: ObserverEvent]()) { index, event in
+            let key = event.id.uuidString
+            if let existing = index[key], existing.timestamp > event.timestamp {
+                return
+            }
+            index[key] = event
+        }
         let resolved = ids.compactMap { byID[$0] }
         if !resolved.isEmpty {
             return resolved

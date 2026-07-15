@@ -63,6 +63,46 @@ struct ContextFabricBuilderTests {
         #expect(result.contextSlices.first?["activity_kind"] == "ai_assisted")
     }
 
+    @Test func duplicatePersistedEventIDsDoNotCrashContextBuild() {
+        let now = Date()
+        let id = UUID()
+        let earlier = ObserverEvent(
+            id: id,
+            timestamp: now,
+            type: .appFocus,
+            source: "test",
+            platform: "macOS",
+            displayRole: nil,
+            appID: nil,
+            confidence: 0.8,
+            payload: ["app_name": "Figma"],
+            workspaceTopologyVersion: 1
+        )
+        let newer = ObserverEvent(
+            id: id,
+            timestamp: now.addingTimeInterval(10),
+            type: .appFocus,
+            source: "test",
+            platform: "macOS",
+            displayRole: nil,
+            appID: nil,
+            confidence: 0.8,
+            payload: ["app_name": "ChatGPT"],
+            workspaceTopologyVersion: 1
+        )
+        let episode = episode(
+            at: now,
+            topic: "observer context fabric",
+            apps: "Figma -> ChatGPT",
+            trace: [earlier]
+        )
+
+        let result = ContextFabricBuilder().build(events: [earlier, newer, episode], now: now.addingTimeInterval(900))
+
+        #expect(result.assignments.count == 1)
+        #expect(result.contextSlices.count == 1)
+    }
+
     @Test func idleBreakpointReducesActiveTime() {
         let now = Date()
         let idle = event(.breakpoint, at: now.addingTimeInterval(120), payload: ["reason": "input_pause", "seconds_since_any_input": "90"])
