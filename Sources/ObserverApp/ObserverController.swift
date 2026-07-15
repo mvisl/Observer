@@ -4082,7 +4082,13 @@ final class ObserverController {
             return
         }
 
-        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let mediaService = MediaPlaybackService()
+        var pausedSources = mediaService.pauseAllKnownSources()
+        var usedSystemMediaKeyFallback = false
+        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
+            pausedSources = [systemPause]
+            usedSystemMediaKeyFallback = true
+        }
         let inferredPausedBySystem = pausedSources.isEmpty
             ? lastMediaPlaybackSnapshot?.sourceForObserverResume
             : nil
@@ -4110,7 +4116,9 @@ final class ObserverController {
                         ? "auto_pause_skipped"
                         : (inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred"),
                     "reason": "headphones_removed",
-                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
+                    "pause_actor": usedSystemMediaKeyFallback
+                        ? "observer_system_media_key"
+                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "audio_output": outputName ?? "unknown"
                 ],
@@ -4189,7 +4197,13 @@ final class ObserverController {
             return
         }
 
-        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let mediaService = MediaPlaybackService()
+        var pausedSources = mediaService.pauseAllKnownSources()
+        var usedSystemMediaKeyFallback = false
+        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
+            pausedSources = [systemPause]
+            usedSystemMediaKeyFallback = true
+        }
         let inferredPausedBySystem = pausedSources.isEmpty
             ? playbackSnapshot?.sourceForObserverResume
             : nil
@@ -4213,7 +4227,9 @@ final class ObserverController {
                 payload: [
                     "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
                     "reason": "camera_headphones_removed_candidate",
-                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
+                    "pause_actor": usedSystemMediaKeyFallback
+                        ? "observer_system_media_key"
+                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "audio_output": outputName ?? "unknown",
                     "source": playbackSnapshot?.source ?? "unknown",
@@ -4255,7 +4271,13 @@ final class ObserverController {
             return
         }
 
-        var pausedSources = MediaPlaybackService().pauseAllKnownSources()
+        let mediaService = MediaPlaybackService()
+        var pausedSources = mediaService.pauseAllKnownSources()
+        var usedSystemMediaKeyFallback = false
+        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
+            pausedSources = [systemPause]
+            usedSystemMediaKeyFallback = true
+        }
         let inferredPausedBySystem = pausedSources.isEmpty
             ? playbackSnapshot?.sourceForObserverResume
             : nil
@@ -4279,7 +4301,9 @@ final class ObserverController {
                 payload: [
                     "action": inferredPausedBySystem == nil ? "auto_pause" : "auto_pause_inferred",
                     "reason": "camera_headphones_removed_object",
-                    "pause_actor": inferredPausedBySystem == nil ? "observer" : "system_or_device",
+                    "pause_actor": usedSystemMediaKeyFallback
+                        ? "observer_system_media_key"
+                        : (inferredPausedBySystem == nil ? "observer" : "system_or_device"),
                     "paused_sources": pausedSources.joined(separator: ", "),
                     "object_event_id": event.id.uuidString,
                     "object_class": objectClass,

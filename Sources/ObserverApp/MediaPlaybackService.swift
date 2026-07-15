@@ -62,6 +62,10 @@ struct MediaPlaybackSnapshot: Equatable {
 }
 
 struct MediaPlaybackService {
+    private static let youtubePlaybackJavaScript = "(function(){ const videos = Array.from(document.querySelectorAll('video')); const video = videos.find(v => !v.paused) || videos[0]; if (!video) return ''; const heading = document.querySelector('h1 yt-formatted-string, h1.title, h1'); const rawTitle = ((heading && heading.innerText) || document.title || '').split('|').join('/').replace(/ - YouTube$/i, '').trim(); const state = video.paused ? 'paused' : 'playing'; const volume = Math.round((video.volume || 0) * 100); return state + '|' + rawTitle + '|' + volume; })();"
+
+    private static let youtubePauseJavaScript = "(function(){ let didPause = false; Array.from(document.querySelectorAll('video')).forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();"
+
     struct ProbeResult {
         let snapshot: MediaPlaybackSnapshot?
         let failures: [String]
@@ -95,6 +99,16 @@ struct MediaPlaybackService {
         ].compactMap { $0 }
     }
 
+    func pauseSystemMediaKey() -> String? {
+        let script = """
+        tell application "System Events"
+            key code 16
+        end tell
+        return "System Media Key"
+        """
+        return runActionScript(script)
+    }
+
     func resumeSources(_ sources: [String]) -> [String] {
         sources.compactMap { source in
             switch source {
@@ -106,6 +120,8 @@ struct MediaPlaybackService {
                 return resumeYouTubeInChrome()
             case "YouTube Safari":
                 return resumeYouTubeInSafari()
+            case "System Media Key":
+                return pauseSystemMediaKey()
             default:
                 return nil
             }
@@ -162,8 +178,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set playbackInfo to execute javascript "(function(){ const videos = Array.from(document.querySelectorAll('video')); const video = videos.find(v => !v.paused) || videos[0]; if (!video) return ''; const heading = document.querySelector('h1 yt-formatted-string, h1.title, h1'); const rawTitle = ((heading && heading.innerText) || document.title || '').replace(/\\|/g, '/').replace(/ - YouTube$/i, '').trim(); const state = video.paused ? 'paused' : 'playing'; const volume = Math.round((video.volume || 0) * 100); return 'YouTube Chrome|' + state + '|' + rawTitle + '||YouTube|' + volume; })();"
-                        if playbackInfo is not "" then return playbackInfo
+                        set playbackInfo to execute javascript "\(Self.youtubePlaybackJavaScript)" in t
+                        if playbackInfo is not "" then return "YouTube Chrome|" & playbackInfo
                     end if
                 end repeat
             end repeat
@@ -182,8 +198,8 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set playbackInfo to do JavaScript "(function(){ const videos = Array.from(document.querySelectorAll('video')); const video = videos.find(v => !v.paused) || videos[0]; if (!video) return ''; const heading = document.querySelector('h1 yt-formatted-string, h1.title, h1'); const rawTitle = ((heading && heading.innerText) || document.title || '').replace(/\\|/g, '/').replace(/ - YouTube$/i, '').trim(); const state = video.paused ? 'paused' : 'playing'; const volume = Math.round((video.volume || 0) * 100); return 'YouTube Safari|' + state + '|' + rawTitle + '||YouTube|' + volume; })();" in t
-                        if playbackInfo is not "" then return playbackInfo
+                        set playbackInfo to do JavaScript "\(Self.youtubePlaybackJavaScript)" in t
+                        if playbackInfo is not "" then return "YouTube Safari|" & playbackInfo
                     end if
                 end repeat
             end repeat
@@ -251,7 +267,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set pauseInfo to execute javascript "(function(){ let didPause = false; document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();"
+                        set pauseInfo to execute javascript "\(Self.youtubePauseJavaScript)" in t
                         if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
@@ -273,7 +289,7 @@ struct MediaPlaybackService {
             repeat with w in windows
                 repeat with t in tabs of w
                     if URL of t contains "youtube.com" then
-                        set pauseInfo to do JavaScript "(function(){ let didPause = false; document.querySelectorAll('video').forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();" in t
+                        set pauseInfo to do JavaScript "\(Self.youtubePauseJavaScript)" in t
                         if pauseInfo is "paused" then set didPause to true
                     end if
                 end repeat
