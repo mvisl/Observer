@@ -436,7 +436,9 @@ p { margin: 0; }
 }
 .public-kpi-grid span,
 .section-head span,
-.workstream-meta span {
+.workstream-meta span,
+.intention-source,
+.subtask-kind {
   color: var(--text-muted);
   font-size: 13px;
   letter-spacing: .02em;
@@ -454,7 +456,8 @@ p { margin: 0; }
 .signal-grid p,
 .attention-switch-list p,
 .attention-switch-list small,
-.research-strip p {
+.research-strip p,
+.intention-brief p {
   color: var(--text-secondary);
   line-height: 1.42;
 }
@@ -472,6 +475,13 @@ p { margin: 0; }
 .research-strip h3,
 .signal-grid h3 {
   margin: 0;
+}
+.intention-source {
+  display: block;
+  margin-top: 6px;
+}
+.intention-question {
+  margin-top: var(--space-2);
 }
 .workstream-list {
   display: grid;
@@ -536,6 +546,18 @@ p { margin: 0; }
 .drilldown-section {
   border-color: var(--border-strong);
 }
+.intention-brief {
+  display: grid;
+  gap: 4px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+}
+.intention-brief p {
+  margin: 0;
+}
 .subtask-detail-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -560,6 +582,10 @@ p { margin: 0; }
 .subtask-detail-head strong {
   color: var(--accent);
   flex: 0 0 auto;
+}
+.subtask-kind {
+  display: inline-block;
+  margin-top: 6px;
 }
 .subtask-detail-grid p {
   color: var(--text-secondary);

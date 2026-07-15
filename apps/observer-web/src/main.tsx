@@ -31,6 +31,15 @@ function fmtMinutes(minutes: number) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+function daysBetweenInclusive(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+  const first = Math.min(start.getTime(), end.getTime());
+  const last = Math.max(start.getTime(), end.getTime());
+  return Math.max(1, Math.round((last - first) / 86_400_000) + 1);
+}
+
 function fmtTime(value?: string) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -219,8 +228,8 @@ function PublicDashboardShell() {
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const [selectedStream, setSelectedStream] = useState("Freelance / WhatToBuy board");
-  const [selectedSubtask, setSelectedSubtask] = useState("Upcoming Dividends logic");
+  const [selectedStream, setSelectedStream] = useState("Resolve Andrey's WhatToBuy feedback");
+  const [selectedSubtask, setSelectedSubtask] = useState("Andrey feedback -> product decision");
 
   function applyPreset(next: "today" | "7d" | "custom") {
     setRangePreset(next);
@@ -234,100 +243,179 @@ function PublicDashboardShell() {
     }
   }
 
-  const workstreams = [
+  const rangeDays = daysBetweenInclusive(startDate, endDate);
+  const rangeLabel = rangeDays === 1 ? "Today" : `${rangeDays} days`;
+  const rangeMultiplier = rangePreset === "today"
+    ? 1
+    : rangePreset === "7d"
+      ? 2.85
+      : Math.max(0.35, Math.min(4.2, rangeDays * 0.52));
+  const scaledMinutes = (minutes: number, weight = 1) => Math.max(5, Math.round(minutes * rangeMultiplier * weight));
+
+  const intentions = [
     {
-      name: "Freelance / WhatToBuy board",
+      name: "Resolve Andrey's WhatToBuy feedback",
+      source: "Product: WhatToBuy board · Person: Andrey · Surface: Figma",
       confidence: "high",
-      outcome: "Turn product feedback into a clearer market card system.",
+      question: "How should the market cards explain value without making the user calculate or compare too much?",
+      outcome: rangeDays === 1
+        ? "Turn Andrey's notes into concrete product decisions for the WhatToBuy board."
+        : "Connect Andrey's feedback, Figma edits and follow-up decisions into one product-design thread.",
       subthreads: [
         {
+          name: "Andrey feedback -> product decision",
+          kind: "communication evidence",
+          minutes: scaledMinutes(39, rangeDays > 1 ? 1.35 : 1),
+          summary: rangeDays === 1
+            ? "The chat is not a separate task: it defines the product question and the acceptance criteria."
+            : "Feedback loops from Andrey become decision inputs for the board, not a generic communication bucket.",
+          evidence: rangeDays === 1
+            ? ["Andrey", "WhatToBuy", "question vs teaser", "dividend comments"]
+            : ["Andrey", "WhatToBuy", "question vs teaser", "dividend comments", "follow-up decision trail"]
+        },
+        {
           name: "Upcoming Dividends logic",
-          minutes: 74,
-          summary: "Replace raw ex-dividend date with a safer buy-by date.",
-          evidence: ["Andrey feedback", "Figma dividend section", "badge copy rewrite"]
+          kind: "product logic",
+          minutes: scaledMinutes(74, rangeDays > 1 ? 1.15 : 1),
+          summary: rangeDays === 1
+            ? "Replace raw ex-dividend date with a user-safe buy-by date and reduce mental calculation."
+            : "Refine dividend guidance across buy-by date, badge hierarchy and user-safe wording.",
+          evidence: rangeDays === 1
+            ? ["ex-dividend date", "buy-by date", "badge copy rewrite"]
+            : ["ex-dividend date", "buy-by date", "badge copy rewrite", "follow-up card review"]
         },
         {
           name: "Card hierarchy",
-          minutes: 63,
-          summary: "Move from question-level copy to teaser-level product signals.",
-          evidence: ["product card review", "teaser vs question debate", "priority comments"]
+          kind: "information architecture",
+          minutes: scaledMinutes(63, rangeDays > 1 ? 1.25 : 1),
+          summary: rangeDays === 1
+            ? "Move from question-level copy to teaser-level product signals."
+            : "Work through hierarchy conflicts across product cards and recommendation blocks.",
+          evidence: rangeDays === 1
+            ? ["product card review", "teaser vs question debate", "priority comments"]
+            : ["product card review", "teaser vs question debate", "priority comments", "market-card comparisons"]
         },
         {
           name: "Figma execution",
-          minutes: 113,
-          summary: "Translate the conversation with Andrey into visible layout decisions.",
-          evidence: ["Figma canvas", "selected section", "iterative design edits"]
+          kind: "artifact work",
+          minutes: scaledMinutes(113, rangeDays > 1 ? 0.95 : 1),
+          summary: rangeDays === 1
+            ? "Translate the conversation with Andrey into visible layout decisions."
+            : "Apply design decisions across several board sections and verify visual consistency.",
+          evidence: rangeDays === 1
+            ? ["Figma canvas", "selected section", "iterative design edits"]
+            : ["Figma canvas", "selected sections", "iterative design edits", "component consistency"]
         }
       ]
     },
     {
-      name: "Observer brain and dashboard",
+      name: "Find Nebius cover visual direction",
+      source: "Project: Nebius cover · Surface: Figma · Tool: image generation",
       confidence: "medium",
-      outcome: "Push Observer from app-tracking toward intention tracking.",
+      question: "What visual metaphor should represent Nebius without becoming generic neon cloud noise?",
+      outcome: rangeDays === 1
+        ? "Generate a cover image that matches the brand/task instead of accepting the first pretty render."
+        : "Iterate visual assets by intent: brand fit, composition, and why a generated result fails.",
+      subthreads: [
+        {
+          name: "Prompting image candidates",
+          kind: "AI-assisted visual search",
+          minutes: scaledMinutes(28, rangeDays > 1 ? 1.4 : 1),
+          summary: rangeDays === 1
+            ? "Several outputs are being tested against a specific visual bar; mismatch is the source of frustration."
+            : "Generated image attempts are grouped by the visual criterion they failed: brand fit, density, or composition.",
+          evidence: rangeDays === 1
+            ? ["Nebius cover", "generated image", "rejected composition", "frustration reaction"]
+            : ["Nebius cover", "generated images", "rejected compositions", "frustration reactions"]
+        },
+        {
+          name: "Visual criterion refinement",
+          kind: "creative direction",
+          minutes: scaledMinutes(22, rangeDays > 1 ? 1.1 : 1),
+          summary: rangeDays === 1
+            ? "The useful insight is the criterion: calm data infrastructure, not an overloaded glowing cloud."
+            : "Rejected candidates clarify the target style and become reusable prompt constraints.",
+          evidence: rangeDays === 1
+            ? ["reference strip", "blue data field", "too-neon candidate"]
+            : ["reference strip", "blue data field", "too-neon candidates", "style constraints"]
+        },
+        {
+          name: "Reaction binding",
+          kind: "behavior + artifact",
+          minutes: scaledMinutes(16, rangeDays > 1 ? 0.9 : 1),
+          summary: rangeDays === 1
+            ? "The anger is bound to failing the image task, not to Chrome or ChatGPT as apps."
+            : "Repeated reactions are attached to the artifact and criterion so future reports explain why the loop happened.",
+          evidence: rangeDays === 1
+            ? ["rapid attempts", "artifact mismatch", "explicit correction"]
+            : ["rapid attempts", "artifact mismatch", "explicit corrections", "boundReaction"]
+        }
+      ]
+    },
+    {
+      name: "Rebuild Observer around intentions",
+      source: "Product: Observer · Surface: pill + dashboard + daily report",
+      confidence: "medium",
+      question: "How should Observer explain the day by intentions, evidence and outcomes instead of windows?",
+      outcome: rangeDays === 1
+        ? "Push Observer from app-tracking toward intention tracking."
+        : "Move Observer from raw sensing toward a dashboard that explains the day by intention.",
       subthreads: [
         {
           name: "Public dashboard",
-          minutes: 68,
-          summary: "PIN gate, Pages deploy, icon and simple access route.",
-          evidence: ["GitHub Pages deploy", "public shell", "PIN 2501"]
+          kind: "dashboard shell",
+          minutes: scaledMinutes(68, rangeDays > 1 ? 0.8 : 1),
+          summary: rangeDays === 1
+            ? "PIN gate, Pages deploy, icon and simple access route."
+            : "Keep the public dashboard deployable while preserving local/private data boundaries.",
+          evidence: rangeDays === 1
+            ? ["GitHub Pages deploy", "public shell", "PIN 2501"]
+            : ["GitHub Pages deploy", "public shell", "PIN 2501", "public/private split"]
         },
         {
           name: "Pill quality",
-          minutes: 72,
-          summary: "Reject stale sanitary statuses and bind insight to the current screen.",
-          evidence: ["wrong status screenshots", "focus mismatch fixes", "sanitary-message policy"]
+          kind: "live insight quality",
+          minutes: scaledMinutes(72, rangeDays > 1 ? 1.35 : 1),
+          summary: rangeDays === 1
+            ? "Reject stale sanitary statuses and bind insight to the current screen."
+            : "Reduce stale and sanitary widget lines across many observed context mistakes.",
+          evidence: rangeDays === 1
+            ? ["wrong status screenshots", "focus mismatch fixes", "sanitary-message policy"]
+            : ["wrong status screenshots", "phone-gaze fixes", "sanitary-message policy", "stale context expiry"]
         },
         {
           name: "Reporting model",
-          minutes: 75,
-          summary: "Group the day by tasks, sub-tasks, decisions and evidence.",
-          evidence: ["daily report critique", "intention-driven hierarchy", "episode layer"]
-        }
-      ]
-    },
-    {
-      name: "Product communication",
-      confidence: "medium",
-      outcome: "Use chats as source material for product decisions, not as separate noise.",
-      subthreads: [
-        {
-          name: "Andrey feedback",
-          minutes: 39,
-          summary: "Turn comments into design tasks, not a separate message thread.",
-          evidence: ["Google Chat", "dividend recommendation", "question vs teaser argument"]
-        },
-        {
-          name: "Personal context boundary",
-          minutes: 21,
-          summary: "Keep personal chats out unless they leave a measurable work effect.",
-          evidence: ["WhatsApp context", "music link", "no work artifact change"]
-        },
-        {
-          name: "Decision backlog",
-          minutes: 20,
-          summary: "Repeated disagreement becomes a decision backlog instead of an emotional label.",
-          evidence: ["friction language", "priority discussion", "follow-up task"]
+          kind: "daily reconstruction",
+          minutes: scaledMinutes(75, rangeDays > 1 ? 1.2 : 1),
+          summary: rangeDays === 1
+            ? "Group the day by tasks, sub-tasks, decisions and evidence."
+            : "Turn daily reports into task/subtask timelines instead of app usage summaries.",
+          evidence: rangeDays === 1
+            ? ["daily report critique", "intention-driven hierarchy", "episode layer"]
+            : ["daily report critique", "intention-driven hierarchy", "episode layer", "range drilldown"]
         }
       ]
     }
   ];
-  const activeStream = workstreams.find((stream) => stream.name === selectedStream) ?? workstreams[0];
+  const activeStream = intentions.find((stream) => stream.name === selectedStream) ?? intentions[0];
   const activeSubtask = activeStream.subthreads.find((item) => item.name === selectedSubtask) ?? activeStream.subthreads[0];
   const activeStreamMinutes = activeStream.subthreads.reduce((sum, item) => sum + item.minutes, 0);
-  const totalMinutes = workstreams.reduce(
+  const totalMinutes = intentions.reduce(
     (sum, stream) => sum + stream.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
     0
   );
   const timeline = [
-    ["Read", "Andrey's feedback", "Extracted requirement: the badge should reduce user calculation."],
-    ["Decide", "Dividend card logic", "Shifted from ex-date data display to buy-by date guidance."],
-    ["Apply", "Figma section", "Worked inside Upcoming Dividends card structure and labels."],
-    ["Review", "Observer dashboard", "Rejected app-based reporting; demanded intention-based task hierarchy."]
+    ["Source", "Andrey / WhatToBuy", "Feedback defines the job: turn card comments into a clearer product decision."],
+    ["Decide", "Dividend logic", "Shift from showing raw ex-date data to guiding the safe buy-by action."],
+    ["Apply", "Figma board", "Make the hierarchy visible in Upcoming Dividends and related card sections."],
+    ["Bind", "Nebius cover attempts", "Repeated failed generations explain the irritation: visual criterion is not being met."],
+    ["Review", "Observer dashboard", "Reject app buckets; group the day by intention, subtask, evidence and outcome."]
   ];
   const decisions = [
-    "A dashboard must answer what problem was advanced, not which app was open.",
-    "Every episode needs intent, evidence, output, next decision and uncertainty.",
-    "Tracker views should show task → subtask → episode, with apps only as supporting evidence."
+    "WhatToBuy is an Andrey/product intention. Chat is evidence inside the task, not a separate workstream.",
+    "A generation loop is useful only when it records the target visual criterion and why candidates failed.",
+    "Every episode needs intent, source, artifact, output, next decision and uncertainty.",
+    "Apps are supporting evidence; they never define the top-level task."
   ];
   const weakSignals = [
     "Current public page cannot yet stream local Core data from GitHub Pages.",
@@ -421,13 +509,13 @@ function PublicDashboardShell() {
       <section className="public-kpi-grid" aria-label="Daily summary">
         <article>
           <span>Primary intention</span>
-          <strong>Freelance product design</strong>
-          <p>Turning feedback into a clearer board/card system.</p>
+          <strong>Resolve Andrey's WhatToBuy feedback</strong>
+          <p>Turning Andrey feedback into product decisions and Figma changes.</p>
         </article>
         <article>
           <span>Context bridge</span>
-          <strong>Chat → Figma</strong>
-          <p>Andrey's notes became the dividend badge design task.</p>
+          <strong>Andrey → Figma → decision</strong>
+          <p>The person, board and artifact are one task thread.</p>
         </article>
         <article>
           <span>Tracked structure</span>
@@ -438,18 +526,20 @@ function PublicDashboardShell() {
 
       <section className="public-section">
         <div className="section-head">
-          <h2>Workstreams</h2>
-          <span>task - subtask - evidence</span>
+          <h2>Intentions</h2>
+          <span>{rangeLabel} · intention - subtask - evidence</span>
         </div>
         <div className="workstream-list">
-          {workstreams.map((stream) => (
+          {intentions.map((stream) => (
             <article
               key={stream.name}
               className={`workstream-card ${stream.name === activeStream.name ? "selected" : ""}`}
             >
               <div>
                 <h3>{stream.name}</h3>
+                <span className="intention-source">{stream.source}</span>
                 <p>{stream.outcome}</p>
+                <p className="intention-question">{stream.question}</p>
               </div>
               <div className="workstream-meta">
                 <b>{fmtMinutes(stream.subthreads.reduce((sum, item) => sum + item.minutes, 0))}</b>
@@ -488,7 +578,11 @@ function PublicDashboardShell() {
       <section className="public-section drilldown-section">
         <div className="section-head">
           <h2>{activeStream.name}</h2>
-          <span>{fmtMinutes(activeStreamMinutes)} in selected range · selected: {activeSubtask.name}</span>
+          <span>{fmtMinutes(activeStreamMinutes)} in {rangeLabel.toLowerCase()} · selected: {activeSubtask.name}</span>
+        </div>
+        <div className="intention-brief">
+          <span>{activeStream.source}</span>
+          <p>{activeStream.question}</p>
         </div>
         <div className="subtask-detail-grid">
           {activeStream.subthreads.map((item) => (
@@ -497,6 +591,7 @@ function PublicDashboardShell() {
                 <h3>{item.name}</h3>
                 <strong>{fmtMinutes(item.minutes)}</strong>
               </div>
+              <span className="subtask-kind">{item.kind}</span>
               <p>{item.summary}</p>
               <div className="evidence-tags">
                 {item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}
