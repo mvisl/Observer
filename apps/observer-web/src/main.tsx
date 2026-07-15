@@ -228,7 +228,7 @@ function PublicDashboardShell() {
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "freelance" | "family">("freelance");
+  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "freelance" | "communication">("freelance");
   const [selectedStream, setSelectedStream] = useState("Resolve Andrey's WhatToBuy feedback");
   const [selectedSubtask, setSelectedSubtask] = useState("Andrey feedback -> product decision");
 
@@ -401,18 +401,18 @@ function PublicDashboardShell() {
       ]
     },
     {
-      lifeStream: "family",
-      name: "Keep family context connected without polluting work",
-      source: "Stream: Family · Surface: WhatsApp/Viber · People: wife and relatives",
+      lifeStream: "communication",
+      name: "Keep close communication connected without polluting work",
+      source: "Domain: Communication · Group: Family · People: wife and relatives",
       confidence: "medium",
       question: "Which personal interactions change mood, recovery or schedule, and which should stay outside work analytics?",
       outcome: rangeDays === 1
-        ? "Treat family chats as life context unless they visibly affect focus, mood or next actions."
-        : "Separate family coordination from work tasks while preserving measurable aftermath.",
+        ? "Treat close communication as personal context unless it visibly affects focus, mood or next actions."
+        : "Separate communication groups from work tasks while preserving measurable aftermath.",
       subthreads: [
         {
-          name: "Wife chat / music link",
-          kind: "relationship context",
+          name: "Family / wife chat",
+          kind: "family communication",
           minutes: scaledMinutes(26, rangeDays > 1 ? 1.3 : 1),
           summary: rangeDays === 1
             ? "The important signal is emotional context and possible music/mood aftermath, not the messenger app."
@@ -423,7 +423,7 @@ function PublicDashboardShell() {
         },
         {
           name: "Family logistics",
-          kind: "coordination plane",
+          kind: "family coordination",
           minutes: scaledMinutes(18, rangeDays > 1 ? 1.1 : 1),
           summary: rangeDays === 1
             ? "Small coordination moments belong to Family unless they interrupt a work span."
@@ -433,7 +433,7 @@ function PublicDashboardShell() {
             : ["family messages", "schedule context", "interruptions", "recovery lag"]
         },
         {
-          name: "Boundary rule",
+          name: "Communication boundary rule",
           kind: "privacy / analytics rule",
           minutes: scaledMinutes(12, rangeDays > 1 ? 0.8 : 1),
           summary: rangeDays === 1
@@ -503,9 +503,9 @@ function PublicDashboardShell() {
       summary: "Client/product side work: WhatToBuy, Nebius, Figma execution and AI-assisted visuals."
     },
     {
-      id: "family" as const,
-      name: "Family",
-      summary: "Personal relationships and logistics, tracked only as context or aftermath."
+      id: "communication" as const,
+      name: "Communication",
+      summary: "People-centered context: family, close contacts and work contacts, grouped by relationship and effect."
     }
   ].map((stream) => ({
     ...stream,
@@ -532,7 +532,7 @@ function PublicDashboardShell() {
   ];
   const decisions = [
     "WhatToBuy is an Andrey/product intention. Chat is evidence inside the task, not a separate workstream.",
-    "The top dashboard layer is Work / Freelance / Family; intentions live inside those streams.",
+    "The top dashboard layer is Work / Freelance / Communication; family is a nested communication group, not always a global stream.",
     "A generation loop is useful only when it records the target visual criterion and why candidates failed.",
     "Every episode needs intent, source, artifact, output, next decision and uncertainty.",
     "Apps are supporting evidence; they never define the top-level task."
@@ -647,7 +647,7 @@ function PublicDashboardShell() {
       <section className="public-section">
         <div className="section-head">
           <h2>Global Streams</h2>
-          <span>{rangeLabel} · life stream - intention - plane</span>
+          <span>{rangeLabel} · stream - domain/entity - intention - plane</span>
         </div>
         <div className="life-stream-grid">
           {lifeStreams.map((stream) => (
@@ -673,7 +673,7 @@ function PublicDashboardShell() {
       <section className="public-section">
         <div className="section-head">
           <h2>{selectedLifeStreamInfo.name} Intentions</h2>
-          <span>{rangeLabel} · intention - plane - evidence</span>
+          <span>{rangeLabel} · intention - domain/entity - plane - evidence</span>
         </div>
         <div className="workstream-list">
           {visibleIntentions.map((stream) => (
