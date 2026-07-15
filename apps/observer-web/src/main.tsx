@@ -228,6 +228,7 @@ function PublicDashboardShell() {
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
+  const [selectedLifeStream, setSelectedLifeStream] = useState<"work" | "freelance" | "family">("freelance");
   const [selectedStream, setSelectedStream] = useState("Resolve Andrey's WhatToBuy feedback");
   const [selectedSubtask, setSelectedSubtask] = useState("Andrey feedback -> product decision");
 
@@ -254,6 +255,7 @@ function PublicDashboardShell() {
 
   const intentions = [
     {
+      lifeStream: "freelance",
       name: "Resolve Andrey's WhatToBuy feedback",
       source: "Product: WhatToBuy board · Person: Andrey · Surface: Figma",
       confidence: "high",
@@ -309,6 +311,7 @@ function PublicDashboardShell() {
       ]
     },
     {
+      lifeStream: "freelance",
       name: "Find Nebius cover visual direction",
       source: "Project: Nebius cover · Surface: Figma · Tool: image generation",
       confidence: "medium",
@@ -353,6 +356,97 @@ function PublicDashboardShell() {
       ]
     },
     {
+      lifeStream: "work",
+      name: "Prioritize company product backlog",
+      source: "Stream: Work · Surface: Jira + browser · Role: product/design decisions",
+      confidence: "medium",
+      question: "Which company issues deserve attention now, and what decision or clarification unblocks them?",
+      outcome: rangeDays === 1
+        ? "Scan assigned product issues and separate real next actions from raw ticket noise."
+        : "Keep company backlog review grouped by decision intent, not by Jira rows or browser tabs.",
+      subthreads: [
+        {
+          name: "Jira issue triage",
+          kind: "backlog review",
+          minutes: scaledMinutes(34, rangeDays > 1 ? 1.45 : 1),
+          summary: rangeDays === 1
+            ? "Rows in Jira are interpreted as candidate decisions, priorities and blockers."
+            : "Repeated Jira reviews are grouped by issue intent and priority movement.",
+          evidence: rangeDays === 1
+            ? ["Jira", "assigned issues", "priority numbers", "open status"]
+            : ["Jira", "assigned issues", "priority numbers", "status changes", "review loop"]
+        },
+        {
+          name: "Research for current decision",
+          kind: "research plane",
+          minutes: scaledMinutes(42, rangeDays > 1 ? 1.2 : 1),
+          summary: rangeDays === 1
+            ? "Browser sources support a current product decision rather than forming a separate browsing task."
+            : "Research spans are attached to the decision question they support.",
+          evidence: rangeDays === 1
+            ? ["browser sources", "active issue", "decision context"]
+            : ["browser sources", "active issues", "decision context", "source comparisons"]
+        },
+        {
+          name: "Communication follow-up",
+          kind: "communication plane",
+          minutes: scaledMinutes(24, rangeDays > 1 ? 1.05 : 1),
+          summary: rangeDays === 1
+            ? "Messages are only counted here when they unblock or reshape a work decision."
+            : "Work communication becomes evidence for the issue, not a separate app bucket.",
+          evidence: rangeDays === 1
+            ? ["work chat", "clarification", "decision handoff"]
+            : ["work chat", "clarifications", "decision handoffs", "follow-up owners"]
+        }
+      ]
+    },
+    {
+      lifeStream: "family",
+      name: "Keep family context connected without polluting work",
+      source: "Stream: Family · Surface: WhatsApp/Viber · People: wife and relatives",
+      confidence: "medium",
+      question: "Which personal interactions change mood, recovery or schedule, and which should stay outside work analytics?",
+      outcome: rangeDays === 1
+        ? "Treat family chats as life context unless they visibly affect focus, mood or next actions."
+        : "Separate family coordination from work tasks while preserving measurable aftermath.",
+      subthreads: [
+        {
+          name: "Wife chat / music link",
+          kind: "relationship context",
+          minutes: scaledMinutes(26, rangeDays > 1 ? 1.3 : 1),
+          summary: rangeDays === 1
+            ? "The important signal is emotional context and possible music/mood aftermath, not the messenger app."
+            : "Repeated warm interactions can be linked to recovery or later work rhythm only when the aftermath is visible.",
+          evidence: rangeDays === 1
+            ? ["wife chat", "music link", "warm tone", "after-work context"]
+            : ["wife chat", "music links", "warm tone", "after-work context", "mood aftermath"]
+        },
+        {
+          name: "Family logistics",
+          kind: "coordination plane",
+          minutes: scaledMinutes(18, rangeDays > 1 ? 1.1 : 1),
+          summary: rangeDays === 1
+            ? "Small coordination moments belong to Family unless they interrupt a work span."
+            : "Family logistics are measured by interruption and recovery cost, not message count.",
+          evidence: rangeDays === 1
+            ? ["family messages", "schedule context", "brief interruption"]
+            : ["family messages", "schedule context", "interruptions", "recovery lag"]
+        },
+        {
+          name: "Boundary rule",
+          kind: "privacy / analytics rule",
+          minutes: scaledMinutes(12, rangeDays > 1 ? 0.8 : 1),
+          summary: rangeDays === 1
+            ? "Personal content stays out of task reports unless it creates a measurable work effect."
+            : "The dashboard keeps family as a global stream but avoids turning private chat into fake work tasks.",
+          evidence: rangeDays === 1
+            ? ["personal context boundary", "no artifact change", "state aftermath"]
+            : ["personal context boundary", "no artifact change", "state aftermath", "privacy split"]
+        }
+      ]
+    },
+    {
+      lifeStream: "work",
       name: "Rebuild Observer around intentions",
       source: "Product: Observer · Surface: pill + dashboard + daily report",
       confidence: "medium",
@@ -397,9 +491,34 @@ function PublicDashboardShell() {
       ]
     }
   ];
-  const activeStream = intentions.find((stream) => stream.name === selectedStream) ?? intentions[0];
+  const lifeStreams = [
+    {
+      id: "work" as const,
+      name: "Work",
+      summary: "Company product/design work: Jira, research, work communication and product decisions."
+    },
+    {
+      id: "freelance" as const,
+      name: "Freelance",
+      summary: "Client/product side work: WhatToBuy, Nebius, Figma execution and AI-assisted visuals."
+    },
+    {
+      id: "family" as const,
+      name: "Family",
+      summary: "Personal relationships and logistics, tracked only as context or aftermath."
+    }
+  ].map((stream) => ({
+    ...stream,
+    intentions: intentions.filter((intent) => intent.lifeStream === stream.id),
+    minutes: intentions
+      .filter((intent) => intent.lifeStream === stream.id)
+      .reduce((sum, intent) => sum + intent.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0), 0)
+  }));
+  const visibleIntentions = intentions.filter((stream) => stream.lifeStream === selectedLifeStream);
+  const activeStream = visibleIntentions.find((stream) => stream.name === selectedStream) ?? visibleIntentions[0];
   const activeSubtask = activeStream.subthreads.find((item) => item.name === selectedSubtask) ?? activeStream.subthreads[0];
   const activeStreamMinutes = activeStream.subthreads.reduce((sum, item) => sum + item.minutes, 0);
+  const selectedLifeStreamInfo = lifeStreams.find((stream) => stream.id === selectedLifeStream) ?? lifeStreams[0];
   const totalMinutes = intentions.reduce(
     (sum, stream) => sum + stream.subthreads.reduce((innerSum, item) => innerSum + item.minutes, 0),
     0
@@ -413,6 +532,7 @@ function PublicDashboardShell() {
   ];
   const decisions = [
     "WhatToBuy is an Andrey/product intention. Chat is evidence inside the task, not a separate workstream.",
+    "The top dashboard layer is Work / Freelance / Family; intentions live inside those streams.",
     "A generation loop is useful only when it records the target visual criterion and why candidates failed.",
     "Every episode needs intent, source, artifact, output, next decision and uncertainty.",
     "Apps are supporting evidence; they never define the top-level task."
@@ -508,14 +628,14 @@ function PublicDashboardShell() {
 
       <section className="public-kpi-grid" aria-label="Daily summary">
         <article>
-          <span>Primary intention</span>
-          <strong>Resolve Andrey's WhatToBuy feedback</strong>
-          <p>Turning Andrey feedback into product decisions and Figma changes.</p>
+          <span>Primary stream</span>
+          <strong>{selectedLifeStreamInfo.name}</strong>
+          <p>{selectedLifeStreamInfo.summary}</p>
         </article>
         <article>
-          <span>Context bridge</span>
-          <strong>Andrey → Figma → decision</strong>
-          <p>The person, board and artifact are one task thread.</p>
+          <span>Active intention</span>
+          <strong>{activeStream.name}</strong>
+          <p>{activeStream.source}</p>
         </article>
         <article>
           <span>Tracked structure</span>
@@ -526,11 +646,37 @@ function PublicDashboardShell() {
 
       <section className="public-section">
         <div className="section-head">
-          <h2>Intentions</h2>
-          <span>{rangeLabel} · intention - subtask - evidence</span>
+          <h2>Global Streams</h2>
+          <span>{rangeLabel} · life stream - intention - plane</span>
+        </div>
+        <div className="life-stream-grid">
+          {lifeStreams.map((stream) => (
+            <button
+              key={stream.id}
+              className={`life-stream-card ${stream.id === selectedLifeStream ? "selected" : ""}`}
+              onClick={() => {
+                setSelectedLifeStream(stream.id);
+                setSelectedStream(stream.intentions[0].name);
+                setSelectedSubtask(stream.intentions[0].subthreads[0].name);
+              }}
+              aria-pressed={stream.id === selectedLifeStream}
+            >
+              <span>{stream.name}</span>
+              <strong>{fmtMinutes(stream.minutes)}</strong>
+              <p>{stream.summary}</p>
+              <small>{stream.intentions.length} intentions</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section">
+        <div className="section-head">
+          <h2>{selectedLifeStreamInfo.name} Intentions</h2>
+          <span>{rangeLabel} · intention - plane - evidence</span>
         </div>
         <div className="workstream-list">
-          {intentions.map((stream) => (
+          {visibleIntentions.map((stream) => (
             <article
               key={stream.name}
               className={`workstream-card ${stream.name === activeStream.name ? "selected" : ""}`}
