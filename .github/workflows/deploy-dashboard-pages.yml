@@ -32,6 +32,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - run: pnpm config set dangerouslyAllowAllBuilds true
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/observer-web build
         env:
