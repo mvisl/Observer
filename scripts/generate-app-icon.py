@@ -156,6 +156,41 @@ def draw_icon(size, transparent=False):
     return pixels
 
 
+def eye_curve_alpha(x, y, cx, cy, rx, ry, stroke):
+    nx = (x - cx) / rx
+    if abs(nx) > 1.08:
+        return 0.0
+    span = max(0.0, 1.0 - abs(nx) ** 1.85)
+    upper = cy - ry * (span ** 0.58)
+    lower = cy + ry * (span ** 0.58)
+    upper_alpha = smoothstep(stroke, 0.0, abs(y - upper))
+    lower_alpha = smoothstep(stroke, 0.0, abs(y - lower))
+    corner_alpha = smoothstep(1.08, 0.96, abs(nx)) * smoothstep(stroke * 1.25, 0.0, abs(y - cy))
+    return max(upper_alpha, lower_alpha, corner_alpha)
+
+
+def draw_status_icon(size):
+    w = h = size
+    pixels = []
+    cx = w * 0.50
+    cy = h * 0.51
+    rx = w * 0.40
+    ry = h * 0.185
+    stroke = max(1.4, w * 0.060)
+    for yy in range(h):
+        row = []
+        for xx in range(w):
+            x = xx + 0.5
+            y = yy + 0.5
+            alpha = eye_curve_alpha(x, y, cx, cy, rx, ry, stroke)
+            iris = soft_circle_ring(x, y, cx, cy, w * 0.145, w * 0.040)
+            pupil = ellipse_alpha(x, y, cx, cy, w * 0.060, h * 0.075, 2.4)
+            alpha = max(alpha, iris * 0.95, pupil)
+            row.append((0, 0, 0, clamp(alpha * 255)))
+        pixels.append(row)
+    return pixels
+
+
 def write_png(path, pixels):
     h = len(pixels)
     w = len(pixels[0])
@@ -200,7 +235,7 @@ def main():
     ]
     for size, name in sizes:
         write_png(os.path.join(iconset, name), draw_icon(size))
-    write_png(os.path.join(out, "ObserverStatus.png"), draw_icon(64, transparent=True))
+    write_png(os.path.join(out, "ObserverStatus.png"), draw_status_icon(64))
 
 
 if __name__ == "__main__":

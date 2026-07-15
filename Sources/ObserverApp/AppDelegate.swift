@@ -57,7 +57,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
         if let url = Bundle.main.url(forResource: "ObserverStatus", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
             image.size = NSSize(width: 18, height: 18)
-            image.isTemplate = false
+            image.isTemplate = true
             item.button?.image = image
             item.button?.imagePosition = .imageOnly
         } else {
