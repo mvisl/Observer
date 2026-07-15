@@ -9,6 +9,25 @@ import "./styles.css";
 const queryClient = new QueryClient();
 const publicDashboardMode = import.meta.env.VITE_OBSERVER_PUBLIC_DASHBOARD === "1" || window.location.hostname.endsWith("github.io");
 const publicAccessCode = "2501";
+const publicAccessStorageKey = "observer_public_access_v1";
+const publicAccessStorageValue = "pin-2501-ok";
+
+function hasTrustedPublicAccess() {
+  return (
+    localStorage.getItem(publicAccessStorageKey) === publicAccessStorageValue ||
+    sessionStorage.getItem("observer_public_access") === "ok"
+  );
+}
+
+function rememberTrustedPublicAccess() {
+  localStorage.setItem(publicAccessStorageKey, publicAccessStorageValue);
+  sessionStorage.setItem("observer_public_access", "ok");
+}
+
+function clearTrustedPublicAccess() {
+  localStorage.removeItem(publicAccessStorageKey);
+  sessionStorage.removeItem("observer_public_access");
+}
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -145,7 +164,7 @@ function PageSwitch() {
 function PublicAccessGate() {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<"idle" | "checking" | "allowed" | "blocked">(
-    () => sessionStorage.getItem("observer_public_access") === "ok" ? "allowed" : "idle"
+    () => hasTrustedPublicAccess() ? "allowed" : "idle"
   );
   const [message, setMessage] = useState("");
 
@@ -160,11 +179,11 @@ function PublicAccessGate() {
     setStatus("checking");
     const result = await checkMontenegroAccess();
     if (result.allowed) {
-      sessionStorage.setItem("observer_public_access", "ok");
+      rememberTrustedPublicAccess();
       setStatus("allowed");
       setMessage("");
     } else {
-      sessionStorage.removeItem("observer_public_access");
+      clearTrustedPublicAccess();
       setStatus("blocked");
       setMessage("Access unavailable.");
     }

@@ -43,6 +43,44 @@ def soft_circle_ring(x, y, cx, cy, radius, width):
     return max(0.0, min(1.0, 1 - abs(d - radius) / width))
 
 
+def smoothstep(edge0, edge1, value):
+    if edge0 == edge1:
+        return 1.0 if value >= edge1 else 0.0
+    t = max(0.0, min(1.0, (value - edge0) / (edge1 - edge0)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def organic_disk_alpha(x, y, cx, cy, rx, ry):
+    theta = math.atan2(y - cy, x - cx)
+    wobble_x = 1.0 + 0.030 * math.sin(theta * 3.0 + 0.6) + 0.018 * math.sin(theta * 5.0 - 1.2)
+    wobble_y = 1.0 + 0.025 * math.cos(theta * 2.0 - 0.4)
+    d = math.sqrt(((x - cx) / (rx * wobble_x)) ** 2 + ((y - cy) / (ry * wobble_y)) ** 2)
+    return smoothstep(1.04, 0.96, d)
+
+
+def droplet_alpha(x, y, cx, cy, width, height):
+    top = cy - height * 0.56
+    bottom = cy + height * 0.56
+    if y < top or y > bottom:
+        return 0.0
+    t = (y - top) / (bottom - top)
+    lobe = math.sin(math.pi * t)
+    local_width = width * (0.03 + 0.97 * (lobe ** 0.74)) * (0.38 + 0.62 * t)
+    local_width *= 1.0 + 0.060 * math.sin(t * math.pi * 2.0 + 0.8)
+    if local_width <= 0:
+        return 0.0
+    dx = abs(x - cx) / local_width
+    edge_x = smoothstep(1.04, 0.90, dx)
+    edge_y = smoothstep(1.02, 0.94, abs(t * 2.0 - 1.0))
+    return edge_x * edge_y
+
+
+def capsule_highlight_alpha(x, y, cx, cy, rx, ry):
+    alpha = ellipse_alpha(x, y, cx, cy, rx, ry, 2.2)
+    shine_cut = ellipse_alpha(x, y, cx + rx * 0.18, cy + ry * 0.30, rx * 1.05, ry * 0.95, 1.5)
+    return max(0.0, alpha - shine_cut * 0.72)
+
+
 def draw_icon(size, transparent=False):
     w = h = size
     pixels = []
@@ -63,29 +101,51 @@ def draw_icon(size, transparent=False):
                     color = blend(color, (255, 255, 255, max(0, 1 - y / h) * 0.08 * tile))
 
             cx = w * 0.50
-            cy = h * 0.50
-            shadow = ellipse_alpha(x, y, cx, cy + h * 0.06, w * 0.30, h * 0.23, 1.7)
+            cy = h * 0.51
+            shadow = ellipse_alpha(x, y, cx, cy + h * 0.09, w * 0.32, h * 0.24, 1.7)
             if shadow > 0:
                 color = blend(color, (0, 0, 0, min(0.24, shadow * 0.24)))
 
-            # Nazar-style blue glass rings.
-            for radius, width, rgba in [
-                (w * 0.265, w * 0.060, (31, 89, 220, 0.84)),
-                (w * 0.205, w * 0.050, (27, 153, 230, 0.88)),
-                (w * 0.145, w * 0.040, (238, 247, 255, 0.96)),
-                (w * 0.088, w * 0.035, (19, 58, 142, 0.96)),
-                (w * 0.041, w * 0.030, (8, 15, 36, 0.98)),
-            ]:
-                a = soft_circle_ring(x, y, cx, cy, radius, width)
-                if a > 0:
-                    color = blend(color, (rgba[0], rgba[1], rgba[2], rgba[3] * a))
+            # Organic nazar glass: intentionally less geometric than the old target-like icon.
+            body = organic_disk_alpha(x, y, cx, cy, w * 0.285, h * 0.265)
+            if body > 0:
+                dist = math.sqrt(((x - cx) / (w * 0.30)) ** 2 + ((y - cy) / (h * 0.28)) ** 2)
+                light = max(0.0, 1.0 - math.sqrt((x - w * 0.39) ** 2 + (y - h * 0.35) ** 2) / (w * 0.46))
+                base = (
+                    8 + 22 * light,
+                    36 + 56 * light,
+                    150 + 92 * light,
+                    0.98 * body,
+                )
+                color = blend(color, base)
+                edge = smoothstep(0.76, 1.00, dist) * body
+                color = blend(color, (10, 48, 185, 0.30 * edge))
+                color = blend(color, (70, 166, 255, 0.18 * smoothstep(1.02, 0.88, dist) * body))
 
-            pupil = ellipse_alpha(x, y, cx, cy, w * 0.049, h * 0.049, 2.4)
+            rim = soft_circle_ring(x, y, cx, cy, w * 0.276, w * 0.030) * organic_disk_alpha(x, y, cx, cy, w * 0.30, h * 0.28)
+            if rim > 0:
+                color = blend(color, (58, 135, 255, 0.34 * rim))
+
+            white_drop = droplet_alpha(x, y, cx, cy + h * 0.004, w * 0.180, h * 0.330)
+            if white_drop > 0:
+                color = blend(color, (246, 250, 255, 0.97 * white_drop))
+
+            iris_outer = ellipse_alpha(x, y, cx + w * 0.010, cy + h * 0.040, w * 0.096, h * 0.094, 2.3)
+            if iris_outer > 0:
+                color = blend(color, (35, 190, 230, 0.84 * iris_outer))
+            iris_inner = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.040, w * 0.066, h * 0.063, 2.4)
+            if iris_inner > 0:
+                color = blend(color, (102, 216, 246, 0.60 * iris_inner))
+
+            pupil = ellipse_alpha(x, y, cx + w * 0.012, cy + h * 0.040, w * 0.038, h * 0.044, 2.4)
             if pupil > 0:
                 color = blend(color, (6, 12, 30, min(1, pupil)))
-            highlight = ellipse_alpha(x, y, w * 0.46, h * 0.44, w * 0.035, h * 0.035, 2.5)
+            highlight = ellipse_alpha(x, y, w * 0.46, h * 0.45, w * 0.026, h * 0.026, 2.5)
             if highlight > 0:
                 color = blend(color, (255, 255, 255, min(0.82, highlight * 0.82)))
+            gloss = capsule_highlight_alpha(x, y, w * 0.40, h * 0.34, w * 0.13, h * 0.050)
+            if gloss > 0:
+                color = blend(color, (255, 255, 255, min(0.24, gloss * 0.24)))
             row.append((
                 clamp(color[0]),
                 clamp(color[1]),
