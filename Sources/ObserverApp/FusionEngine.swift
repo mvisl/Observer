@@ -59,6 +59,21 @@ struct FusionEngine {
             payload["interpretation"] = interpretation
         }
 
+        // A chat can explain a reaction, but it must not count as a second independent
+        // channel when the candidate itself came from text. It is attribution evidence only.
+        if let context = freshestCommunicationContext(for: candidate, events: recentEvents) {
+            payload["causal_context_event_id"] = context.id.uuidString
+            payload["causal_context_kind"] = context.payload["content_kind"] ?? "message"
+            payload["causal_context_sentiment"] = context.payload["sentiment"] ?? "neutral"
+            if let topic = context.payload["topic"], !topic.isEmpty {
+                payload["causal_context_topic"] = topic
+            }
+            payload["causal_attribution"] = "fresh_communication_context"
+            payload["evidence_event_ids"] = (supportingEvents.map { $0.id.uuidString } + [context.id.uuidString])
+                .uniqued()
+                .joined(separator: ",")
+        }
+
         let confidence = publishable
             ? min(0.95, candidate.confidence + 0.18)
             : min(candidate.confidence, 0.35)
@@ -116,5 +131,33 @@ struct FusionEngine {
             return "media"
         }
         return "input"
+    }
+
+    private func freshestCommunicationContext(
+        for candidate: ObserverEvent,
+        events: [ObserverEvent]
+    ) -> ObserverEvent? {
+        guard ["frustration_candidate", "friction_candidate"].contains(candidate.payload["cue"] ?? "") else {
+            return nil
+        }
+
+        let lowerBound = candidate.timestamp.addingTimeInterval(-45)
+        let upperBound = candidate.timestamp.addingTimeInterval(10)
+        return events
+            .filter { event in
+                event.type == .contentContext
+                    && event.timestamp >= lowerBound
+                    && event.timestamp <= upperBound
+                    && ["message", "email"].contains(event.payload["content_kind"])
+                    && ["neg", "mixed"].contains(event.payload["sentiment"])
+            }
+            .max(by: { $0.timestamp < $1.timestamp })
+    }
+}
+
+private extension Array where Element == String {
+    func uniqued() -> [String] {
+        var seen = Set<String>()
+        return filter { seen.insert($0).inserted }
     }
 }

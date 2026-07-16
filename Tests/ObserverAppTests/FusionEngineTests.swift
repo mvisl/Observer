@@ -100,6 +100,32 @@ struct FusionEngineTests {
         #expect(decision.channels.contains("object"))
     }
 
+    @Test func attachesFreshNegativeChatAsCausalContextWithoutInflatingFusionChannels() {
+        let now = Date()
+        let candidate = event(
+            type: .behaviorCue,
+            timestamp: now,
+            payload: ["cue": "frustration_candidate", "interpretation": "frustrated_writing_tone"]
+        )
+        let chat = event(
+            type: .contentContext,
+            timestamp: now.addingTimeInterval(-12),
+            payload: [
+                "content_kind": "message",
+                "sentiment": "neg",
+                "topic": "обсуждение сбоя или неверного результата"
+            ]
+        )
+        let input = event(type: .inputActivity, timestamp: now.addingTimeInterval(-4), payload: [:])
+
+        let decision = FusionEngine().decide(candidate: candidate, recentEvents: [chat, input, candidate])
+
+        #expect(decision.surfaceAllowed)
+        #expect(decision.payload["causal_attribution"] == "fresh_communication_context")
+        #expect(decision.payload["causal_context_topic"] == "обсуждение сбоя или неверного результата")
+        #expect(decision.channels == ["content", "input"])
+    }
+
     private func event(
         type: ObserverEventType,
         timestamp: Date,

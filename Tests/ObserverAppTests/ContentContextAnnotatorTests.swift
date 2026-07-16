@@ -72,6 +72,29 @@ struct ContentContextAnnotatorTests {
         #expect(annotation?.topic == "хакатон: роль, польза и ощущение бессмысленности")
     }
 
+    @Test func classifiesGoogleChatInChromeAsMessage() {
+        let context = ScreenContextSnapshot(
+            appID: "com.google.Chrome",
+            appName: "Google Chrome",
+            windowTitle: "Team review - Google Chat",
+            windowRole: nil,
+            document: "https://chat.google.com/room/AAAA",
+            focusedElementRole: nil,
+            focusedElementTitle: nil,
+            focusedElementValue: "Это не работает, давай переделаем решение",
+            selectedText: nil,
+            screenIndex: nil,
+            displayRole: nil,
+            confidence: 0.8
+        )
+
+        let annotation = ContentContextAnnotator().annotate(context: context, allowRawKinds: [])
+
+        #expect(annotation?.contentKind == "message")
+        #expect(annotation?.topic == "обсуждение сбоя или неверного результата")
+        #expect(annotation?.rawFragment == nil)
+    }
+
     @Test func classifiesMeetCaptionsAsMeetingContext() {
         let context = ScreenContextSnapshot(
             appID: "com.google.Chrome",

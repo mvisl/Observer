@@ -67,7 +67,9 @@ struct TextAffectCueBuilder {
             "text_length": "\(normalized.count)"
         ]
         if markers.contains("visual_design_friction") {
-            payload["likely_cause"] = "visual_design_cacophony"
+            // The phrase is evidence, not a diagnosis. The causal source is resolved only
+            // when fresh independent context is available in the fusion layer.
+            payload["mentioned_context"] = "visual_design"
         }
         if let appName {
             payload["app_name"] = appName
@@ -78,9 +80,7 @@ struct TextAffectCueBuilder {
 
         return TextAffectCue(
             name: "frustration_candidate",
-            insight: markers.contains("visual_design_friction")
-                ? "Фрикция: злится из-за визуального хаоса"
-                : "Фрикция: злится на неверный результат",
+            insight: "Фрикция: резкая реакция в текущем контексте",
             confidence: confidence,
             payload: payload
         )

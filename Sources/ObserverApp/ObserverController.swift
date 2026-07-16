@@ -64,6 +64,8 @@ final class ObserverController {
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
     private var lastOCRWritingFallbackKey: String?
+    private var lastReadingOCRAt: Date?
+    private var lastReadingOCRKey: String?
     private var isIdleBoundaryOpen = false
     private var isFineInputPauseOpen = false
     private var sessionStartedAt: Date?
@@ -2853,6 +2855,7 @@ final class ObserverController {
                 contextKind: "screen",
                 displayPrefix: "Контекст"
             )
+            captureReadingOCRIfNeeded(context)
 
         case .writingContext(let context):
             lastWritingContextAt = Date()
@@ -3170,6 +3173,56 @@ final class ObserverController {
             )
         } catch {
             lastOCRWritingFallbackAt = now
+        }
+    }
+
+    private func captureReadingOCRIfNeeded(_ context: ScreenContextSnapshot, now: Date = Date()) {
+        guard mode == .observing, environment.settings.fullContextMode else {
+            return
+        }
+        guard let currentFocus, let appID = currentFocus.appID,
+              !environment.privacyStore.isExcluded(appID) else {
+            return
+        }
+        guard lastReadingOCRAt.map({ now.timeIntervalSince($0) >= 40 }) ?? true else {
+            return
+        }
+
+        do {
+            guard let result = try ScreenOCRService().recognizeText(for: currentFocus) else {
+                lastReadingOCRAt = now
+                return
+            }
+            let key = [result.appID ?? "", result.text].joined(separator: "|")
+            guard key != lastReadingOCRKey else {
+                lastReadingOCRAt = now
+                return
+            }
+
+            lastReadingOCRAt = now
+            lastReadingOCRKey = key
+            let ocrContext = ScreenContextSnapshot(
+                appID: result.appID,
+                appName: result.appName,
+                windowTitle: result.windowTitle ?? context.windowTitle,
+                windowRole: nil,
+                document: context.document,
+                focusedElementRole: nil,
+                focusedElementTitle: nil,
+                focusedElementValue: result.text,
+                selectedText: nil,
+                screenIndex: currentFocus.screenIndex,
+                displayRole: currentFocus.displayRole,
+                confidence: min(result.confidence, 0.7)
+            )
+            recordContentContext(
+                ocrContext,
+                legacyType: .ocrContext,
+                contextKind: "periodic_reading_ocr",
+                displayPrefix: "Контекст"
+            )
+        } catch {
+            lastReadingOCRAt = now
         }
     }
 
@@ -3680,12 +3733,31 @@ final class ObserverController {
             return
         }
 
+        let resolvedDisplayText = fusionDisplayText(
+            defaultText: displayText,
+            fusion: decision,
+            candidatePayload: payload
+        )
         if surfaceAsContext {
-            setLatestContextLine(displayText, now: now)
+            setLatestContextLine(resolvedDisplayText, now: now)
         } else {
-            latestHint = displayText
+            latestHint = resolvedDisplayText
             lastHintAt = now
         }
+    }
+
+    private func fusionDisplayText(
+        defaultText: String,
+        fusion: FusionDecision,
+        candidatePayload: [String: String]
+    ) -> String {
+        guard candidatePayload["cue"] == "frustration_candidate",
+              fusion.payload["causal_attribution"] == "fresh_communication_context",
+              let topic = usableSemanticTopic(fusion.payload["causal_context_topic"])
+        else {
+            return defaultText
+        }
+        return "Фрикция: реакция совпала с перепиской · \(topic)"
     }
 
     private func proactiveHintsBlocked() -> Bool {

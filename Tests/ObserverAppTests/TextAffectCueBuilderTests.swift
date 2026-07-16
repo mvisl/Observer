@@ -35,14 +35,15 @@ struct TextAffectCueBuilderTests {
         #expect(cue == nil)
     }
 
-    @Test func detectsVisualDesignCause() throws {
+    @Test func treatsVisualDesignPhraseAsEvidenceNotCause() throws {
         let cue = try #require(TextAffectCueBuilder().build(
             text: "злюсь, потому что смотрю на дизайн и вижу абсолютную какафонию",
             appName: "Figma",
             activityInsight: "Дизайн: рассматривает макет"
         ))
 
-        #expect(cue.payload["likely_cause"] == "visual_design_cacophony")
-        #expect(cue.insight.contains("визуального хаоса"))
+        #expect(cue.payload["mentioned_context"] == "visual_design")
+        #expect(cue.payload["likely_cause"] == nil)
+        #expect(cue.insight.contains("резкая реакция"))
     }
 }

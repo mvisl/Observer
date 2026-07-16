@@ -39,7 +39,11 @@ struct ContentContextAnnotator {
 
         let kind = classifyKind(context: context, text: text)
         let scrubbedText = PrivacyRedactor.redact(text)
-        let topic = topicPhrase(from: scrubbedText, fallback: context.windowTitle ?? context.appName)
+        let topic = topicPhrase(
+            from: scrubbedText,
+            fallback: context.windowTitle ?? context.appName,
+            kind: kind
+        )
         let rawFragment = allowRawKinds.contains(kind) ? String(scrubbedText.prefix(500)) : nil
 
         return ContentContextAnnotation(
@@ -92,6 +96,10 @@ struct ContentContextAnnotator {
             || appSurface.contains("whatsapp")
             || appSurface.contains("viber")
             || appSurface.contains("slack")
+            || appSurface.contains("chat.google.com")
+            || appSurface.contains("google chat")
+            || appSurface.contains("messenger.com")
+            || appSurface.contains("instagram.com/direct")
             || contentSurface.contains("telegram")
             || contentSurface.contains("whatsapp")
             || contentSurface.contains("viber") {
@@ -160,10 +168,16 @@ struct ContentContextAnnotator {
         return communicator && callMarker
     }
 
-    private func topicPhrase(from text: String, fallback: String) -> String {
+    private func topicPhrase(from text: String, fallback: String, kind: String) -> String {
         let lower = text.lowercased()
         if let phrase = inferredHighSignalTopic(from: lower) {
             return phrase
+        }
+
+        // Messages and email are deliberately reduced to a semantic label. Their wording
+        // may be useful for a momentary local decision, but must not become event history.
+        if ["message", "email"].contains(kind) {
+            return communicationTopic(from: lower)
         }
 
         let cleaned = text
@@ -175,6 +189,25 @@ struct ContentContextAnnotator {
 
         let topic = cleaned.isEmpty ? fallback : cleaned
         return String(topic.prefix(90))
+    }
+
+    private func communicationTopic(from lower: String) -> String {
+        if lower.contains("дивиденд") || lower.contains("карточ") || lower.contains("тизер") {
+            return "обсуждение продуктового решения"
+        }
+        if lower.contains("дизайн") || lower.contains("макет") || lower.contains("визуаль") {
+            return "обсуждение визуального решения"
+        }
+        if lower.contains("не работает") || lower.contains("ошиб") || lower.contains("слом") {
+            return "обсуждение сбоя или неверного результата"
+        }
+        if lower.contains("бесит") || lower.contains("злюсь") || lower.contains("пизд") || lower.contains("хует") {
+            return "напряжённая переписка"
+        }
+        if lower.contains("встреч") || lower.contains("созвон") || lower.contains("обсуд") {
+            return "обсуждение следующего шага"
+        }
+        return "текущая переписка"
     }
 
     private func inferredHighSignalTopic(from lower: String) -> String? {
