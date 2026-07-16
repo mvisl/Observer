@@ -8,14 +8,12 @@ enum HeadphoneVisualState: Equatable {
 }
 
 /// Learns the user's visible "headphones on" appearance locally in RAM. It stores
-/// Vision feature vectors only, never frames. The camera is side-mounted, so
-/// the profile learns the user's usual working angle instead of requiring a
-/// frontal face.
+/// Vision feature vectors only, never frames. The crop is face-relative, and
+/// matching deliberately ignores gaze and head angle: headphones must be
+/// recognised while the person reads, looks aside, or sits at a different angle.
 struct HeadphoneAppearanceProfile {
     private struct WearingSample {
         let feature: VNFeaturePrintObservation
-        let yaw: Double?
-        let pitch: Double?
     }
 
     private var wearingFeatures: [WearingSample] = []
@@ -27,10 +25,9 @@ struct HeadphoneAppearanceProfile {
         faceCenterX: Double?,
         faceCenterY: Double?,
         faceArea: Double?,
-        yaw: Double?,
-        pitch: Double?,
         genericHeadphoneConfidence: Double?,
-        audioOutputIndicatesHeadphones: Bool
+        audioOutputIndicatesHeadphones: Bool,
+        confirmedWearing: Bool
     ) -> HeadphoneVisualState {
         guard facePresent, let jpegData,
               let feature = featurePrint(
@@ -44,20 +41,29 @@ struct HeadphoneAppearanceProfile {
         }
 
         let genericConfidence = genericHeadphoneConfidence ?? 0
-        if genericConfidence >= 0.45 {
-            learn(feature, yaw: yaw, pitch: pitch)
+        if genericConfidence >= 0.35 {
+            learn(feature)
             return .wearing(min(0.92, genericConfidence + 0.12))
         }
 
-        // A known headphone output lets the profile learn through intermittent
-        // generic labels, but the output alone never generates a removal event.
+        // Bootstrapping only establishes an initial positive profile. It never
+        // creates a removal event, because wired and Bluetooth routes can remain
+        // selected after the headphones leave the user's head.
         if audioOutputIndicatesHeadphones, wearingFeatures.count < 3 {
-            learn(feature, yaw: yaw, pitch: pitch)
+            learn(feature)
             return .wearing(0.58)
         }
 
+        // A weak, but explicit, object label expands the profile only after the
+        // temporal state machine has already confirmed that the headphones are
+        // being worn. This lets a side camera learn left/right/downward poses
+        // without treating a changed pose as a removal.
+        if genericConfidence >= 0.20, confirmedWearing {
+            learn(feature)
+            return .wearing(0.50)
+        }
+
         guard wearingFeatures.count >= 3,
-              isComparableToProfile(yaw: yaw, pitch: pitch),
               let distance = nearestDistance(to: feature)
         else {
             return .unknown
@@ -66,26 +72,14 @@ struct HeadphoneAppearanceProfile {
         let threshold = similarityThreshold
         if distance <= threshold {
             let confidence = min(0.86, max(0.48, 1 - Double(distance / max(threshold, 0.001)) * 0.45))
-            if audioOutputIndicatesHeadphones {
-                learn(feature, yaw: yaw, pitch: pitch)
-            }
             return .wearing(confidence)
         }
 
+        // This is a comparison with the whole accumulated appearance profile,
+        // not a pose bucket. A new head angle is only a removal candidate when
+        // it has no visual resemblance to any learned headphone view.
         let distanceRatio = Double(distance / max(threshold, 0.001))
         return .notWearing(min(0.88, max(0.55, 0.5 + (distanceRatio - 1) * 0.2)))
-    }
-
-    private func isComparableToProfile(yaw: Double?, pitch: Double?) -> Bool {
-        guard let yaw, let pitch else { return false }
-        let poses = wearingFeatures.compactMap { sample -> (Double, Double)? in
-            guard let sampleYaw = sample.yaw, let samplePitch = sample.pitch else { return nil }
-            return (sampleYaw, samplePitch)
-        }
-        guard !poses.isEmpty else { return true }
-        let meanYaw = poses.map(\.0).reduce(0, +) / Double(poses.count)
-        let meanPitch = poses.map(\.1).reduce(0, +) / Double(poses.count)
-        return abs(yaw - meanYaw) <= 0.30 && abs(pitch - meanPitch) <= 0.24
     }
 
     private func featurePrint(
@@ -121,13 +115,15 @@ struct HeadphoneAppearanceProfile {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    private mutating func learn(_ feature: VNFeaturePrintObservation, yaw: Double?, pitch: Double?) {
+    private mutating func learn(_ feature: VNFeaturePrintObservation) {
         if let distance = nearestDistance(to: feature) {
             withinProfileDistances.append(distance)
             withinProfileDistances = Array(withinProfileDistances.suffix(20))
         }
-        wearingFeatures.append(.init(feature: feature, yaw: yaw, pitch: pitch))
-        wearingFeatures = Array(wearingFeatures.suffix(12))
+        wearingFeatures.append(.init(feature: feature))
+        // Keep enough views for side-on, upright, leaning and downward reading
+        // positions. A short rolling profile was silently forgetting them.
+        wearingFeatures = Array(wearingFeatures.suffix(48))
     }
 
     private func nearestDistance(to feature: VNFeaturePrintObservation) -> Float? {

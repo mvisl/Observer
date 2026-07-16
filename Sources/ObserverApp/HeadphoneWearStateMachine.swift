@@ -8,35 +8,50 @@ enum HeadphoneWearTransition: Equatable {
 
 struct HeadphoneWearStateMachine {
     private(set) var isWearing: Bool?
-    private var visibleSamples = 0
-    private var absentSamples = 0
+    private let confirmationSeconds: TimeInterval
+    private var wearingCandidateStartedAt: Date?
+    private var removalCandidateStartedAt: Date?
 
-    mutating func observe(facePresent: Bool, visualState: HeadphoneVisualState) -> HeadphoneWearTransition {
+    init(confirmationSeconds: TimeInterval = 5) {
+        self.confirmationSeconds = confirmationSeconds
+    }
+
+    mutating func observe(
+        facePresent: Bool,
+        visualState: HeadphoneVisualState,
+        now: Date = Date()
+    ) -> HeadphoneWearTransition {
         guard facePresent else {
-            visibleSamples = 0
-            absentSamples = 0
+            wearingCandidateStartedAt = nil
+            removalCandidateStartedAt = nil
             return .none
         }
 
         switch visualState {
         case let .wearing(confidence) where confidence >= 0.48:
-            visibleSamples += 1
-            absentSamples = 0
-            guard visibleSamples >= 2 else { return .none }
+            removalCandidateStartedAt = nil
+            guard isWearing != true else { return .none }
+            let startedAt = wearingCandidateStartedAt ?? now
+            wearingCandidateStartedAt = startedAt
+            guard now.timeIntervalSince(startedAt) >= confirmationSeconds else { return .none }
             let wasWearing = isWearing
             isWearing = true
+            wearingCandidateStartedAt = nil
             return wasWearing == false ? .putOn : .none
         case let .notWearing(confidence) where confidence >= 0.6:
-            absentSamples += 1
-            visibleSamples = 0
-            guard absentSamples >= 2 else { return .none }
+            wearingCandidateStartedAt = nil
+            guard isWearing == true else { return .none }
+            let startedAt = removalCandidateStartedAt ?? now
+            removalCandidateStartedAt = startedAt
+            guard now.timeIntervalSince(startedAt) >= confirmationSeconds else { return .none }
             let wasWearing = isWearing
             isWearing = false
+            removalCandidateStartedAt = nil
             return wasWearing == true ? .removed : .none
         default:
-            // A turned head or weak frame is not evidence of removal.
-            visibleSamples = 0
-            absentSamples = 0
+            // A turned head, gaze change, or weak frame is not evidence of removal.
+            wearingCandidateStartedAt = nil
+            removalCandidateStartedAt = nil
             return .none
         }
     }

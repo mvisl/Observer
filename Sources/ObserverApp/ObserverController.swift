@@ -4671,14 +4671,14 @@ final class ObserverController {
             faceCenterX: snapshot.faceCenterX,
             faceCenterY: snapshot.faceCenterY,
             faceArea: snapshot.faceArea,
-            yaw: snapshot.yaw,
-            pitch: snapshot.pitch,
             genericHeadphoneConfidence: genericHeadphoneConfidence,
-            audioOutputIndicatesHeadphones: audioOutputIndicatesHeadphones
+            audioOutputIndicatesHeadphones: audioOutputIndicatesHeadphones,
+            confirmedWearing: headphoneWearStateMachine.isWearing == true
         )
         let transition = headphoneWearStateMachine.observe(
             facePresent: snapshot.facePresent,
-            visualState: visualState
+            visualState: visualState,
+            now: now
         )
         switch transition {
         case .none:
