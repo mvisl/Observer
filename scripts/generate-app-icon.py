@@ -103,10 +103,10 @@ def draw_icon(size, transparent=False):
                 tile = rounded_rect_alpha(x, y, w, h, w * 0.22)
                 color = (0, 0, 0, 0)
                 if tile > 0:
-                    # Atlas-like glass tile: a flat navy body with a visible but
-                    # restrained diagonal rim. The shine lives on the perimeter,
-                    # not in a gradient across the icon.
-                    color = blend(color, (11, 29, 70, min(1, tile)))
+                    # Codex/Atlas-like glass tile: almost-black graphite glass,
+                    # with the blue reserved for the nazar itself. The shine lives
+                    # on two perimeter diagonals, never as a broad background gradient.
+                    color = blend(color, (24, 25, 29, min(1, tile)))
                     edge_distance = abs(rounded_rect_distance(x, y, w, h, w * 0.22))
                     rim = smoothstep(3.2, 0.0, edge_distance) * tile
                     upper_left = max(
@@ -117,8 +117,8 @@ def draw_icon(size, transparent=False):
                         smoothstep(w * 0.28, w * 0.94, x),
                         smoothstep(h * 0.28, h * 0.94, y),
                     )
-                    color = blend(color, (162, 190, 232, 0.62 * rim * upper_left))
-                    color = blend(color, (34, 73, 138, 0.62 * rim * lower_right))
+                    color = blend(color, (191, 197, 208, 0.52 * rim * upper_left))
+                    color = blend(color, (6, 10, 19, 0.72 * rim * lower_right))
 
             cx = w * 0.50
             cy = h * 0.485
