@@ -103,14 +103,22 @@ def draw_icon(size, transparent=False):
                 tile = rounded_rect_alpha(x, y, w, h, w * 0.22)
                 color = (0, 0, 0, 0)
                 if tile > 0:
-                    # The tile is deliberately flat and dark. Its glass effect is
-                    # confined to two diagonal rim fragments, not a broad gradient.
-                    color = blend(color, (10, 24, 57, min(1, tile)))
-                    edge = smoothstep(1.75, 0.18, abs(rounded_rect_distance(x, y, w, h, w * 0.22)))
-                    upper_left = smoothstep(w * 0.62, w * 0.08, x) * smoothstep(h * 0.62, h * 0.08, y)
-                    lower_right = smoothstep(w * 0.38, w * 0.92, x) * smoothstep(h * 0.38, h * 0.92, y)
-                    color = blend(color, (194, 216, 248, 0.34 * edge * upper_left * tile))
-                    color = blend(color, (72, 118, 188, 0.23 * edge * lower_right * tile))
+                    # Atlas-like glass tile: a flat navy body with a visible but
+                    # restrained diagonal rim. The shine lives on the perimeter,
+                    # not in a gradient across the icon.
+                    color = blend(color, (11, 29, 70, min(1, tile)))
+                    edge_distance = abs(rounded_rect_distance(x, y, w, h, w * 0.22))
+                    rim = smoothstep(3.2, 0.0, edge_distance) * tile
+                    upper_left = max(
+                        smoothstep(w * 0.72, w * 0.06, x),
+                        smoothstep(h * 0.72, h * 0.06, y),
+                    )
+                    lower_right = max(
+                        smoothstep(w * 0.28, w * 0.94, x),
+                        smoothstep(h * 0.28, h * 0.94, y),
+                    )
+                    color = blend(color, (162, 190, 232, 0.62 * rim * upper_left))
+                    color = blend(color, (34, 73, 138, 0.62 * rim * lower_right))
 
             cx = w * 0.50
             cy = h * 0.485
