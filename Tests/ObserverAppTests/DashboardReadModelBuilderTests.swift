@@ -114,6 +114,25 @@ struct DashboardReadModelBuilderTests {
         #expect(snapshot.causalSummary.episodeChains[0].evidenceEventIds == ["event-a", "event-b"])
     }
 
+    @Test
+    func excludesAwayGapFromObservedCoverage() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let snapshot = DashboardReadModelBuilder().buildDaySnapshot(
+            events: [
+                event(type: .inputActivity, at: start, payload: [:]),
+                event(type: .observationGap, at: start.addingTimeInterval(60), payload: [
+                    "reason": "away", "duration_seconds": "120"
+                ]),
+                event(type: .inputActivity, at: start.addingTimeInterval(300), payload: [:])
+            ],
+            date: start,
+            timezone: TimeZone(secondsFromGMT: 0)!,
+            settings: .defaults
+        )
+        #expect(snapshot.totals.observedSeconds == 180)
+        #expect(snapshot.totals.sensorGapSeconds == 120)
+    }
+
     private func event(
         id: UUID = UUID(),
         type: ObserverEventType,

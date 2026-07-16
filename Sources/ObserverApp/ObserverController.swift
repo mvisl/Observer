@@ -42,6 +42,9 @@ final class ObserverController {
     private var cameraAccessRequestInFlight = false
     private var lastCameraPermissionStatus: String?
     private var latestInputActivity: InputActivitySnapshot?
+    private var lastConfirmedPresenceAt: Date?
+    private var awayStartedAt: Date?
+    private var awayEpisodeClosed = false
     private var latestHint: String?
     private var latestContextLine: String?
     private var latestContextLineAt: Date?
@@ -107,6 +110,7 @@ final class ObserverController {
     private var currentObservationOutsideDefaultSchedule = false
     private var latestCognitiveState: String?
     private var latestCognitiveStateStartedAt: Date?
+    private var isAppendingContextFabric = false
 
     var onStateChanged: ((ObserverViewState) -> Void)?
 
@@ -1255,9 +1259,14 @@ final class ObserverController {
     }
 
     private func appendContextFabricForRecentEpisodes(from events: [ObserverEvent], limit: Int = 50) {
-        guard environment.settings.contextFabric.contextFabricEnabled else {
+        guard environment.settings.contextFabric.contextFabricEnabled,
+              !events.isEmpty,
+              !isAppendingContextFabric
+        else {
             return
         }
+        isAppendingContextFabric = true
+        defer { isAppendingContextFabric = false }
         let result = ContextFabricBuilder().build(events: Array(events.suffix(limit * 500)), now: Date())
         if environment.settings.contextFabric.contextLinkerEnabled {
             for payload in result.artifactIdentities {
@@ -2326,6 +2335,9 @@ final class ObserverController {
 
     private func append(_ event: ObserverEvent) {
         let status = scheduleGate.status(at: event.timestamp)
+        guard status.sensorAllowed || event.type.isOperationalOutsideSchedule else {
+            return
+        }
         var payload = lineagePayload(for: event, payload: event.payload)
         if status.outsideDefaultSchedule {
             payload["outside_default_schedule"] = "true"
@@ -2624,6 +2636,91 @@ final class ObserverController {
         )
     }
 
+    // Presence is deliberately broader than "face in this one frame": reading
+    // and typing can briefly hide the face, while an old cursor heartbeat must
+    // not turn an empty chair into an active work episode.
+    private func isPresenceActive(now: Date = Date()) -> Bool {
+        guard let lastConfirmedPresenceAt else { return false }
+        return now.timeIntervalSince(lastConfirmedPresenceAt) <= 120
+    }
+
+    private func updatePresence(
+        facePresent: Bool,
+        input: InputActivitySnapshot?,
+        now: Date
+    ) {
+        var confirmedAt: Date?
+        if facePresent {
+            confirmedAt = now
+        }
+        if let input, input.secondsSinceAnyInput <= 120 {
+            let inputAt = now.addingTimeInterval(-max(0, input.secondsSinceAnyInput))
+            confirmedAt = max(confirmedAt ?? .distantPast, inputAt)
+        }
+
+        if let confirmedAt {
+            let wasAway = awayStartedAt != nil
+            lastConfirmedPresenceAt = max(lastConfirmedPresenceAt ?? .distantPast, confirmedAt)
+            guard wasAway else { return }
+
+            let startedAt = awayStartedAt ?? confirmedAt
+            let duration = max(0, now.timeIntervalSince(startedAt))
+            awayStartedAt = nil
+            let closedEpisode = awayEpisodeClosed
+            awayEpisodeClosed = false
+            if closedEpisode {
+                append(
+                    .init(
+                        type: .observationGap,
+                        confidence: 0.95,
+                        payload: [
+                            "channel": "presence",
+                            "reason": "away",
+                            "duration_seconds": String(format: "%.1f", duration),
+                            "start": ISO8601DateFormatter().string(from: startedAt),
+                            "end": ISO8601DateFormatter().string(from: now),
+                            "excluded_from_tasks": "true"
+                        ],
+                        workspaceTopologyVersion: environment.topology.version
+                    )
+                )
+                currentEpisodeStartedAt = now
+                currentEpisodeID = UUID().uuidString
+                if currentFocus != nil {
+                    currentFocusStartedAt = now
+                }
+            }
+            return
+        }
+
+        guard let lastConfirmedPresenceAt,
+              now.timeIntervalSince(lastConfirmedPresenceAt) >= 180,
+              awayStartedAt == nil
+        else {
+            return
+        }
+
+        awayStartedAt = lastConfirmedPresenceAt
+        closeCurrentEpisode(outcome: "away", now: now)
+        currentEpisodeStartedAt = nil
+        closeCurrentFocusInterval(reason: "away")
+        currentFocusStartedAt = nil
+        awayEpisodeClosed = true
+        append(
+            .init(
+                type: .sessionBoundary,
+                confidence: 0.95,
+                payload: [
+                    "boundary": "away_started",
+                    "presence_grace_seconds": "120",
+                    "away_close_seconds": "180",
+                    "excluded_from_tasks": "true"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         let previousAttention = latestAttention
         let previousAttentionAt = latestAttentionAt
@@ -2631,6 +2728,7 @@ final class ObserverController {
         let now = Date()
         latestAttention = snapshot
         latestAttentionAt = now
+        updatePresence(facePresent: snapshot.facePresent, input: nil, now: now)
         if snapshot.facePresent {
             lastFacePresentAttention = snapshot
             consecutiveMissingFaceSamples = 0
@@ -2639,6 +2737,12 @@ final class ObserverController {
         }
         latestCameraStatus = nil
         recordCameraHealth(snapshot, now: now)
+        // A camera frame without a person is useful only for health and the
+        // absence boundary. It must not keep a task, mood, or episode alive.
+        guard isPresenceActive(now: now) else {
+            notifyStateChanged()
+            return
+        }
         if shouldPersistCameraAttention(snapshot, now: now) {
             let attentionEvent = ObserverEvent(
                 type: .attention,
@@ -2794,6 +2898,11 @@ final class ObserverController {
             )
 
         case .appFocus(let focus):
+            guard isPresenceActive() else {
+                currentFocus = focus
+                currentFocusStartedAt = nil
+                return
+            }
             let previousAppName = currentFocus?.appName
             focusChangeTimestamps.append(Date())
             focusChangeTimestamps = focusChangeTimestamps.suffix(20)
@@ -2828,6 +2937,11 @@ final class ObserverController {
 
         case .inputActivity(let activity):
             latestInputActivity = activity
+            updatePresence(facePresent: false, input: activity, now: Date())
+            guard isPresenceActive() else {
+                notifyStateChanged()
+                return
+            }
             append(
                 .init(
                     type: .inputActivity,
@@ -2847,6 +2961,7 @@ final class ObserverController {
             notifyStateChanged()
 
         case .screenContext(let context):
+            guard isPresenceActive() else { return }
             recordContentContext(
                 context,
                 legacyType: .screenContext,
@@ -2856,6 +2971,7 @@ final class ObserverController {
             captureReadingOCRIfNeeded(context)
 
         case .writingContext(let context):
+            guard isPresenceActive() else { return }
             lastWritingContextAt = Date()
             recordContentContext(
                 context,
@@ -2929,6 +3045,9 @@ final class ObserverController {
         contextKind: String,
         displayPrefix: String
     ) {
+        guard isPresenceActive() else {
+            return
+        }
         let allowRawKinds = Set(environment.settings.rawContextStorageKinds)
         guard let annotation = ContentContextAnnotator().annotate(
             context: context,

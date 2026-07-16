@@ -30,13 +30,17 @@ function clearTrustedPublicAccess() {
 }
 
 function todayString() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateString();
 }
 
 function localDateString(date = new Date()) {
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function fmtDuration(seconds: number) {
@@ -74,6 +78,16 @@ function fmtTime(value?: string) {
   return new Intl.DateTimeFormat("ru", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
+function formatSnapshotDay(date: string) {
+  const today = localDateString();
+  const yesterday = localDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const day = new Date(`${date}T12:00:00`);
+  const words = new Intl.DateTimeFormat("ru", { weekday: "long", day: "numeric", month: "long" }).format(day);
+  if (date === today) return `сегодня, ${words.replace(/^\S+,\s*/, "")}`;
+  if (date === yesterday) return `вчера, ${words.replace(/^\S+,\s*/, "")}`;
+  return words;
+}
+
 function useSelectedDate() {
   const [params, setParams] = useSearchParams();
   const date = params.get("date") ?? todayString();
@@ -82,6 +96,12 @@ function useSelectedDate() {
     setParams(params, { replace: true });
   };
   return [date, setDate] as const;
+}
+
+function shiftLocalDate(date: string, offsetDays: number) {
+  const next = new Date(`${date}T12:00:00`);
+  next.setDate(next.getDate() + offsetDays);
+  return localDateString(next);
 }
 
 function useSnapshot() {
@@ -142,10 +162,14 @@ function AppShell() {
             <p className="eyebrow">Local Core API</p>
             <h1>Observer Web Dashboard</h1>
           </div>
-          <label className="date-picker">
-            Date
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-          </label>
+          <div className="date-navigation" aria-label="Dashboard date">
+            <button className="icon-button" title="Previous day" aria-label="Previous day" onClick={() => setDate(shiftLocalDate(date, -1))}>‹</button>
+            <label className="date-picker">
+              Date
+              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+            <button className="icon-button" title="Next day" aria-label="Next day" onClick={() => setDate(shiftLocalDate(date, 1))}>›</button>
+          </div>
         </header>
         <PageSwitch />
       </main>
@@ -769,6 +793,15 @@ function TodayPage() {
     <SnapshotState snapshot={data}>
       {(snapshot) => (
         <>
+          <section className="snapshot-freshness" aria-label="Snapshot freshness">
+            <span>{formatSnapshotDay(snapshot.date)}</span>
+            <span className={Date.now() - new Date(snapshot.generatedAt).getTime() > 26 * 60 * 60 * 1000 ? "warning" : undefined}>
+              {Date.now() - new Date(snapshot.generatedAt).getTime() > 26 * 60 * 60 * 1000
+                ? `Stale data: last generated ${formatSnapshotDay(localDateString(new Date(snapshot.generatedAt)))}`
+                : `Data generated ${formatSnapshotDay(localDateString(new Date(snapshot.generatedAt)))} at ${fmtTime(snapshot.generatedAt)}`}
+            </span>
+            <span>{snapshot.timelineSegments.length === 0 ? "No observed work yet" : `${snapshot.timelineSegments.length} observed segments`}</span>
+          </section>
           <MetricStrip snapshot={snapshot} />
           <DayOverview snapshot={snapshot} />
           <section className="two-column">
@@ -809,6 +842,9 @@ function DayOverview({ snapshot }: { snapshot: DayDashboardSnapshot }) {
   const total = Math.max(1, snapshot.totals.attributableSeconds);
   return (
     <section className="overview" aria-label="Day overview">
+      {snapshot.timelineSegments.length === 0 && (
+        <p className="muted">{snapshot.date === localDateString() ? "The working day is still in progress. Its report will appear after the window closes and the nightly job runs." : "No observed work for this local calendar day. Previous-day data is not substituted."}</p>
+      )}
       <div className="overview-track">
         {snapshot.timelineSegments.map((segment) => (
           <span

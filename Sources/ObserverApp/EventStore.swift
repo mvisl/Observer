@@ -24,6 +24,9 @@ final class EventStore {
             try quarantine(event: event, payload: payload, reason: reason)
             return
         }
+        if event.type == .localSummary, try isDuplicateSummary(event, payload: payload) {
+            return
+        }
         let sql = """
         INSERT INTO events (
             id, timestamp, type, source, platform, display_role, app_id,
@@ -195,8 +198,10 @@ final class EventStore {
         try execute("CREATE INDEX IF NOT EXISTS idx_events_app_timestamp ON events(app_id, timestamp);")
         try archiveLegacyActivityInsights()
         try createContractQuarantine()
+        try createPhantomActivityQuarantine()
         try migratePrivacyAndEvidenceContracts()
         try deduplicateRestartSummaries()
+        try sanitizeKnownPhantomWindow()
     }
 
     private func archiveLegacyActivityInsights() throws {
@@ -249,6 +254,22 @@ final class EventStore {
         )
     }
 
+    private func createPhantomActivityQuarantine() throws {
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS _quarantine_phantom_activity (
+                original_id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                type TEXT NOT NULL,
+                source TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                quarantined_at TEXT NOT NULL
+            );
+            """
+        )
+    }
+
     private func migratePrivacyAndEvidenceContracts() throws {
         let events = try allEvents()
         for event in events {
@@ -278,6 +299,107 @@ final class EventStore {
             if seen.insert("\(kind)|\(bucket)").inserted { continue }
             try deleteEvent(id: event.id)
         }
+    }
+
+    /// A confirmed bad interval from the early camera pipeline. It contained
+    /// generated activity after the user had left, so retaining it would poison
+    /// both the July report and future personal baselines. The marker makes this
+    /// a one-time repair, not a recurring date-specific filter.
+    private func sanitizeKnownPhantomWindow() throws {
+        // v3 intentionally re-runs the repair for installations that received
+        // an older marker before the deletion was both conditional and archived.
+        let marker = "trust-pass-2026-07-15-phantom-window-v3"
+        try execute("CREATE TABLE IF NOT EXISTS _observer_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);")
+        var alreadyApplied = false
+        try withStatement("SELECT 1 FROM _observer_migrations WHERE name = ? LIMIT 1;") { statement in
+            sqlite3_bind_text(statement, 1, marker, -1, SQLITE_TRANSIENT)
+            alreadyApplied = sqlite3_step(statement) == SQLITE_ROW
+        }
+        guard !alreadyApplied else { return }
+
+        let start = "2026-07-15T16:05:00Z" // 18:05 Europe/Belgrade
+        let end = "2026-07-15T18:30:00Z"   // 20:30 Europe/Belgrade
+        let lifecycle = "'appLaunch','appShutdown','workspaceTopologyLoaded','sessionBoundary','observingStarted','observingPaused','scheduleOverride'"
+        let affectedSQL = "SELECT COUNT(*) FROM events WHERE timestamp >= '\(start)' AND timestamp < '\(end)' AND type NOT IN (\(lifecycle));"
+        var affectedCount = 0
+        try withStatement(affectedSQL) { statement in
+            if sqlite3_step(statement) == SQLITE_ROW {
+                affectedCount = Int(sqlite3_column_int(statement, 0))
+            }
+        }
+        if affectedCount > 0 {
+            try execute(
+                """
+                INSERT OR IGNORE INTO _quarantine_phantom_activity
+                (original_id, timestamp, type, source, payload_json, reason, quarantined_at)
+                SELECT id, timestamp, type, source, payload_json,
+                       'no_presence_outside_schedule', '\(isoFormatter.string(from: Date()))'
+                FROM events
+                WHERE timestamp >= '\(start)' AND timestamp < '\(end)' AND type NOT IN (\(lifecycle));
+                """
+            )
+        }
+        try execute("DELETE FROM events WHERE timestamp >= '\(start)' AND timestamp < '\(end)' AND type NOT IN (\(lifecycle));")
+
+        if affectedCount > 0 {
+            let gapID = "A2D6F5FA-7F6D-4C7D-98BD-5B6A7CEB9061"
+            let payload = try payloadJSONString([
+                "channel": "trust_pass_migration",
+                "reason": "phantom_activity_repaired",
+                "duration_seconds": "8700",
+                "start": start,
+                "end": end,
+                "excluded_from_tasks": "true",
+                "migration": marker
+            ])
+            try withStatement(
+                """
+                INSERT OR IGNORE INTO events
+                (id, timestamp, type, source, platform, display_role, app_id, confidence, payload_json, workspace_topology_version)
+                VALUES (?, ?, 'observationGap', 'trust_pass_migration', 'macOS', NULL, NULL, 1.0, ?, 0);
+                """
+            ) { statement in
+                sqlite3_bind_text(statement, 1, gapID, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(statement, 2, start, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(statement, 3, payload, -1, SQLITE_TRANSIENT)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw EventStoreError.sqlite(message: lastErrorMessage)
+                }
+            }
+        }
+        try withStatement("INSERT INTO _observer_migrations (name, applied_at) VALUES (?, ?);") { statement in
+            sqlite3_bind_text(statement, 1, marker, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, isoFormatter.string(from: Date()), -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw EventStoreError.sqlite(message: lastErrorMessage)
+            }
+        }
+    }
+
+    private func isDuplicateSummary(_ event: ObserverEvent, payload: [String: String]) throws -> Bool {
+        let bucket = Int(event.timestamp.timeIntervalSince1970 / 300)
+        let kind = payload["summary_kind"] ?? payload["trigger"] ?? "default"
+        let lower = Date(timeIntervalSince1970: Double(bucket * 300))
+        let upper = lower.addingTimeInterval(300)
+        let sql = """
+        SELECT payload_json FROM events
+        WHERE type = 'localSummary' AND timestamp >= ? AND timestamp < ?;
+        """
+        var duplicate = false
+        try withStatement(sql) { statement in
+            sqlite3_bind_text(statement, 1, isoFormatter.string(from: lower), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, isoFormatter.string(from: upper), -1, SQLITE_TRANSIENT)
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let payloadData = Data(columnString(statement, 0).utf8)
+                let existing = (try? payloadDecoder.decode([String: String].self, from: payloadData)) ?? [:]
+                let existingKind = existing["summary_kind"] ?? existing["trigger"] ?? "default"
+                if existingKind == kind {
+                    duplicate = true
+                    break
+                }
+            }
+        }
+        return duplicate
     }
 
     private func deleteEvent(id: UUID) throws {

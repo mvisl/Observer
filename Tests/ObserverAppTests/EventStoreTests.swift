@@ -98,4 +98,31 @@ struct EventStoreTests {
         #expect(try store.allEvents().isEmpty)
         #expect(try store.quarantinedContractViolationCount() == 1)
     }
+
+    @Test func deduplicatesRestartedSummaryWithinItsTimeWindow() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("observer-store-summary-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try EventStore(directory: directory)
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        for _ in 0..<2 {
+            try store.append(
+                ObserverEvent(
+                    id: UUID(),
+                    timestamp: timestamp,
+                    type: .localSummary,
+                    source: "test",
+                    platform: "macOS",
+                    displayRole: nil,
+                    appID: nil,
+                    confidence: 1,
+                    payload: ["summary_kind": "idle", "summary": "same window"],
+                    workspaceTopologyVersion: 1
+                )
+            )
+        }
+        #expect(try store.allEvents().filter { $0.type == .localSummary }.count == 1)
+    }
 }

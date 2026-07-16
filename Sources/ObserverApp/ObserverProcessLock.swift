@@ -18,9 +18,30 @@ final class ObserverProcessLock {
            kill(pid, 0) == 0 {
             return false
         }
-        try "\(getpid())".write(to: url, atomically: true, encoding: .utf8)
-        ownsLock = true
-        return true
+        // O_EXCL makes the final claim atomic. Two app bundles can otherwise
+        // both pass the stale-lock check and start observing at once.
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        if descriptor >= 0 {
+            let data = Data("\(getpid())\n".utf8)
+            _ = data.withUnsafeBytes { write(descriptor, $0.baseAddress, data.count) }
+            close(descriptor)
+            ownsLock = true
+            return true
+        }
+
+        guard errno == EEXIST else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        // A stale file can be left by a crash between the liveness check and
+        // the atomic claim. Remove only after confirming the recorded PID died.
+        if let text = try? String(contentsOf: url, encoding: .utf8),
+           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+           pid > 0,
+           kill(pid, 0) == 0 {
+            return false
+        }
+        try? FileManager.default.removeItem(at: url)
+        return try acquire()
     }
 
     func release() {

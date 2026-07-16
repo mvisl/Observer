@@ -104,6 +104,21 @@ enum ObserverPipeline {
 }
 
 extension ObserverEventType {
+    /// Events in this small set describe Observer itself rather than the user.
+    /// They may be persisted while the sensor layer is intentionally asleep.
+    var isOperationalOutsideSchedule: Bool {
+        switch self {
+        case .appLaunch, .appShutdown, .workspaceTopologyLoaded, .cameraPermission,
+             .observingStarted, .observingPaused, .sessionBoundary, .scheduleOverride,
+             .observationGap, .heartbeat, .focusIntervalRejected, .localSummary,
+             .dailyActivityReport, .weeklyReport, .readinessReport, .geminiKeyUpdated,
+             .geminiKeyDeleted, .externalLLMRequest:
+            return true
+        default:
+            return false
+        }
+    }
+
     var requiresLineage: Bool {
         switch self {
         case .activityThread,

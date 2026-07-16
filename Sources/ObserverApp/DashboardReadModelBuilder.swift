@@ -53,13 +53,22 @@ struct DashboardReadModelBuilder {
         let causalSummary = causalSummary(events: dayEvents)
         let readiness = ReadinessReportBuilder(settings: settings.readinessSettings)
             .readinessReport(events: events, now: date)
+        let outsideGateAttributedSeconds = dayEvents
+            .filter { $0.type == .contextSlice && $0.payload["outside_default_schedule"] == "true" }
+            .reduce(0) { $0 + duration($1, key: "active_seconds") }
+        var readinessMetrics = readiness.payload
+        readinessMetrics["outside_gate_attribution_seconds"] = String(format: "%.0f", outsideGateAttributedSeconds)
+        var readinessBlockers = (readiness.payload["blockers"] ?? "")
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if outsideGateAttributedSeconds > 0 {
+            readinessBlockers.append("attribution exists outside the configured observation window")
+        }
         let readinessSummary = DashboardReadinessSummary(
             status: readiness.payload["status"] ?? "not_ready",
-            blockers: (readiness.payload["blockers"] ?? "")
-                .split(separator: ";")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty },
-            metrics: readiness.payload
+            blockers: readinessBlockers,
+            metrics: readinessMetrics
         )
 
         return DayDashboardSnapshot(
@@ -289,7 +298,13 @@ struct DashboardReadModelBuilder {
         guard let first = events.first?.timestamp, let last = events.last?.timestamp else {
             return 0
         }
-        return max(0, min(fallbackEnd, last).timeIntervalSince(first))
+        let wallClockSeconds = max(0, min(fallbackEnd, last).timeIntervalSince(first))
+        // Absence is a discontinuity in observation, not quiet work. Keep it
+        // visible in the review stream, but never let it inflate coverage.
+        let awaySeconds = events
+            .filter { $0.type == .observationGap && $0.payload["reason"] == "away" }
+            .reduce(0) { $0 + duration($1, key: "duration_seconds") }
+        return max(0, wallClockSeconds - awaySeconds)
     }
 
     private func sensorGapEvents(_ events: [ObserverEvent]) -> [ObserverEvent] {
