@@ -25,6 +25,13 @@ struct ObserverSettings: Codable {
         var temporalExitThresholdMultiplier: Double
         var abValidationDays: Int
         var cascadeShadowMode: Bool
+        var cueRefractorySeconds: Double
+        var cueHourlyBudget: Int
+        var throttledCueConfidenceMultiplier: Double
+        var minimumEmotionFaceArea: Double
+        var minimumEmotionFrameBrightness: Double
+        var maximumEmotionFrameBrightness: Double
+        var minimumEmotionFrameSharpness: Double
 
         init(
             tier2SidecarEnabled: Bool,
@@ -41,7 +48,14 @@ struct ObserverSettings: Codable {
             temporalMaximumDurationSeconds: Double,
             temporalExitThresholdMultiplier: Double,
             abValidationDays: Int,
-            cascadeShadowMode: Bool
+            cascadeShadowMode: Bool,
+            cueRefractorySeconds: Double,
+            cueHourlyBudget: Int,
+            throttledCueConfidenceMultiplier: Double,
+            minimumEmotionFaceArea: Double,
+            minimumEmotionFrameBrightness: Double,
+            maximumEmotionFrameBrightness: Double,
+            minimumEmotionFrameSharpness: Double
         ) {
             self.tier2SidecarEnabled = tier2SidecarEnabled
             self.tier2SocketPath = tier2SocketPath
@@ -58,6 +72,13 @@ struct ObserverSettings: Codable {
             self.temporalExitThresholdMultiplier = temporalExitThresholdMultiplier
             self.abValidationDays = abValidationDays
             self.cascadeShadowMode = cascadeShadowMode
+            self.cueRefractorySeconds = cueRefractorySeconds
+            self.cueHourlyBudget = cueHourlyBudget
+            self.throttledCueConfidenceMultiplier = throttledCueConfidenceMultiplier
+            self.minimumEmotionFaceArea = minimumEmotionFaceArea
+            self.minimumEmotionFrameBrightness = minimumEmotionFrameBrightness
+            self.maximumEmotionFrameBrightness = maximumEmotionFrameBrightness
+            self.minimumEmotionFrameSharpness = minimumEmotionFrameSharpness
         }
 
         init(from decoder: Decoder) throws {
@@ -78,6 +99,13 @@ struct ObserverSettings: Codable {
             self.temporalExitThresholdMultiplier = try container.decodeIfPresent(Double.self, forKey: .temporalExitThresholdMultiplier) ?? defaults.temporalExitThresholdMultiplier
             self.abValidationDays = try container.decodeIfPresent(Int.self, forKey: .abValidationDays) ?? defaults.abValidationDays
             self.cascadeShadowMode = try container.decodeIfPresent(Bool.self, forKey: .cascadeShadowMode) ?? defaults.cascadeShadowMode
+            self.cueRefractorySeconds = try container.decodeIfPresent(Double.self, forKey: .cueRefractorySeconds) ?? defaults.cueRefractorySeconds
+            self.cueHourlyBudget = try container.decodeIfPresent(Int.self, forKey: .cueHourlyBudget) ?? defaults.cueHourlyBudget
+            self.throttledCueConfidenceMultiplier = try container.decodeIfPresent(Double.self, forKey: .throttledCueConfidenceMultiplier) ?? defaults.throttledCueConfidenceMultiplier
+            self.minimumEmotionFaceArea = try container.decodeIfPresent(Double.self, forKey: .minimumEmotionFaceArea) ?? defaults.minimumEmotionFaceArea
+            self.minimumEmotionFrameBrightness = try container.decodeIfPresent(Double.self, forKey: .minimumEmotionFrameBrightness) ?? defaults.minimumEmotionFrameBrightness
+            self.maximumEmotionFrameBrightness = try container.decodeIfPresent(Double.self, forKey: .maximumEmotionFrameBrightness) ?? defaults.maximumEmotionFrameBrightness
+            self.minimumEmotionFrameSharpness = try container.decodeIfPresent(Double.self, forKey: .minimumEmotionFrameSharpness) ?? defaults.minimumEmotionFrameSharpness
         }
     }
 
@@ -513,7 +541,14 @@ struct ObserverSettings: Codable {
             temporalMaximumDurationSeconds: 4.0,
             temporalExitThresholdMultiplier: 0.65,
             abValidationDays: 14,
-            cascadeShadowMode: true
+            cascadeShadowMode: true,
+            cueRefractorySeconds: 60,
+            cueHourlyBudget: 12,
+            throttledCueConfidenceMultiplier: 0.55,
+            minimumEmotionFaceArea: 0.012,
+            minimumEmotionFrameBrightness: 0.08,
+            maximumEmotionFrameBrightness: 0.92,
+            minimumEmotionFrameSharpness: 0.006
         ),
         cognitiveSettings: CognitiveSettings(
             flowMinimumSeconds: 600,

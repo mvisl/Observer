@@ -98,6 +98,7 @@ final class CameraAttentionService: NSObject {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
         }
+        let frameQuality = CameraFrameQuality.measure(pixelBuffer: pixelBuffer)
 
         let faceRequest = VNDetectFaceLandmarksRequest()
         let classifyRequest = VNClassifyImageRequest()
@@ -115,7 +116,9 @@ final class CameraAttentionService: NSObject {
                 visualObjects: visualObjects,
                 jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer),
                 smileCandidateThreshold: smileCandidateThreshold,
-                mouthOpenCandidateThreshold: mouthOpenCandidateThreshold
+                mouthOpenCandidateThreshold: mouthOpenCandidateThreshold,
+                frameBrightness: frameQuality.brightness,
+                frameSharpness: frameQuality.sharpness
             )
             let handler = self.handler
             Task { @MainActor in
@@ -202,6 +205,8 @@ struct AttentionSnapshot: Sendable {
     let mouthOpenScore: Double?
     let yawnCandidate: Bool?
     let mouthSignalSource: String?
+    let frameBrightness: Double?
+    let frameSharpness: Double?
     let visualObjects: [CameraObjectObservation]
     let jpegData: Data?
     let isTemporarilyLostFace: Bool
@@ -232,6 +237,8 @@ struct AttentionSnapshot: Sendable {
         mouthOpenScore: Double? = nil,
         yawnCandidate: Bool? = nil,
         mouthSignalSource: String? = nil,
+        frameBrightness: Double? = nil,
+        frameSharpness: Double? = nil,
         visualObjects: [CameraObjectObservation] = [],
         jpegData: Data? = nil,
         isTemporarilyLostFace: Bool = false
@@ -261,6 +268,8 @@ struct AttentionSnapshot: Sendable {
         self.mouthOpenScore = mouthOpenScore
         self.yawnCandidate = yawnCandidate
         self.mouthSignalSource = mouthSignalSource
+        self.frameBrightness = frameBrightness
+        self.frameSharpness = frameSharpness
         self.visualObjects = visualObjects
         self.jpegData = jpegData
         self.isTemporarilyLostFace = isTemporarilyLostFace
@@ -271,7 +280,9 @@ struct AttentionSnapshot: Sendable {
         visualObjects: [CameraObjectObservation] = [],
         jpegData: Data? = nil,
         smileCandidateThreshold: Double = 0.62,
-        mouthOpenCandidateThreshold: Double = 0.62
+        mouthOpenCandidateThreshold: Double = 0.62,
+        frameBrightness: Double? = nil,
+        frameSharpness: Double? = nil
     ) -> AttentionSnapshot {
         guard let largestFace = faceObservations.max(by: { lhs, rhs in
             lhs.boundingBox.width * lhs.boundingBox.height < rhs.boundingBox.width * rhs.boundingBox.height
@@ -344,6 +355,8 @@ struct AttentionSnapshot: Sendable {
             mouthOpenScore: mouth.score,
             yawnCandidate: mouth.isYawnCandidate,
             mouthSignalSource: mouth.source,
+            frameBrightness: frameBrightness,
+            frameSharpness: frameSharpness,
             visualObjects: visualObjects,
             jpegData: jpegData
         )
@@ -376,6 +389,8 @@ struct AttentionSnapshot: Sendable {
             mouthOpenScore: mouthOpenScore,
             yawnCandidate: yawnCandidate,
             mouthSignalSource: mouthSignalSource,
+            frameBrightness: frameBrightness,
+            frameSharpness: frameSharpness,
             visualObjects: visualObjects,
             jpegData: jpegData,
             isTemporarilyLostFace: true
@@ -459,6 +474,12 @@ struct AttentionSnapshot: Sendable {
         if let mouthSignalSource {
             payload["mouth_signal_source"] = mouthSignalSource
         }
+        if let frameBrightness {
+            payload["frame_brightness"] = String(format: "%.3f", frameBrightness)
+        }
+        if let frameSharpness {
+            payload["frame_sharpness"] = String(format: "%.4f", frameSharpness)
+        }
         if !visualObjects.isEmpty {
             payload["visual_object_candidates"] = visualObjects
                 .map { "\($0.label):\(String(format: "%.2f", $0.confidence))" }
@@ -471,6 +492,52 @@ struct AttentionSnapshot: Sendable {
         }
 
         return payload
+    }
+}
+
+private struct CameraFrameQuality {
+    let brightness: Double?
+    let sharpness: Double?
+
+    static func measure(pixelBuffer: CVPixelBuffer) -> CameraFrameQuality {
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        guard CVPixelBufferGetPlaneCount(pixelBuffer) > 0,
+              let baseAddress = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0)
+        else {
+            return CameraFrameQuality(brightness: nil, sharpness: nil)
+        }
+
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+        guard width > 1, height > 1 else {
+            return CameraFrameQuality(brightness: nil, sharpness: nil)
+        }
+
+        let stride = max(1, min(width, height) / 72)
+        let pixels = baseAddress.assumingMemoryBound(to: UInt8.self)
+        var luminanceTotal = 0.0
+        var gradientTotal = 0.0
+        var samples = 0
+        for y in Swift.stride(from: stride, to: height - stride, by: stride) {
+            for x in Swift.stride(from: stride, to: width - stride, by: stride) {
+                let value = Double(pixels[y * rowBytes + x])
+                let left = Double(pixels[y * rowBytes + x - stride])
+                let above = Double(pixels[(y - stride) * rowBytes + x])
+                luminanceTotal += value
+                gradientTotal += abs(value - left) + abs(value - above)
+                samples += 1
+            }
+        }
+        guard samples > 0 else {
+            return CameraFrameQuality(brightness: nil, sharpness: nil)
+        }
+        return CameraFrameQuality(
+            brightness: luminanceTotal / Double(samples) / 255,
+            sharpness: gradientTotal / Double(samples) / 510
+        )
     }
 }
 

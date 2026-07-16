@@ -59,6 +59,7 @@ final class ObserverController {
     private var pendingAwayPresenceIncident: PendingAwayPresenceIncident?
     private var lastSmileCueAt: Date?
     private var lastYawnCueAt: Date?
+    private var cameraCueRateLimiter = CameraCueRateLimiter()
     private var mouthOpenCandidateStartedAt: Date?
     private var lastWritingContextAt: Date?
     private var lastOCRWritingFallbackAt: Date?
@@ -74,6 +75,7 @@ final class ObserverController {
     private var mediaTimer: Timer?
     private let mediaProbeQueue = DispatchQueue(label: "local.observer.media-probe", qos: .utility)
     private var isMediaProbeInFlight = false
+    private var isMediaActionInFlight = false
     private var predictionTimer: Timer?
     private var lastMediaPlaybackKey: String?
     private var lastMediaPlaybackSnapshot: MediaPlaybackSnapshot?
@@ -3382,12 +3384,9 @@ final class ObserverController {
         guard attention.smileCandidate == true else {
             return
         }
-
-        let enoughTimePassed = lastSmileCueAt.map { now.timeIntervalSince($0) >= 90 } ?? true
-        guard enoughTimePassed else {
+        guard let safety = cameraCueSafety(for: attention, cue: "positive_reaction_candidate", now: now) else {
             return
         }
-
         lastSmileCueAt = now
 
         var payload: [String: String] = [
@@ -3399,7 +3398,11 @@ final class ObserverController {
             "cascade_stage": "tier1_candidate",
             "tier2_required_for_publication": "true",
             "temporal_model_required": "true",
-            "display_eligible": "false"
+            "display_eligible": "false",
+            "quality_gate": "passed",
+            "refractory_seconds": String(format: "%.0f", environment.settings.cameraDetectorSettings.cueRefractorySeconds),
+            "hourly_budget": "\(environment.settings.cameraDetectorSettings.cueHourlyBudget)",
+            "self_throttled": safety.selfThrottled ? "true" : "false"
         ]
         if let score = attention.smileScore {
             payload["smile_score"] = String(format: "%.3f", score)
@@ -3433,7 +3436,7 @@ final class ObserverController {
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
-            confidence: 0.36,
+            confidence: 0.36 * safety.confidenceMultiplier,
             payload: payload,
             displayText: isCommunicationSmile
                 ? "Камера: кандидат улыбки в переписке"
@@ -3463,11 +3466,9 @@ final class ObserverController {
             return
         }
 
-        let enoughTimePassed = lastYawnCueAt.map { now.timeIntervalSince($0) >= 180 } ?? true
-        guard enoughTimePassed else {
+        guard let safety = cameraCueSafety(for: attention, cue: "energy_drop_candidate", now: now) else {
             return
         }
-
         lastYawnCueAt = now
 
         var payload: [String: String] = [
@@ -3477,7 +3478,11 @@ final class ObserverController {
             "cascade_stage": "tier1_candidate",
             "tier2_required_for_publication": "true",
             "temporal_model_required": "true",
-            "display_eligible": "false"
+            "display_eligible": "false",
+            "quality_gate": "passed",
+            "refractory_seconds": String(format: "%.0f", environment.settings.cameraDetectorSettings.cueRefractorySeconds),
+            "hourly_budget": "\(environment.settings.cameraDetectorSettings.cueHourlyBudget)",
+            "self_throttled": safety.selfThrottled ? "true" : "false"
         ]
         if let score = attention.mouthOpenScore {
             payload["mouth_open_score"] = String(format: "%.3f", score)
@@ -3494,7 +3499,7 @@ final class ObserverController {
         appendBehaviorCueForFusion(
             displayRole: currentFocus?.displayRole,
             appID: currentFocus?.appID,
-            confidence: 0.34,
+            confidence: 0.34 * safety.confidenceMultiplier,
             payload: payload,
             displayText: "Камера: кандидат зевка",
             displayEligible: false,
@@ -3502,6 +3507,42 @@ final class ObserverController {
             now: now
         )
         notifyStateChanged()
+    }
+
+    private func cameraCueSafety(
+        for attention: AttentionSnapshot,
+        cue: String,
+        now: Date
+    ) -> (confidenceMultiplier: Double, selfThrottled: Bool)? {
+        let settings = environment.settings.cameraDetectorSettings
+        let qualitySettings = CameraCueQualityGate.Settings(
+            minimumFaceArea: settings.minimumEmotionFaceArea,
+            minimumBrightness: settings.minimumEmotionFrameBrightness,
+            maximumBrightness: settings.maximumEmotionFrameBrightness,
+            minimumSharpness: settings.minimumEmotionFrameSharpness
+        )
+        guard CameraCueQualityGate().rejection(
+            facePresent: attention.facePresent,
+            faceArea: attention.faceArea,
+            brightness: attention.frameBrightness,
+            sharpness: attention.frameSharpness,
+            settings: qualitySettings
+        ) == nil else {
+            return nil
+        }
+
+        switch cameraCueRateLimiter.decide(
+            cue: cue,
+            now: now,
+            refractorySeconds: settings.cueRefractorySeconds,
+            hourlyBudget: settings.cueHourlyBudget,
+            throttledConfidenceMultiplier: settings.throttledCueConfidenceMultiplier
+        ) {
+        case .suppressedByRefractory:
+            return nil
+        case let .emit(confidenceMultiplier, selfThrottled):
+            return (confidenceMultiplier, selfThrottled)
+        }
     }
 
     private func appendBehaviorCueForFusion(
@@ -3965,6 +4006,7 @@ final class ObserverController {
         lastAudioActive = nil
         lastAudioActivityEventAt = nil
         isMediaProbeInFlight = false
+        isMediaActionInFlight = false
     }
 
     private func sampleMediaPlayback() {
@@ -4070,6 +4112,28 @@ final class ObserverController {
         }
         lastMediaPlaybackKey = snapshot.identityKey
         lastMediaPlaybackSnapshot = snapshot
+    }
+
+    // NSAppleScript is not safe to run concurrently against browser tabs. Both
+    // polling and actual pause/resume commands use this one serial queue.
+    private func performMediaAction(
+        _ operation: @escaping (MediaPlaybackService) -> [String],
+        completion: @escaping ([String]) -> Void
+    ) {
+        guard !isMediaActionInFlight else {
+            return
+        }
+        isMediaActionInFlight = true
+        mediaProbeQueue.async { [weak self] in
+            let result = operation(MediaPlaybackService())
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                self.isMediaActionInFlight = false
+                completion(result)
+            }
+        }
     }
 
     private func updateMediaListenSession(
@@ -4239,27 +4303,26 @@ final class ObserverController {
             return
         }
 
-        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
-        guard !resumedSources.isEmpty else {
-            return
-        }
-
-        autoPausedSources = []
-        latestHint = "Медиа: наушники вернулись, продолжил"
-        lastHintAt = Date()
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_resume",
-                    "reason": "headphones_returned",
-                    "resumed_sources": resumedSources.joined(separator: ", "),
-                    "audio_output": outputName ?? "unknown"
-                ],
-                workspaceTopologyVersion: environment.topology.version
+        let sources = autoPausedSources
+        performMediaAction({ $0.resumeSources(sources) }) { [weak self] resumedSources in
+            guard let self, !resumedSources.isEmpty else { return }
+            self.autoPausedSources = []
+            self.latestHint = "Медиа: наушники вернулись, продолжил"
+            self.lastHintAt = Date()
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_resume",
+                        "reason": "headphones_returned",
+                        "resumed_sources": resumedSources.joined(separator: ", "),
+                        "audio_output": outputName ?? "unknown"
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
             )
-        )
-        notifyStateChanged()
+            self.notifyStateChanged()
+        }
     }
 
     private func updateHeadphoneWearState(from snapshot: AttentionSnapshot, now: Date = Date()) {
@@ -4304,54 +4367,53 @@ final class ObserverController {
             return
         }
 
-        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
-            ? lastMediaPlaybackSnapshot
-            : MediaPlaybackService().currentPlayback()
-        guard playbackSnapshot?.state == "playing" else {
+        guard let playbackSnapshot = lastMediaPlaybackSnapshot, playbackSnapshot.state == "playing" else {
             return
         }
 
-        let mediaService = MediaPlaybackService()
-        let pausedSources = mediaService.pauseAllKnownSources()
-        guard !pausedSources.isEmpty else {
-            latestHint = "Медиа: снял наушники, источник не подтвердил паузу"
-            lastHintAt = now
-            append(
+        performMediaAction({ $0.pauseAllKnownSources() }) { [weak self] pausedSources in
+            guard let self else { return }
+            guard !pausedSources.isEmpty else {
+                self.latestHint = "Медиа: снял наушники, источник не подтвердил паузу"
+                self.lastHintAt = now
+                self.append(
+                    .init(
+                        type: .mediaPlayback,
+                        payload: [
+                            "action": "auto_pause_skipped",
+                            "reason": reason,
+                            "audio_output": outputName ?? "unknown",
+                            "source": playbackSnapshot.source
+                        ],
+                        workspaceTopologyVersion: self.environment.topology.version
+                    )
+                )
+                self.notifyStateChanged()
+                return
+            }
+
+            self.lastHeadphonesAutoPauseAt = now
+            self.lastAutoPauseAt = now
+            self.autoPausedSources = pausedSources
+            self.latestHint = "Медиа: снял наушники, поставил на паузу"
+            self.lastHintAt = now
+            self.append(
                 .init(
                     type: .mediaPlayback,
                     payload: [
-                        "action": "auto_pause_skipped",
+                        "action": "auto_pause",
                         "reason": reason,
+                        "pause_actor": "observer",
+                        "paused_sources": pausedSources.joined(separator: ", "),
                         "audio_output": outputName ?? "unknown",
-                        "source": playbackSnapshot?.source ?? "unknown"
+                        "source": playbackSnapshot.source,
+                        "title": playbackSnapshot.title ?? ""
                     ],
-                    workspaceTopologyVersion: environment.topology.version
+                    workspaceTopologyVersion: self.environment.topology.version
                 )
             )
-            return
+            self.notifyStateChanged()
         }
-
-        lastHeadphonesAutoPauseAt = now
-        lastAutoPauseAt = now
-        autoPausedSources = pausedSources
-        latestHint = "Медиа: снял наушники, поставил на паузу"
-        lastHintAt = now
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_pause",
-                    "reason": reason,
-                    "pause_actor": "observer",
-                    "paused_sources": pausedSources.joined(separator: ", "),
-                    "audio_output": outputName ?? "unknown",
-                    "source": playbackSnapshot?.source ?? "unknown",
-                    "title": playbackSnapshot?.title ?? ""
-                ],
-                workspaceTopologyVersion: environment.topology.version
-            )
-        )
-        notifyStateChanged()
     }
 
     private func resumeMediaIfHeadphonesWornAgain(now: Date = Date()) {
@@ -4369,25 +4431,25 @@ final class ObserverController {
             return
         }
 
-        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
-        guard !resumedSources.isEmpty else {
-            return
-        }
-        autoPausedSources = []
-        latestHint = "Медиа: наушники вернулись, продолжил"
-        lastHintAt = now
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_resume",
-                    "reason": "camera_headphones_worn_confirmed",
-                    "resumed_sources": resumedSources.joined(separator: ", ")
-                ],
-                workspaceTopologyVersion: environment.topology.version
+        let sources = autoPausedSources
+        performMediaAction({ $0.resumeSources(sources) }) { [weak self] resumedSources in
+            guard let self, !resumedSources.isEmpty else { return }
+            self.autoPausedSources = []
+            self.latestHint = "Медиа: наушники вернулись, продолжил"
+            self.lastHintAt = now
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_resume",
+                        "reason": "camera_headphones_worn_confirmed",
+                        "resumed_sources": resumedSources.joined(separator: ", ")
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
             )
-        )
-        notifyStateChanged()
+            self.notifyStateChanged()
+        }
     }
 
     private func pauseMediaIfHeadphonesObjectSuggestsRemoval(_ event: ObserverEvent, now: Date = Date()) {
@@ -4414,48 +4476,14 @@ final class ObserverController {
             return
         }
 
-        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
-            ? lastMediaPlaybackSnapshot
-            : MediaPlaybackService().currentPlayback()
-        guard playbackSnapshot?.state == "playing" else {
-            return
-        }
-
-        let mediaService = MediaPlaybackService()
-        var pausedSources = mediaService.pauseAllKnownSources()
-        var usedSystemMediaKeyFallback = false
-        if pausedSources.isEmpty, let systemPause = mediaService.pauseSystemMediaKey() {
-            pausedSources = [systemPause]
-            usedSystemMediaKeyFallback = true
-        }
-        guard !pausedSources.isEmpty else {
-            return
-        }
-
-        lastHeadphonesAutoPauseAt = now
-        lastAutoPauseAt = now
-        autoPausedSources = pausedSources
-        latestHint = "Медиа: наушники сняты, поставил на паузу"
-        lastHintAt = now
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_pause",
-                    "reason": "camera_headphones_removed_object",
-                    "pause_actor": usedSystemMediaKeyFallback
-                        ? "observer_system_media_key"
-                        : "observer",
-                    "paused_sources": pausedSources.joined(separator: ", "),
-                    "object_event_id": event.id.uuidString,
-                    "object_class": objectClass,
-                    "source": playbackSnapshot?.source ?? "unknown",
-                    "title": playbackSnapshot?.title ?? ""
-                ],
-                workspaceTopologyVersion: environment.topology.version
-            )
+        // Object detections are evidence only. The shared state machine owns
+        // the actual media action so a one-frame object label cannot pause a
+        // player and so all AppleScript work stays on one queue.
+        pauseMediaAfterHeadphonesRemoved(
+            reason: "camera_headphones_removed_object",
+            outputName: AudioOutputService().currentOutputName(),
+            now: now
         )
-        notifyStateChanged()
     }
 
     private func pauseMediaIfUserAppearsAway() {
@@ -4473,10 +4501,7 @@ final class ObserverController {
             return
         }
 
-        let playbackSnapshot = lastMediaPlaybackSnapshot?.state == "playing"
-            ? lastMediaPlaybackSnapshot
-            : MediaPlaybackService().currentPlayback()
-        guard playbackSnapshot?.state == "playing" else {
+        guard let playbackSnapshot = lastMediaPlaybackSnapshot, playbackSnapshot.state == "playing" else {
             return
         }
 
@@ -4485,28 +4510,26 @@ final class ObserverController {
             return
         }
 
-        let pausedSources = MediaPlaybackService().pauseAllKnownSources()
-        guard !pausedSources.isEmpty else {
-            return
-        }
-
-        lastAutoPauseAt = now
-        autoPausedSources = pausedSources
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_pause",
-                    "reason": fullyAway ? "away_from_computer" : "listener_not_visible",
-                    "paused_sources": pausedSources.joined(separator: ", "),
-                    "missing_face_samples": "\(consecutiveMissingFaceSamples)",
-                    "seconds_since_any_input": String(format: "%.1f", inputIdleSeconds),
-                    "source": playbackSnapshot?.source ?? "unknown",
-                    "title": playbackSnapshot?.title ?? ""
-                ],
-                workspaceTopologyVersion: environment.topology.version
+        performMediaAction({ $0.pauseAllKnownSources() }) { [weak self] pausedSources in
+            guard let self, !pausedSources.isEmpty else { return }
+            self.lastAutoPauseAt = now
+            self.autoPausedSources = pausedSources
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_pause",
+                        "reason": fullyAway ? "away_from_computer" : "listener_not_visible",
+                        "paused_sources": pausedSources.joined(separator: ", "),
+                        "missing_face_samples": "\(self.consecutiveMissingFaceSamples)",
+                        "seconds_since_any_input": String(format: "%.1f", inputIdleSeconds),
+                        "source": playbackSnapshot.source,
+                        "title": playbackSnapshot.title ?? ""
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
             )
-        )
+        }
     }
 
     private func resumeMediaIfUserReturned() {
@@ -4529,24 +4552,23 @@ final class ObserverController {
             return
         }
 
-        let resumedSources = MediaPlaybackService().resumeSources(autoPausedSources)
-        guard !resumedSources.isEmpty else {
-            return
-        }
-
-        autoPausedSources = []
-        append(
-            .init(
-                type: .mediaPlayback,
-                payload: [
-                    "action": "auto_resume",
-                    "reason": "user_returned",
-                    "resumed_sources": resumedSources.joined(separator: ", "),
-                    "audio_output": outputName ?? "unknown"
-                ],
-                workspaceTopologyVersion: environment.topology.version
+        let sources = autoPausedSources
+        performMediaAction({ $0.resumeSources(sources) }) { [weak self] resumedSources in
+            guard let self, !resumedSources.isEmpty else { return }
+            self.autoPausedSources = []
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_resume",
+                        "reason": "user_returned",
+                        "resumed_sources": resumedSources.joined(separator: ", "),
+                        "audio_output": outputName ?? "unknown"
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
             )
-        )
+        }
     }
 }
 
