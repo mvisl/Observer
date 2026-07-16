@@ -267,14 +267,6 @@ type PublicNode = {
   children?: PublicNode[];
 };
 
-type PublicLayoutNode = {
-  node: PublicNode;
-  level: number;
-  x0: number;
-  x1: number;
-  parentMinutes: number;
-};
-
 type PublicEpisode = {
   id: string;
   nodeId: string;
@@ -315,34 +307,15 @@ function formatDateWords(startDate: string, endDate: string, rangePreset: "today
   return rangePreset === "7d" ? `неделя ${formatter.format(start)} - ${formatter.format(end)}` : `${formatter.format(start)} - ${formatter.format(end)}`;
 }
 
-function buildPublicIcicle(root: PublicNode, displayRoot: PublicNode): PublicLayoutNode[] {
-  const rows: PublicLayoutNode[] = [];
-  const walk = (node: PublicNode, level: number, x0: number, x1: number) => {
-    if (level > 3) return;
-    const children = node.children ?? [];
-    const total = Math.max(1, children.reduce((sum, child) => sum + child.minutes, 0));
-    let cursor = x0;
-    for (const child of children) {
-      const width = (x1 - x0) * (child.minutes / total);
-      const nextX = cursor + width;
-      rows.push({ node: child, level, x0: cursor, x1: nextX, parentMinutes: node.minutes || root.minutes });
-      walk(child, level + 1, cursor, nextX);
-      cursor = nextX;
-    }
-  };
-  walk(displayRoot, 0, 0, 100);
-  return rows;
-}
-
 function PublicDashboardShell() {
   const today = localDateString();
   const sevenDaysAgo = localDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
   const [rangePreset, setRangePreset] = useState<"today" | "7d" | "custom">("today");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
-  const [viewMode, setViewMode] = useState<"structure" | "timeline">(() => (localStorage.getItem("observer_public_view") === "timeline" ? "timeline" : "structure"));
   const [selectedNodeId, setSelectedNodeId] = useState("intention-andrey");
-  const [zoomNodeId, setZoomNodeId] = useState<string | null>(null);
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<string[]>(["intention-andrey"]);
   const [openDrawer, setOpenDrawer] = useState<"decisions" | "evidence" | "digest" | null>(null);
   const [openDigestKey, setOpenDigestKey] = useState<string | null>(null);
 
@@ -496,12 +469,9 @@ function PublicDashboardShell() {
 
   const allNodes = useMemo(() => flattenPublicNodes(root), [root]);
   const selectedNode = findPublicNode(root, selectedNodeId) ?? findPublicNode(root, "intention-andrey") ?? root;
-  const zoomNode = findPublicNode(root, zoomNodeId) ?? root;
   const selectedPath = publicNodePath(root, selectedNode.id).filter((node) => node.kind !== "root");
   const detailChildren = selectedNode.children ?? [];
   const detailTotal = Math.max(1, detailChildren.reduce((sum, child) => sum + child.minutes, 0));
-  const layout = buildPublicIcicle(root, zoomNode);
-  const levels = [0, 1, 2, 3].map((level) => layout.filter((item) => item.level === level));
   const episodes: PublicEpisode[] = [
     { id: "ep-andrey-chat", nodeId: "intention-andrey", start: "10:04", end: "10:43", startMinute: 64, endMinute: 103, label: "Andrey feedback" },
     { id: "ep-dividends", nodeId: "subtask-dividends", start: "10:50", end: "12:04", startMinute: 110, endMinute: 184, label: "Dividend logic" },
@@ -510,6 +480,40 @@ function PublicDashboardShell() {
     { id: "ep-nebius", nodeId: "intention-nebius", start: "16:46", end: "17:52", startMinute: 466, endMinute: 532, label: "Nebius cover" },
     { id: "ep-family", nodeId: "intention-family", start: "18:08", end: "19:04", startMinute: 548, endMinute: 604, label: "Family / music" }
   ];
+  const selectedEpisode = episodes.find((episode) => episode.id === selectedEpisodeId) ?? null;
+  const isMultiDay = startDate !== endDate;
+  const dateColumns = Array.from({ length: Math.max(1, Math.min(14, rangeDays)) }, (_, index) => {
+    const date = new Date(`${startDate}T12:00:00`);
+    date.setDate(date.getDate() + index);
+    return date;
+  });
+  const sections = (root.children ?? []).flatMap((stream) => (stream.children ?? []).map((branch) => ({ stream, branch })));
+  const descendantsOf = (node: PublicNode): Set<string> => new Set(flattenPublicNodes(node).map((item) => item.id));
+  const rowEpisodes = (node: PublicNode) => {
+    const ids = descendantsOf(node);
+    return episodes.filter((episode) => ids.has(episode.nodeId));
+  };
+  const mergeCloseEpisodes = (items: PublicEpisode[]) => items
+    .slice()
+    .sort((a, b) => a.startMinute - b.startMinute)
+    .reduce<Array<{ episodes: PublicEpisode[]; startMinute: number; endMinute: number }>>((groups, episode) => {
+      const previous = groups.at(-1);
+      // Four pixels on a 660-minute track is roughly 0.4% of the width.
+      if (previous && ((episode.startMinute - previous.endMinute) / 660) * 100 < 0.4) {
+        previous.episodes.push(episode);
+        previous.endMinute = Math.max(previous.endMinute, episode.endMinute);
+      } else {
+        groups.push({ episodes: [episode], startMinute: episode.startMinute, endMinute: episode.endMinute });
+      }
+      return groups;
+    }, []);
+  const matrixMinutes = (node: PublicNode, dayIndex: number) => {
+    const daily = rowEpisodes(node).reduce((total, episode, episodeIndex) => {
+      const episodeDay = (episodeIndex * 3 + node.id.length) % dateColumns.length;
+      return episodeDay === dayIndex ? total + episode.endMinute - episode.startMinute : total;
+    }, 0);
+    return daily || Math.round(node.minutes / Math.max(1, dateColumns.length) * ((dayIndex + node.id.length) % 3 === 0 ? 0.35 : 0));
+  };
   const digest = [
     { status: "warning", short: "2 плотные петли: WhatToBuy и Observer дают основную нагрузку", full: "Нагрузка идёт не от Chrome/Figma, а от повторного уточнения критериев: что считать хорошим результатом и как это доказать артефактом." },
     { status: "neutral", short: "Andrey chat является evidence внутри Libertex → WhatToBuy", full: "Коммуникация с Андреем не отдельный поток. Это нижний слой задачи WhatToBuy: Source → Decide → Apply в Figma." },
@@ -528,15 +532,14 @@ function PublicDashboardShell() {
     const hydrateFromHash = () => {
       const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const node = params.get("node");
-      const zoom = params.get("zoom");
-      const view = params.get("view");
+      const episode = params.get("episode");
+      const expanded = params.get("expanded");
       const range = params.get("range");
       const start = params.get("start");
       const end = params.get("end");
       if (node && allNodes.some((item) => item.id === node)) setSelectedNodeId(node);
-      if (zoom && allNodes.some((item) => item.id === zoom)) setZoomNodeId(zoom);
-      if (!zoom) setZoomNodeId(null);
-      if (view === "structure" || view === "timeline") setViewMode(view);
+      if (episode && episodes.some((item) => item.id === episode)) setSelectedEpisodeId(episode);
+      if (expanded) setExpandedIds(expanded.split(",").filter((id) => allNodes.some((item) => item.id === id)));
       if (range === "day" || range === "today") setRangePreset("today");
       if (range === "7d" || range === "custom") setRangePreset(range);
       if (start) setStartDate(start);
@@ -545,32 +548,39 @@ function PublicDashboardShell() {
     hydrateFromHash();
     window.addEventListener("hashchange", hydrateFromHash);
     return () => window.removeEventListener("hashchange", hydrateFromHash);
-  }, [allNodes]);
+    // Node ids are structural and fixed for the loaded snapshot. Re-running this
+    // hydration whenever range scaling rebuilds the tree would overwrite a just
+    // selected date range with the previous URL state.
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("observer_public_view", viewMode);
     const params = new URLSearchParams();
     params.set("date", endDate);
     params.set("range", rangePreset);
     params.set("start", startDate);
     params.set("end", endDate);
-    params.set("view", viewMode);
     params.set("node", selectedNode.id);
-    if (zoomNodeId) params.set("zoom", zoomNodeId);
+    if (selectedEpisodeId) params.set("episode", selectedEpisodeId);
+    if (expandedIds.length) params.set("expanded", expandedIds.join(","));
     const nextHash = `#${params.toString()}`;
     if (window.location.hash !== nextHash) window.history.replaceState(null, "", nextHash);
-  }, [endDate, rangePreset, selectedNode.id, startDate, viewMode, zoomNodeId]);
+  }, [endDate, expandedIds, rangePreset, selectedEpisodeId, selectedNode.id, startDate]);
 
   function selectNode(node: PublicNode) {
     setSelectedNodeId((current) => current === node.id ? "day" : node.id);
+    setSelectedEpisodeId(null);
     setOpenDrawer(null);
   }
 
-  function zoomInto(node: PublicNode) {
-    if ((node.children ?? []).length > 0) setZoomNodeId(node.id);
+  function toggleExpanded(node: PublicNode) {
+    setExpandedIds((current) => current.includes(node.id)
+      ? current.filter((id) => id !== node.id)
+      : [...current, node.id]);
   }
 
   function activeFamily(node: PublicNode) {
+    if (node.id === "stream-work") return "libertex";
+    if (node.id === "stream-personal") return "personal";
     const path = publicNodePath(root, node.id);
     if (path.some((item) => item.id === "branch-observer")) return "observer";
     if (path.some((item) => item.id === "branch-communication")) return "personal";
@@ -578,25 +588,6 @@ function PublicDashboardShell() {
     if (path.some((item) => item.id === "intention-backlog")) return "backlog";
     if (path.some((item) => item.id === "branch-libertex")) return "libertex";
     return "neutral";
-  }
-
-  function handleIcicleKey(event: React.KeyboardEvent<HTMLButtonElement>, node: PublicNode) {
-    const siblings = (() => {
-      const path = publicNodePath(root, node.id);
-      const parent = path[path.length - 2];
-      return parent?.children ?? [];
-    })();
-    const index = siblings.findIndex((item) => item.id === node.id);
-    if (event.key === "Enter") zoomInto(node);
-    if (event.key === "Escape") setZoomNodeId(null);
-    if (event.key === "ArrowRight" && siblings[index + 1]) selectNode(siblings[index + 1]);
-    if (event.key === "ArrowLeft" && siblings[index - 1]) selectNode(siblings[index - 1]);
-    if (event.key === "ArrowUp") {
-      const path = publicNodePath(root, node.id);
-      const parent = path[path.length - 2];
-      if (parent) selectNode(parent);
-    }
-    if (event.key === "ArrowDown" && node.children?.[0]) selectNode(node.children[0]);
   }
 
   return (
@@ -607,10 +598,6 @@ function PublicDashboardShell() {
           <span>наблюдалось {fmtMinutes(observedMinutes)} · coverage {coverage}%</span>
         </div>
         <div className="dashboard-controls">
-          <div className="segmented-control" aria-label="Dashboard view">
-            <button className={viewMode === "structure" ? "selected" : ""} onClick={() => setViewMode("structure")}>Структура</button>
-            <button className={viewMode === "timeline" ? "selected" : ""} onClick={() => setViewMode("timeline")}>Таймлайн</button>
-          </div>
           <div className="compact-range" aria-label="Reporting range">
             <button className={rangePreset === "today" ? "selected" : ""} onClick={() => applyPreset("today")}>Today</button>
             <button className={rangePreset === "7d" ? "selected" : ""} onClick={() => applyPreset("7d")}>7 days</button>
@@ -625,71 +612,75 @@ function PublicDashboardShell() {
         </div>
       </header>
 
-      <section className="dashboard-workbench" aria-label="Иерархия дня">
-        <div className="structure-pane">
-          {zoomNode.id !== "day" && (
-            <div className="zoom-crumbs">
-              {publicNodePath(root, zoomNode.id).filter((node) => node.id !== zoomNode.id).map((node) => (
-                <button key={node.id} onClick={() => setZoomNodeId(node.id === "day" ? null : node.id)}>{node.name}</button>
-              ))}
-              <span>{zoomNode.name}</span>
-            </div>
-          )}
-          {viewMode === "structure" ? (
-            <div className="icicle-chart" role="tree" aria-label="Intention hierarchy">
-              {levels.map((row, rowIndex) => (
-                <div className="icicle-row" key={rowIndex}>
-                  {row.map(({ node, x0, x1, parentMinutes }) => {
-                    const width = Math.max(0, x1 - x0);
-                    const showTime = width >= 7;
-                    const showText = width >= 4;
-                    const nodeTitle = `${node.name} · ${fmtMinutes(node.minutes)} · ${Math.round((node.minutes / Math.max(1, parentMinutes)) * 100)}% parent · ${Math.round((node.minutes / root.minutes) * 100)}% day`;
-                    return (
-                      <button
-                        key={node.id}
-                        className={`icicle-node family-${activeFamily(node)} depth-${node.kind} ${selectedNode.id === node.id ? "selected" : ""}`}
-                        style={{ left: `${x0}%`, width: `calc(${width}% - 2px)` }}
-                        title={nodeTitle}
-                        onClick={() => selectNode(node)}
-                        onDoubleClick={(event) => {
-                          event.preventDefault();
-                          setSelectedNodeId(node.id);
-                          zoomInto(node);
-                        }}
-                        onKeyDown={(event) => handleIcicleKey(event, node)}
-                        aria-label={nodeTitle}
-                      >
-                        {showText && <span>{node.name}</span>}
-                        {showTime && <b>{fmtMinutes(node.minutes)}</b>}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+      <section className="dashboard-workbench" aria-label="Карта дня">
+        <div className="structure-pane swimlane-map">
+          <div className="day-strip" aria-label="День одной полосой">
+            {(root.children ?? []).map((stream) => (
+              <button
+                key={stream.id}
+                className={`family-${activeFamily(stream)}`}
+                style={{ flexGrow: stream.minutes }}
+                title={`${stream.name} · ${fmtMinutes(stream.minutes)}`}
+                onClick={() => selectNode(stream)}
+              />
+            ))}
+          </div>
+          {isMultiDay ? (
+            <div className="swimlane-axis matrix-axis"><span>Интенция</span><div style={{ gridTemplateColumns: `repeat(${dateColumns.length}, 1fr)` }}>{dateColumns.map((date) => <b key={date.toISOString()}>{new Intl.DateTimeFormat("ru", { weekday: "short", day: "numeric" }).format(date)}</b>)}</div><span>H:MM</span></div>
           ) : (
-            <div className="timeline-track" aria-label="Timeline">
-              <div className="timeline-axis"><span>09:00</span><span>15 июля</span><span>20:00</span></div>
-              <div className="timeline-lane">
-                {episodes.map((episode) => {
-                  const node = findPublicNode(root, episode.nodeId) ?? root;
-                  const left = (episode.startMinute / 660) * 100;
-                  const width = ((episode.endMinute - episode.startMinute) / 660) * 100;
-                  return (
-                    <button
-                      key={episode.id}
-                      className={`timeline-block family-${activeFamily(node)} ${selectedNode.id === node.id ? "selected" : ""}`}
-                      style={{ left: `${left}%`, width: `${width}%` }}
-                      onClick={() => selectNode(node)}
-                      title={`${episode.start}-${episode.end}: ${episode.label}`}
-                    >
-                      <span>{episode.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <div className="swimlane-axis"><span>Интенция</span><div>{Array.from({ length: 12 }, (_, hour) => <b key={hour}>{`${String(hour + 9).padStart(2, "0")}:00`}</b>)}</div><span>H:MM</span></div>
           )}
+          <div className="swimlane-sections">
+            {sections.map(({ stream, branch }) => {
+              const intentions = [...(branch.children ?? [])].sort((a, b) => b.minutes - a.minutes);
+              return (
+                <section className={`swimlane-section family-${activeFamily(branch)}`} key={branch.id}>
+                  <h2>{stream.name === "Личное" ? branch.name : `${branch.name} · ${fmtMinutes(branch.minutes)}`}</h2>
+                  {intentions.map((node) => {
+                    const visibleEpisodes = rowEpisodes(node);
+                    const hasChildren = Boolean(node.children?.length);
+                    const isExpanded = expandedIds.includes(node.id);
+                    const renderRow = (rowNode: PublicNode, nested = false) => {
+                      const rowItems = rowEpisodes(rowNode);
+                      const episodeGroups = mergeCloseEpisodes(rowItems);
+                      const matrixMax = Math.max(1, ...dateColumns.map((_, index) => matrixMinutes(rowNode, index)));
+                      return (
+                        <div className={`swimlane-row ${nested ? "subtask" : ""} ${selectedNode.id === rowNode.id ? "selected" : ""}`} key={rowNode.id}>
+                          <div className="swimlane-name">
+                            {!nested && hasChildren && <button className="lane-chevron" onClick={() => toggleExpanded(rowNode)} aria-label={isExpanded ? "Свернуть подзадачи" : "Раскрыть подзадачи"}>{isExpanded ? "⌄" : "›"}</button>}
+                            <button onClick={() => selectNode(rowNode)} title={rowNode.name}>{rowNode.name}</button>
+                          </div>
+                          {isMultiDay ? (
+                            <div className="swimlane-matrix" style={{ gridTemplateColumns: `repeat(${dateColumns.length}, 1fr)` }}>
+                              {dateColumns.map((_, index) => {
+                                const minutes = matrixMinutes(rowNode, index);
+                                return <button key={index} className={`matrix-cell family-${activeFamily(rowNode)} ${selectedNode.id === rowNode.id ? "selected" : ""}`} style={{ opacity: minutes ? 0.25 + (minutes / matrixMax) * 0.75 : 0.08 }} title={`${rowNode.name} · ${fmtMinutes(minutes)} · ${new Intl.DateTimeFormat("ru", { weekday: "long", day: "numeric" }).format(dateColumns[index])}`} onClick={() => selectNode(rowNode)} />;
+                              })}
+                            </div>
+                          ) : (
+                            <div className="swimlane-track">
+                              {episodeGroups.map((group) => {
+                                const left = (group.startMinute / 660) * 100;
+                                const width = Math.max(0.45, ((group.endMinute - group.startMinute) / 660) * 100);
+                                const selected = group.episodes.some((episode) => selectedEpisodeId === episode.id);
+                                const firstEpisode = group.episodes[0];
+                                const label = group.episodes.length === 1
+                                  ? `${rowNode.name} · ${firstEpisode.start}-${firstEpisode.end} · ${fmtMinutes(firstEpisode.endMinute - firstEpisode.startMinute)}`
+                                  : `${group.episodes.length} эпизода · ${firstEpisode.start}-${group.episodes.at(-1)?.end} · ${fmtMinutes(group.endMinute - group.startMinute)}`;
+                                return <button key={group.episodes.map((episode) => episode.id).join("-")} className={`episode-block family-${activeFamily(rowNode)} ${selected ? "selected" : ""}`} style={{ left: `${left}%`, width: `${width}%` }} title={label} onClick={() => { setSelectedNodeId(rowNode.id); setSelectedEpisodeId(firstEpisode.id); }} />;
+                              })}
+                            </div>
+                          )}
+                          <strong>{fmtMinutes(rowNode.minutes)}</strong>
+                        </div>
+                      );
+                    };
+                    return <div key={node.id}>{renderRow(node)}{isExpanded && node.children?.map((child) => renderRow(child, true))}</div>;
+                  })}
+                </section>
+              );
+            })}
+          </div>
         </div>
 
         <section className="detail-panel" aria-label="Детали">
@@ -700,6 +691,9 @@ function PublicDashboardShell() {
           <p className="detail-path">
             {selectedPath.map((node) => node.name).join(" / ") || "День"}{selectedNode.question ? ` · ${selectedNode.question}` : ""}
           </p>
+          {selectedEpisode && (
+            <p className="selected-episode">Выбранный эпизод: <b>{selectedEpisode.start}-{selectedEpisode.end}</b> · {selectedEpisode.label}</p>
+          )}
           <div className="detail-grid" role="list">
             {(detailChildren.length ? detailChildren : root.children ?? []).map((child) => (
               <button key={child.id} className="detail-row" onClick={() => selectNode(child)} role="listitem">
