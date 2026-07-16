@@ -1142,7 +1142,7 @@ p { margin: 0; }
 }
 .swimlane-axis > div {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
+  grid-template-columns: repeat(13, 1fr);
 }
 .swimlane-axis b { font-weight: 500; white-space: nowrap; }
 .swimlane-axis b:not(:first-child) { text-align: center; }
