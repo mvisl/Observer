@@ -9,11 +9,14 @@ enum HeadphoneWearTransition: Equatable {
 struct HeadphoneWearStateMachine {
     private(set) var isWearing: Bool?
     private let confirmationSeconds: TimeInterval
+    private let unknownGraceSeconds: TimeInterval
     private var wearingCandidateStartedAt: Date?
     private var removalCandidateStartedAt: Date?
+    private var lastRemovalEvidenceAt: Date?
 
-    init(confirmationSeconds: TimeInterval = 5) {
+    init(confirmationSeconds: TimeInterval = 5, unknownGraceSeconds: TimeInterval = 2) {
         self.confirmationSeconds = confirmationSeconds
+        self.unknownGraceSeconds = unknownGraceSeconds
     }
 
     mutating func observe(
@@ -30,6 +33,7 @@ struct HeadphoneWearStateMachine {
         switch visualState {
         case let .wearing(confidence) where confidence >= 0.48:
             removalCandidateStartedAt = nil
+            lastRemovalEvidenceAt = nil
             guard isWearing != true else { return .none }
             let startedAt = wearingCandidateStartedAt ?? now
             wearingCandidateStartedAt = startedAt
@@ -43,15 +47,22 @@ struct HeadphoneWearStateMachine {
             guard isWearing == true else { return .none }
             let startedAt = removalCandidateStartedAt ?? now
             removalCandidateStartedAt = startedAt
+            lastRemovalEvidenceAt = now
             guard now.timeIntervalSince(startedAt) >= confirmationSeconds else { return .none }
             let wasWearing = isWearing
             isWearing = false
             removalCandidateStartedAt = nil
             return wasWearing == true ? .removed : .none
         default:
-            // A turned head, gaze change, or weak frame is not evidence of removal.
+            // A brief blur while the person is moving the headphones must not
+            // reset a genuine removal trajectory. Face loss still resets it.
             wearingCandidateStartedAt = nil
+            if let lastRemovalEvidenceAt,
+               now.timeIntervalSince(lastRemovalEvidenceAt) <= unknownGraceSeconds {
+                return .none
+            }
             removalCandidateStartedAt = nil
+            self.lastRemovalEvidenceAt = nil
             return .none
         }
     }

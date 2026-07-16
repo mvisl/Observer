@@ -4665,6 +4665,7 @@ final class ObserverController {
             .max()
         let audioOutputIndicatesHeadphones = AudioOutputService().currentOutputName()
             .map { AudioOutputService().looksLikeHeadphones($0) } ?? false
+        let audioIsActive = AudioOutputService().isAudioActive() == true
         let visualState = headphoneAppearanceProfile.observe(
             jpegData: snapshot.jpegData,
             facePresent: snapshot.facePresent,
@@ -4673,6 +4674,7 @@ final class ObserverController {
             faceArea: snapshot.faceArea,
             genericHeadphoneConfidence: genericHeadphoneConfidence,
             audioOutputIndicatesHeadphones: audioOutputIndicatesHeadphones,
+            audioIsActive: audioIsActive,
             confirmedWearing: headphoneWearStateMachine.isWearing == true
         )
         let transition = headphoneWearStateMachine.observe(
@@ -4709,9 +4711,10 @@ final class ObserverController {
             return
         }
 
+        let audioActiveNow = AudioOutputService().isAudioActive() == true
         let mediaSource = lastMediaPlaybackSnapshot?.state == "playing"
             ? lastMediaPlaybackSnapshot?.source
-            : (lastAudioActive == true ? "System Media Key" : nil)
+            : ((lastAudioActive == true || audioActiveNow) ? "System Media Key" : nil)
         guard let mediaSource else {
             return
         }
@@ -4740,7 +4743,7 @@ final class ObserverController {
             self.lastHeadphonesAutoPauseAt = now
             self.lastAutoPauseAt = now
             self.autoPausedSources = pausedSources
-            self.latestHint = "Медиа: снял наушники, отправил паузу"
+            self.latestHint = "Медиа: снял наушники, проверяю паузу"
             self.lastHintAt = now
             self.append(
                 .init(
@@ -4757,6 +4760,46 @@ final class ObserverController {
                     workspaceTopologyVersion: self.environment.topology.version
                 )
             )
+            self.verifyHeadphoneMediaPause(
+                reason: reason,
+                source: mediaSource,
+                outputName: outputName,
+                requestedAt: now
+            )
+            self.notifyStateChanged()
+        }
+    }
+
+    private func verifyHeadphoneMediaPause(
+        reason: String,
+        source: String,
+        outputName: String?,
+        requestedAt: Date
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.mode == .observing else { return }
+            let audioStillActive = AudioOutputService().isAudioActive() == true
+            self.lastAudioActive = audioStillActive
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    confidence: audioStillActive ? 0.45 : 0.9,
+                    payload: [
+                        "action": "auto_pause_verification",
+                        "reason": reason,
+                        "source": source,
+                        "audio_output": outputName ?? "unknown",
+                        "audio_active_after_seconds": "2",
+                        "audio_still_active": audioStillActive ? "true" : "false",
+                        "requested_at": ISO8601DateFormatter().string(from: requestedAt)
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
+            )
+            self.latestHint = audioStillActive
+                ? "Медиа: YouTube всё ещё играет"
+                : "Медиа: снял наушники, остановил"
+            self.lastHintAt = Date()
             self.notifyStateChanged()
         }
     }

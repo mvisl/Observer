@@ -89,8 +89,11 @@ struct MediaPlaybackService {
             with: .systemDefined, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: 0, context: nil, subtype: 8, data1: upData, data2: -1
         ) else { return false }
-        down.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
-        up.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
+        guard let downEvent = down.cgEvent, let upEvent = up.cgEvent else {
+            return false
+        }
+        downEvent.post(tap: CGEventTapLocation.cghidEventTap)
+        upEvent.post(tap: CGEventTapLocation.cghidEventTap)
         return true
     }
 }

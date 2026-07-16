@@ -50,4 +50,15 @@ struct HeadphoneWearStateMachineTests {
         #expect(state.observe(facePresent: true, visualState: .notWearing(0.9), now: start.addingTimeInterval(20)) == .none)
         #expect(state.observe(facePresent: true, visualState: .notWearing(0.9), now: start.addingTimeInterval(25)) == .removed)
     }
+
+    @Test func briefUnknownFrameDoesNotCancelAVisibleRemoval() {
+        var state = HeadphoneWearStateMachine(confirmationSeconds: 5, unknownGraceSeconds: 2)
+        let start = Date()
+        _ = state.observe(facePresent: true, visualState: .wearing(0.9), now: start)
+        _ = state.observe(facePresent: true, visualState: .wearing(0.9), now: start.addingTimeInterval(5))
+
+        #expect(state.observe(facePresent: true, visualState: .notWearing(0.9), now: start.addingTimeInterval(20)) == .none)
+        #expect(state.observe(facePresent: true, visualState: .unknown, now: start.addingTimeInterval(21)) == .none)
+        #expect(state.observe(facePresent: true, visualState: .notWearing(0.9), now: start.addingTimeInterval(25)) == .removed)
+    }
 }

@@ -27,6 +27,7 @@ struct HeadphoneAppearanceProfile {
         faceArea: Double?,
         genericHeadphoneConfidence: Double?,
         audioOutputIndicatesHeadphones: Bool,
+        audioIsActive: Bool,
         confirmedWearing: Bool
     ) -> HeadphoneVisualState {
         guard facePresent, let jpegData,
@@ -41,26 +42,13 @@ struct HeadphoneAppearanceProfile {
         }
 
         let genericConfidence = genericHeadphoneConfidence ?? 0
-        if genericConfidence >= 0.35 {
-            learn(feature)
-            return .wearing(min(0.92, genericConfidence + 0.12))
-        }
 
         // Bootstrapping only establishes an initial positive profile. It never
         // creates a removal event, because wired and Bluetooth routes can remain
         // selected after the headphones leave the user's head.
-        if audioOutputIndicatesHeadphones, wearingFeatures.count < 3 {
+        if audioOutputIndicatesHeadphones, audioIsActive, wearingFeatures.count < 3 {
             learn(feature)
             return .wearing(0.58)
-        }
-
-        // A weak, but explicit, object label expands the profile only after the
-        // temporal state machine has already confirmed that the headphones are
-        // being worn. This lets a side camera learn left/right/downward poses
-        // without treating a changed pose as a removal.
-        if genericConfidence >= 0.20, confirmedWearing {
-            learn(feature)
-            return .wearing(0.50)
         }
 
         guard wearingFeatures.count >= 3,
@@ -71,6 +59,13 @@ struct HeadphoneAppearanceProfile {
 
         let threshold = similarityThreshold
         if distance <= threshold {
+            // The generic Vision classifier is useful as corroborating evidence,
+            // but never as the deciding signal: it has repeatedly called an
+            // empty head "headphones" in this camera setup. Keep learning views
+            // only when they already resemble the owner's established profile.
+            if confirmedWearing || genericConfidence >= 0.20 {
+                learn(feature)
+            }
             let confidence = min(0.86, max(0.48, 1 - Double(distance / max(threshold, 0.001)) * 0.45))
             return .wearing(confidence)
         }
