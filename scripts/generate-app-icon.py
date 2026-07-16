@@ -108,7 +108,9 @@ def draw_icon(size, transparent=False):
                     # on two perimeter diagonals, never as a broad background gradient.
                     color = blend(color, (24, 25, 29, min(1, tile)))
                     edge_distance = abs(rounded_rect_distance(x, y, w, h, w * 0.22))
-                    rim = smoothstep(3.2, 0.0, edge_distance) * tile
+                    # The rim must survive macOS shrinking a 1024px asset into a
+                    # Dock tile. A fixed three-pixel line vanishes there.
+                    rim = smoothstep(w * 0.014, 0.0, edge_distance) * tile
                     upper_left = max(
                         smoothstep(w * 0.72, w * 0.06, x),
                         smoothstep(h * 0.72, h * 0.06, y),
@@ -117,8 +119,8 @@ def draw_icon(size, transparent=False):
                         smoothstep(w * 0.28, w * 0.94, x),
                         smoothstep(h * 0.28, h * 0.94, y),
                     )
-                    color = blend(color, (191, 197, 208, 0.52 * rim * upper_left))
-                    color = blend(color, (6, 10, 19, 0.72 * rim * lower_right))
+                    color = blend(color, (201, 207, 218, 0.68 * rim * upper_left))
+                    color = blend(color, (10, 16, 29, 0.82 * rim * lower_right))
 
             cx = w * 0.50
             cy = h * 0.485
