@@ -942,8 +942,47 @@ p { margin: 0; }
   border-radius: inherit;
   background: #897be7;
 }
+.detail-row.family-libertex i b { background: #afa9ec; }
+.detail-row.family-observer i b { background: #81d3ba; }
+.detail-row.family-personal i b { background: #817c74; }
 .detail-row strong {
   text-align: right;
+}
+.detail-episodes {
+  display: grid;
+  gap: 6px;
+}
+.detail-episodes button {
+  display: grid;
+  grid-template-columns: 96px 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.detail-episodes button:hover,
+.detail-episodes button.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
+  color: var(--text-primary);
+}
+.detail-episodes b,
+.detail-episodes span {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.detail-episodes em {
+  min-width: 0;
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .detail-footer {
   display: flex;
@@ -1059,11 +1098,23 @@ p { margin: 0; }
 .swimlane-map {
   padding: 14px 16px 16px;
 }
+.day-strip-row {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 60%) 44px;
+  column-gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.day-strip-row > span,
+.day-strip-row > strong {
+  color: var(--text-muted);
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.day-strip-row > strong { text-align: right; }
 .day-strip {
   height: 14px;
   display: flex;
   gap: 2px;
-  margin: 0 44px 12px 200px;
   overflow: hidden;
   border-radius: 3px;
   background: var(--surface-secondary);
@@ -1097,6 +1148,25 @@ p { margin: 0; }
 .swimlane-axis b:not(:first-child) { text-align: center; }
 .swimlane-axis span:last-child { text-align: right; }
 .swimlane-sections { display: grid; gap: 14px; }
+.swimlane-time-area { position: relative; }
+.swimlane-gridlines {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 54px;
+  bottom: 0;
+  left: 210px;
+  pointer-events: none;
+}
+.swimlane-gridlines i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: .5px;
+  background: var(--border-subtle);
+  opacity: .8;
+}
+.swimlane-sections { position: relative; z-index: 1; }
 .swimlane-section { display: grid; gap: 6px; }
 .swimlane-section h2 {
   margin: 0;
@@ -1147,10 +1217,20 @@ p { margin: 0; }
   position: relative;
   height: 18px;
   overflow: hidden;
-  border-radius: 3px;
-  background-color: var(--surface-secondary);
-  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 1px, transparent 1px calc(100% / 12));
 }
+.swimlane-proportion { display: flex; align-items: center; height: 18px; }
+.swimlane-proportion i {
+  display: block;
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0,0,0,.32);
+}
+.swimlane-proportion b { display: block; height: 100%; border-radius: inherit; }
+.swimlane-proportion b.family-libertex { background: #afa9ec; }
+.swimlane-proportion b.family-observer { background: #81d3ba; }
+.swimlane-proportion b.family-personal { background: #817c74; }
 .episode-block {
   position: absolute;
   inset-block: 1px;
@@ -1163,8 +1243,6 @@ p { margin: 0; }
 .episode-block.selected { box-shadow: inset 0 0 0 1.5px #27235d, 0 0 0 1px var(--accent); }
 .episode-block.family-libertex { background: #afa9ec; }
 .episode-block.family-observer { background: #81d3ba; }
-.episode-block.family-nebius { background: #94bee9; }
-.episode-block.family-backlog { background: #bdb8df; }
 .episode-block.family-personal { background: #817c74; }
 .swimlane-row > strong {
   color: var(--text-secondary);
@@ -1189,6 +1267,58 @@ p { margin: 0; }
 .matrix-cell.family-observer { background: #81d3ba; }
 .matrix-cell.family-personal { background: #817c74; }
 .matrix-cell.selected { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.timing-warning {
+  flex: 0 0 auto;
+  color: #ffc452;
+  cursor: help;
+  font-size: 12px;
+}
+.public-empty-day {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  min-height: 240px;
+  align-content: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 28px;
+  background: var(--surface-primary);
+}
+.public-empty-day h2,
+.public-empty-day p { margin: 0; }
+.public-empty-day p { color: var(--text-secondary); max-width: 52ch; line-height: 1.45; }
+.public-empty-day button {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.trust-status {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 18px;
+}
+.trust-status .eyebrow { margin: 0 0 4px; }
+.trust-status h2 { margin: 0; font-size: 18px; }
+.trust-status table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.trust-status th,
+.trust-status td {
+  border-top: 1px solid var(--border-subtle);
+  padding: 9px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.trust-status th { color: var(--text-muted); font-weight: 600; }
+.trust-status td:nth-child(2) { color: #84ddc2; white-space: nowrap; }
+.trust-status tbody tr:last-child td:nth-child(2) { color: #ffc452; }
 .selected-episode {
   margin: -8px 0 16px;
   color: var(--text-secondary);
@@ -1197,11 +1327,13 @@ p { margin: 0; }
 
 @media (max-width: 767px) {
   .public-dashboard-app { padding-inline: 12px; }
-  .day-strip { margin-left: 112px; }
+  .day-strip-row { grid-template-columns: 112px minmax(0, 60%) 38px; column-gap: 6px; }
   .swimlane-axis,
   .swimlane-row { grid-template-columns: 112px minmax(0, 1fr) 38px; column-gap: 6px; }
   .swimlane-axis > div { grid-template-columns: repeat(6, 1fr); }
   .swimlane-axis b:nth-child(even) { display: none; }
+  .swimlane-gridlines { left: 118px; right: 44px; }
+  .detail-episodes button { grid-template-columns: 84px 44px minmax(0, 1fr); }
 }
 
 @media (max-width: 1279px) {

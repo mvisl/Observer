@@ -277,17 +277,20 @@ async function checkMontenegroAccess(): Promise<{ allowed: boolean; reason: stri
 
 
 type PublicNodeKind = "root" | "stream" | "branch" | "intention" | "subtask";
+type PublicFamily = "work" | "libertex" | "observer" | "personal" | "neutral";
 
 type PublicNode = {
   id: string;
   name: string;
   minutes: number;
   kind: PublicNodeKind;
+  family?: PublicFamily;
   question?: string;
   decisions?: number;
   unresolved?: number;
   evidenceKinds?: string[];
   status?: "neutral" | "warning";
+  episodes?: PublicEpisode[];
   children?: PublicNode[];
 };
 
@@ -300,6 +303,175 @@ type PublicEpisode = {
   endMinute: number;
   label: string;
 };
+
+const publicReportDate = "2026-07-15";
+const publicReportGeneratedAt = "2026-07-15T18:03:00+02:00";
+const publicDayStartMinute = 9 * 60;
+const publicDayEndMinute = 21 * 60 + 6;
+
+function minuteOfDay(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function fixtureEpisode(id: string, nodeId: string, start: string, end: string, label: string): PublicEpisode {
+  return { id, nodeId, start, end, startMinute: minuteOfDay(start), endMinute: minuteOfDay(end), label };
+}
+
+function episodeMinutes(episodes: PublicEpisode[]) {
+  return episodes.reduce((sum, episode) => sum + Math.max(0, episode.endMinute - episode.startMinute), 0);
+}
+
+function hydratePublicTree(node: PublicNode, inheritedFamily: PublicFamily = "neutral"): PublicNode {
+  const family = node.family ?? inheritedFamily;
+  const children = node.children?.map((child) => hydratePublicTree(child, family));
+  const episodes = node.episodes ?? children?.flatMap((child) => child.episodes ?? []) ?? [];
+  return { ...node, family, children, episodes };
+}
+
+function publicDashboardTree() {
+  const andreyFeedback = fixtureEpisode("ep-andrey-feedback", "subtask-andrey-feedback", "09:00", "09:39", "Feedback -> decision");
+  const dividends = fixtureEpisode("ep-dividends", "subtask-dividends", "09:39", "10:53", "Upcoming dividends logic");
+  const cardHierarchy = fixtureEpisode("ep-card-hierarchy", "subtask-card-hierarchy", "10:53", "11:56", "Card hierarchy");
+  const figmaExecution = fixtureEpisode("ep-figma-execution", "subtask-figma-execution", "11:56", "13:49", "Figma execution");
+  const nebiusPrompts = fixtureEpisode("ep-nebius-prompts", "subtask-nebius-prompts", "13:49", "14:17", "Prompt candidates");
+  const nebiusCriterion = fixtureEpisode("ep-nebius-criterion", "subtask-nebius-criterion", "14:17", "14:39", "Visual criterion");
+  const nebiusReaction = fixtureEpisode("ep-nebius-reaction", "subtask-nebius-reaction", "14:39", "14:55", "Reaction binding");
+  const jiraTriage = fixtureEpisode("ep-jira-triage", "subtask-jira-triage", "14:55", "15:29", "Jira issue triage");
+  const research = fixtureEpisode("ep-research", "subtask-research", "15:29", "16:11", "Research for decision");
+  const followup = fixtureEpisode("ep-followup", "subtask-followup", "16:11", "16:35", "Communication follow-up");
+  const publicDashboard = [
+    fixtureEpisode("ep-public-dashboard-a", "subtask-public-dashboard", "16:35", "17:00", "Dashboard structure"),
+    fixtureEpisode("ep-public-dashboard-b", "subtask-public-dashboard", "17:56", "18:39", "Dashboard implementation")
+  ];
+  const personalCoordination = fixtureEpisode("ep-personal-coordination", "subtask-personal-coordination", "17:00", "17:56", "Personal coordination");
+  const pillQuality = fixtureEpisode("ep-pill-quality", "subtask-pill-quality", "18:39", "19:51", "Pill quality");
+  const reportingModel = fixtureEpisode("ep-reporting-model", "subtask-reporting-model", "19:51", "21:06", "Reporting model");
+
+  return hydratePublicTree({
+    id: "day",
+    name: "День",
+    kind: "root",
+    minutes: 726,
+    children: [
+      {
+        id: "stream-work",
+        name: "Work",
+        kind: "stream",
+        family: "work",
+        minutes: 670,
+        children: [
+          {
+            id: "branch-libertex",
+            name: "Libertex",
+            kind: "branch",
+            family: "libertex",
+            minutes: 455,
+            children: [
+              {
+                id: "intention-andrey",
+                name: "Фидбек Андрея -> решения по WhatToBuy",
+                kind: "intention",
+                minutes: 289,
+                question: "Как карточкам объяснять ценность без вычислений со стороны пользователя?",
+                decisions: 5,
+                unresolved: 1,
+                evidenceKinds: ["чат", "Figma", "AI"],
+                children: [
+                  { id: "subtask-andrey-feedback", name: "Фидбек -> решение", kind: "subtask", minutes: 39, evidenceKinds: ["чат"], episodes: [andreyFeedback] },
+                  { id: "subtask-dividends", name: "Dividends logic", kind: "subtask", minutes: 74, evidenceKinds: ["чат", "Figma"], episodes: [dividends] },
+                  { id: "subtask-card-hierarchy", name: "Card hierarchy", kind: "subtask", minutes: 63, evidenceKinds: ["чат", "Figma"], episodes: [cardHierarchy] },
+                  { id: "subtask-figma-execution", name: "Figma execution", kind: "subtask", minutes: 113, evidenceKinds: ["Figma"], episodes: [figmaExecution] }
+                ]
+              },
+              {
+                id: "intention-nebius",
+                name: "Nebius cover visual direction",
+                kind: "intention",
+                minutes: 66,
+                question: "Какой образ Nebius не превращается в generic neon cloud?",
+                decisions: 2,
+                unresolved: 1,
+                evidenceKinds: ["Figma", "AI", "реакция"],
+                children: [
+                  { id: "subtask-nebius-prompts", name: "Prompt candidates", kind: "subtask", minutes: 28, evidenceKinds: ["AI"], episodes: [nebiusPrompts] },
+                  { id: "subtask-nebius-criterion", name: "Visual criterion", kind: "subtask", minutes: 22, evidenceKinds: ["Figma"], episodes: [nebiusCriterion] },
+                  { id: "subtask-nebius-reaction", name: "Reaction binding", kind: "subtask", minutes: 16, evidenceKinds: ["камера", "текст"], episodes: [nebiusReaction] }
+                ]
+              },
+              {
+                id: "intention-backlog",
+                name: "Backlog / Jira prioritization",
+                kind: "intention",
+                minutes: 100,
+                question: "Какие issue требуют решения сейчас, а какие просто шумят?",
+                decisions: 3,
+                unresolved: 2,
+                evidenceKinds: ["Jira", "чат", "web"],
+                children: [
+                  { id: "subtask-jira-triage", name: "Jira issue triage", kind: "subtask", minutes: 34, evidenceKinds: ["Jira"], episodes: [jiraTriage] },
+                  { id: "subtask-research", name: "Research for decision", kind: "subtask", minutes: 42, evidenceKinds: ["web"], episodes: [research] },
+                  { id: "subtask-followup", name: "Communication follow-up", kind: "subtask", minutes: 24, evidenceKinds: ["чат"], episodes: [followup] }
+                ]
+              }
+            ]
+          },
+          {
+            id: "branch-observer",
+            name: "Observer",
+            kind: "branch",
+            family: "observer",
+            minutes: 215,
+            children: [
+              {
+                id: "intention-observer-brain",
+                name: "Brain / dashboard",
+                kind: "intention",
+                minutes: 215,
+                question: "Как объяснять день намерениями, evidence и outcome вместо окон?",
+                decisions: 6,
+                unresolved: 3,
+                evidenceKinds: ["Codex", "dashboard", "пилюля"],
+                children: [
+                  { id: "subtask-public-dashboard", name: "Public dashboard", kind: "subtask", minutes: 68, evidenceKinds: ["GitHub Pages"], episodes: publicDashboard },
+                  { id: "subtask-pill-quality", name: "Pill quality", kind: "subtask", minutes: 72, evidenceKinds: ["пилюля"], episodes: [pillQuality] },
+                  { id: "subtask-reporting-model", name: "Reporting model", kind: "subtask", minutes: 75, evidenceKinds: ["отчёт"], episodes: [reportingModel] }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: "stream-personal",
+        name: "Личное",
+        kind: "stream",
+        family: "personal",
+        minutes: 56,
+        children: [
+          {
+            id: "branch-communication",
+            name: "Общение",
+            kind: "branch",
+            minutes: 56,
+            children: [
+              {
+                id: "intention-personal-coordination",
+                name: "Личная координация",
+                kind: "intention",
+                minutes: 56,
+                evidenceKinds: ["сообщения"],
+                children: [
+                  { id: "subtask-personal-coordination", name: "Личная координация", kind: "subtask", minutes: 56, evidenceKinds: ["сообщения"], episodes: [personalCoordination] }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+}
 
 function flattenPublicNodes(node: PublicNode): PublicNode[] {
   return [node, ...(node.children ?? []).flatMap(flattenPublicNodes)];
@@ -356,155 +528,15 @@ function PublicDashboardShell() {
   }
 
   const rangeDays = daysBetweenInclusive(startDate, endDate);
-  const rangeMultiplier = rangePreset === "today"
-    ? 1
-    : rangePreset === "7d"
-      ? 2.85
-      : Math.max(0.35, Math.min(4.2, rangeDays * 0.52));
-  const scaledMinutes = (minutes: number, weight = 1) => Math.max(5, Math.round(minutes * rangeMultiplier * weight));
-  const dateWords = formatDateWords(startDate, endDate, rangePreset);
-  const observedMinutes = scaledMinutes(726);
-  const coverage = rangePreset === "today" ? 94 : rangePreset === "7d" ? 82 : Math.max(41, Math.min(97, Math.round(94 - rangeDays * 2.2)));
-
-  const root = useMemo<PublicNode>(() => ({
-    id: "day",
-    name: "День",
-    kind: "root",
-    minutes: observedMinutes,
-    children: [
-      {
-        id: "stream-work",
-        name: "Work",
-        kind: "stream",
-        minutes: scaledMinutes(670),
-        children: [
-          {
-            id: "branch-libertex",
-            name: "Libertex",
-            kind: "branch",
-            minutes: scaledMinutes(455),
-            children: [
-              {
-                id: "intention-andrey",
-                name: "Фидбек Андрея -> решения по WhatToBuy",
-                kind: "intention",
-                minutes: scaledMinutes(289),
-                question: "Как карточкам объяснять ценность без вычислений со стороны юзера?",
-                decisions: 5,
-                unresolved: 1,
-                evidenceKinds: ["чат", "Figma", "AI"],
-                children: [
-                  { id: "subtask-andrey-feedback", name: "Фидбек -> решение", kind: "subtask", minutes: scaledMinutes(39), evidenceKinds: ["чат"] },
-                  { id: "subtask-dividends", name: "Dividends logic", kind: "subtask", minutes: scaledMinutes(74), evidenceKinds: ["чат", "Figma"] },
-                  { id: "subtask-card-hierarchy", name: "Card hierarchy", kind: "subtask", minutes: scaledMinutes(63), evidenceKinds: ["чат", "Figma"] },
-                  { id: "subtask-figma-execution", name: "Figma execution", kind: "subtask", minutes: scaledMinutes(113), evidenceKinds: ["Figma"] }
-                ]
-              },
-              {
-                id: "intention-nebius",
-                name: "Nebius cover visual direction",
-                kind: "intention",
-                minutes: scaledMinutes(66),
-                question: "Какой образ Nebius не превращается в generic neon cloud?",
-                decisions: 2,
-                unresolved: 1,
-                evidenceKinds: ["Figma", "AI", "реакция"],
-                children: [
-                  { id: "subtask-nebius-prompts", name: "Prompt candidates", kind: "subtask", minutes: scaledMinutes(28), evidenceKinds: ["AI"] },
-                  { id: "subtask-nebius-criterion", name: "Visual criterion", kind: "subtask", minutes: scaledMinutes(22), evidenceKinds: ["Figma"] },
-                  { id: "subtask-nebius-reaction", name: "Reaction binding", kind: "subtask", minutes: scaledMinutes(16), evidenceKinds: ["камера", "текст"] }
-                ]
-              },
-              {
-                id: "intention-backlog",
-                name: "Backlog / Jira prioritization",
-                kind: "intention",
-                minutes: scaledMinutes(100),
-                question: "Какие issue требуют решения сейчас, а какие просто шумят?",
-                decisions: 3,
-                unresolved: 2,
-                evidenceKinds: ["Jira", "чат", "web"],
-                children: [
-                  { id: "subtask-jira-triage", name: "Jira issue triage", kind: "subtask", minutes: scaledMinutes(34), evidenceKinds: ["Jira"] },
-                  { id: "subtask-research", name: "Research for decision", kind: "subtask", minutes: scaledMinutes(42), evidenceKinds: ["web"] },
-                  { id: "subtask-followup", name: "Communication follow-up", kind: "subtask", minutes: scaledMinutes(24), evidenceKinds: ["чат"] }
-                ]
-              }
-            ]
-          },
-          {
-            id: "branch-observer",
-            name: "Observer",
-            kind: "branch",
-            minutes: scaledMinutes(215),
-            children: [
-              {
-                id: "intention-observer-brain",
-                name: "Brain / dashboard",
-                kind: "intention",
-                minutes: scaledMinutes(215),
-                question: "Как объяснять день намерениями, evidence и outcome вместо окон?",
-                decisions: 6,
-                unresolved: 3,
-                evidenceKinds: ["Codex", "dashboard", "пилюля"],
-                children: [
-                  { id: "subtask-public-dashboard", name: "Public dashboard", kind: "subtask", minutes: scaledMinutes(68), evidenceKinds: ["GitHub Pages"] },
-                  { id: "subtask-pill-quality", name: "Pill quality", kind: "subtask", minutes: scaledMinutes(72), evidenceKinds: ["пилюля"] },
-                  { id: "subtask-reporting-model", name: "Reporting model", kind: "subtask", minutes: scaledMinutes(75), evidenceKinds: ["отчёт"] }
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      {
-        id: "stream-personal",
-        name: "Личное",
-        kind: "stream",
-        minutes: scaledMinutes(56),
-        children: [
-          {
-            id: "branch-communication",
-            name: "Общение",
-            kind: "branch",
-            minutes: scaledMinutes(56),
-            children: [
-              {
-                id: "intention-family",
-                name: "Family / close communication",
-                kind: "intention",
-                minutes: scaledMinutes(56),
-                question: "Что меняет настроение/восстановление, а что остаётся личным контекстом?",
-                decisions: 1,
-                unresolved: 0,
-                evidenceKinds: ["WhatsApp", "music", "aftermath"],
-                children: [
-                  { id: "subtask-wife-chat", name: "Family / wife chat", kind: "subtask", minutes: scaledMinutes(26), evidenceKinds: ["WhatsApp"] },
-                  { id: "subtask-family-logistics", name: "Family logistics", kind: "subtask", minutes: scaledMinutes(18), evidenceKinds: ["чат"] },
-                  { id: "subtask-boundary", name: "Boundary rule", kind: "subtask", minutes: scaledMinutes(12), evidenceKinds: ["privacy"] }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }), [observedMinutes, rangeMultiplier]);
+  const hasSnapshot = startDate <= publicReportDate && endDate >= publicReportDate;
+  const root = useMemo(publicDashboardTree, []);
 
   const allNodes = useMemo(() => flattenPublicNodes(root), [root]);
   const selectedNode = findPublicNode(root, selectedNodeId) ?? findPublicNode(root, "intention-andrey") ?? root;
   const selectedPath = publicNodePath(root, selectedNode.id).filter((node) => node.kind !== "root");
   const detailChildren = selectedNode.children ?? [];
-  const detailTotal = Math.max(1, detailChildren.reduce((sum, child) => sum + child.minutes, 0));
-  const episodes: PublicEpisode[] = [
-    { id: "ep-andrey-chat", nodeId: "intention-andrey", start: "10:04", end: "10:43", startMinute: 64, endMinute: 103, label: "Andrey feedback" },
-    { id: "ep-dividends", nodeId: "subtask-dividends", start: "10:50", end: "12:04", startMinute: 110, endMinute: 184, label: "Dividend logic" },
-    { id: "ep-figma", nodeId: "subtask-figma-execution", start: "12:20", end: "14:13", startMinute: 200, endMinute: 313, label: "Figma execution" },
-    { id: "ep-observer", nodeId: "intention-observer-brain", start: "14:25", end: "16:38", startMinute: 325, endMinute: 458, label: "Observer brain" },
-    { id: "ep-nebius", nodeId: "intention-nebius", start: "16:46", end: "17:52", startMinute: 466, endMinute: 532, label: "Nebius cover" },
-    { id: "ep-family", nodeId: "intention-family", start: "18:08", end: "19:04", startMinute: 548, endMinute: 604, label: "Family / music" }
-  ];
-  const selectedEpisode = episodes.find((episode) => episode.id === selectedEpisodeId) ?? null;
+  const allEpisodes = useMemo(() => Array.from(new Map(allNodes.flatMap((node) => node.episodes ?? []).map((episode) => [episode.id, episode])).values()), [allNodes]);
+  const selectedEpisode = allEpisodes.find((episode) => episode.id === selectedEpisodeId) ?? null;
   const isMultiDay = startDate !== endDate;
   const dateColumns = Array.from({ length: Math.max(1, Math.min(14, rangeDays)) }, (_, index) => {
     const date = new Date(`${startDate}T12:00:00`);
@@ -512,18 +544,14 @@ function PublicDashboardShell() {
     return date;
   });
   const sections = (root.children ?? []).flatMap((stream) => (stream.children ?? []).map((branch) => ({ stream, branch })));
-  const descendantsOf = (node: PublicNode): Set<string> => new Set(flattenPublicNodes(node).map((item) => item.id));
-  const rowEpisodes = (node: PublicNode) => {
-    const ids = descendantsOf(node);
-    return episodes.filter((episode) => ids.has(episode.nodeId));
-  };
+  const dayIntentions = allNodes.filter((node) => node.kind === "intention");
+  const rowEpisodes = (node: PublicNode) => node.episodes ?? [];
   const mergeCloseEpisodes = (items: PublicEpisode[]) => items
     .slice()
     .sort((a, b) => a.startMinute - b.startMinute)
     .reduce<Array<{ episodes: PublicEpisode[]; startMinute: number; endMinute: number }>>((groups, episode) => {
       const previous = groups.at(-1);
-      // Four pixels on a 660-minute track is roughly 0.4% of the width.
-      if (previous && ((episode.startMinute - previous.endMinute) / 660) * 100 < 0.4) {
+      if (previous && ((episode.startMinute - previous.endMinute) / (publicDayEndMinute - publicDayStartMinute)) * 100 < 0.4) {
         previous.episodes.push(episode);
         previous.endMinute = Math.max(previous.endMinute, episode.endMinute);
       } else {
@@ -532,12 +560,20 @@ function PublicDashboardShell() {
       return groups;
     }, []);
   const matrixMinutes = (node: PublicNode, dayIndex: number) => {
-    const daily = rowEpisodes(node).reduce((total, episode, episodeIndex) => {
-      const episodeDay = (episodeIndex * 3 + node.id.length) % dateColumns.length;
-      return episodeDay === dayIndex ? total + episode.endMinute - episode.startMinute : total;
-    }, 0);
-    return daily || Math.round(node.minutes / Math.max(1, dateColumns.length) * ((dayIndex + node.id.length) % 3 === 0 ? 0.35 : 0));
+    const date = localDateString(dateColumns[dayIndex]);
+    return date === publicReportDate ? node.minutes : 0;
   };
+  const timingIssue = (node: PublicNode) => {
+    const recorded = episodeMinutes(rowEpisodes(node));
+    return node.minutes > 0 && (recorded === 0 || Math.abs(recorded - node.minutes) / node.minutes > 0.05);
+  };
+  const timingErrors = allNodes.filter((node) => node.kind !== "root" && timingIssue(node));
+  const selectedDetailMinutes = Math.max(1, selectedNode.minutes);
+  const dateWords = hasSnapshot
+    ? formatSnapshotDay(publicReportDate)
+    : formatDateWords(startDate, endDate, rangePreset);
+  const generatedAt = new Date(publicReportGeneratedAt);
+  const staleSnapshot = Date.now() - generatedAt.getTime() > 26 * 60 * 60 * 1000;
   const digest = [
     { status: "warning", short: "2 плотные петли: WhatToBuy и Observer дают основную нагрузку", full: "Нагрузка идёт не от Chrome/Figma, а от повторного уточнения критериев: что считать хорошим результатом и как это доказать артефактом." },
     { status: "neutral", short: "Andrey chat является evidence внутри Libertex → WhatToBuy", full: "Коммуникация с Андреем не отдельный поток. Это нижний слой задачи WhatToBuy: Source → Decide → Apply в Figma." },
@@ -562,7 +598,7 @@ function PublicDashboardShell() {
       const start = params.get("start");
       const end = params.get("end");
       if (node && allNodes.some((item) => item.id === node)) setSelectedNodeId(node);
-      if (episode && episodes.some((item) => item.id === episode)) setSelectedEpisodeId(episode);
+      if (episode && allEpisodes.some((item) => item.id === episode)) setSelectedEpisodeId(episode);
       if (expanded) setExpandedIds(expanded.split(",").filter((id) => allNodes.some((item) => item.id === id)));
       if (range === "day" || range === "today") setRangePreset("today");
       if (range === "7d" || range === "custom") setRangePreset(range);
@@ -576,6 +612,12 @@ function PublicDashboardShell() {
     // hydration whenever range scaling rebuilds the tree would overwrite a just
     // selected date range with the previous URL state.
   }, []);
+
+  useEffect(() => {
+    if (timingErrors.length) {
+      console.error("Observer dashboard timing invariant failed", timingErrors.map((node) => ({ id: node.id, minutes: node.minutes, episodeMinutes: episodeMinutes(rowEpisodes(node)) })));
+    }
+  }, [timingErrors]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -603,15 +645,74 @@ function PublicDashboardShell() {
   }
 
   function activeFamily(node: PublicNode) {
-    if (node.id === "stream-work") return "libertex";
-    if (node.id === "stream-personal") return "personal";
-    const path = publicNodePath(root, node.id);
-    if (path.some((item) => item.id === "branch-observer")) return "observer";
-    if (path.some((item) => item.id === "branch-communication")) return "personal";
-    if (path.some((item) => item.id === "intention-nebius")) return "nebius";
-    if (path.some((item) => item.id === "intention-backlog")) return "backlog";
-    if (path.some((item) => item.id === "branch-libertex")) return "libertex";
-    return "neutral";
+    return node.family ?? "neutral";
+  }
+
+  function showYesterday() {
+    setRangePreset("custom");
+    setStartDate(publicReportDate);
+    setEndDate(publicReportDate);
+  }
+
+  function renderRow(rowNode: PublicNode, nested = false, mode: "time" | "proportions" = "time") {
+    const items = rowEpisodes(rowNode);
+    const groups = mergeCloseEpisodes(items);
+    const hasChildren = Boolean(rowNode.children?.length);
+    const isExpanded = expandedIds.includes(rowNode.id);
+    const rowHasIssue = timingIssue(rowNode);
+    const childrenUseTime = (rowNode.children ?? []).every((child) => !timingIssue(child));
+    return (
+      <React.Fragment key={rowNode.id}>
+        <div className={`swimlane-row ${nested ? "subtask" : ""} ${selectedNode.id === rowNode.id ? "selected" : ""} ${rowHasIssue ? "timing-issue" : ""}`}>
+          <div className="swimlane-name">
+            {hasChildren && <button className="lane-chevron" onClick={() => toggleExpanded(rowNode)} aria-label={isExpanded ? "Свернуть подзадачи" : "Раскрыть подзадачи"}>{isExpanded ? "⌄" : "›"}</button>}
+            <button onClick={() => selectNode(rowNode)} title={rowNode.name}>{rowNode.name}</button>
+            {rowHasIssue && <span className="timing-warning" title="эпизоды не размечены по времени">⚠</span>}
+          </div>
+          {isMultiDay ? (
+            <div className="swimlane-matrix" style={{ gridTemplateColumns: `repeat(${dateColumns.length}, 1fr)` }}>
+              {dateColumns.map((_, index) => {
+                const minutes = matrixMinutes(rowNode, index);
+                return <button key={index} className={`matrix-cell family-${activeFamily(rowNode)} ${selectedNode.id === rowNode.id ? "selected" : ""}`} style={{ opacity: minutes ? 0.38 + (minutes / Math.max(1, rowNode.minutes)) * 0.62 : 0.08 }} title={`${rowNode.name} · ${fmtMinutes(minutes)} · ${new Intl.DateTimeFormat("ru", { weekday: "long", day: "numeric" }).format(dateColumns[index])}`} onClick={() => selectNode(rowNode)} />;
+              })}
+            </div>
+          ) : mode === "proportions" ? (
+            <div className="swimlane-proportion"><i><b className={`family-${activeFamily(rowNode)}`} style={{ width: `${Math.max(3, (rowNode.minutes / Math.max(1, selectedNode.minutes)) * 100)}%` }} /></i></div>
+          ) : (
+            <div className="swimlane-track">
+              {groups.map((group) => {
+                const left = ((group.startMinute - publicDayStartMinute) / (publicDayEndMinute - publicDayStartMinute)) * 100;
+                const width = Math.max(0.45, ((group.endMinute - group.startMinute) / (publicDayEndMinute - publicDayStartMinute)) * 100);
+                const selected = group.episodes.some((episode) => selectedEpisodeId === episode.id);
+                const firstEpisode = group.episodes[0];
+                const label = group.episodes.length === 1
+                  ? `${rowNode.name} · ${firstEpisode.start}-${firstEpisode.end} · ${fmtMinutes(firstEpisode.endMinute - firstEpisode.startMinute)}`
+                  : `${group.episodes.length} эпизода · ${firstEpisode.start}-${group.episodes.at(-1)?.end} · ${fmtMinutes(group.endMinute - group.startMinute)}`;
+                return <button key={group.episodes.map((episode) => episode.id).join("-")} className={`episode-block family-${activeFamily(rowNode)} ${selected ? "selected" : ""}`} style={{ left: `${left}%`, width: `${width}%` }} title={label} onClick={() => { setSelectedNodeId(rowNode.id); setSelectedEpisodeId(firstEpisode.id); }} />;
+              })}
+            </div>
+          )}
+          <strong>{fmtMinutes(rowNode.minutes)}</strong>
+        </div>
+        {isExpanded && (rowNode.children ?? []).map((child) => renderRow(child, true, childrenUseTime ? "time" : "proportions"))}
+      </React.Fragment>
+    );
+  }
+
+  if (!hasSnapshot) {
+    return (
+      <main className="public-shell public-dashboard-app">
+        <header className="public-day-header">
+          <div><h1>{dateWords}</h1><span>данные за выбранную дату отсутствуют</span></div>
+          <div className="dashboard-controls"><div className="compact-range"><button className="selected" onClick={() => applyPreset("today")}>Today</button><button onClick={() => applyPreset("7d")}>7 days</button><button onClick={() => applyPreset("custom")}>Custom</button></div></div>
+        </header>
+        <section className="public-empty-day">
+          <h2>Рабочий день ещё идёт</h2>
+          <p>Отчёт появится после 21:15, когда закроется последний эпизод и сформируется дневная сводка.</p>
+          <button onClick={showYesterday}>показать вчера</button>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -619,7 +720,7 @@ function PublicDashboardShell() {
       <header className="public-day-header">
         <div>
           <h1>{dateWords}</h1>
-          <span>наблюдалось {fmtMinutes(observedMinutes)} · coverage {coverage}%</span>
+          <span>{staleSnapshot ? "⚠ " : ""}данные сформированы {formatSnapshotDay(publicReportDate)} в {fmtTime(publicReportGeneratedAt)} · наблюдалось {fmtMinutes(root.minutes)} · coverage 94%</span>
         </div>
         <div className="dashboard-controls">
           <div className="compact-range" aria-label="Reporting range">
@@ -638,72 +739,31 @@ function PublicDashboardShell() {
 
       <section className="dashboard-workbench" aria-label="Карта дня">
         <div className="structure-pane swimlane-map">
-          <div className="day-strip" aria-label="День одной полосой">
-            {(root.children ?? []).map((stream) => (
-              <button
-                key={stream.id}
-                className={`family-${activeFamily(stream)}`}
-                style={{ flexGrow: stream.minutes }}
-                title={`${stream.name} · ${fmtMinutes(stream.minutes)}`}
-                onClick={() => selectNode(stream)}
-              />
-            ))}
+          <div className="day-strip-row" aria-label="Доля дня">
+            <span>доля дня</span>
+            <div className="day-strip">
+              {dayIntentions.map((intention) => <button key={intention.id} className={`family-${activeFamily(intention)}`} style={{ flexGrow: intention.minutes }} title={`${intention.name} · ${fmtMinutes(intention.minutes)}`} onClick={() => selectNode(intention)} />)}
+            </div>
+            <strong>{fmtMinutes(root.minutes)}</strong>
           </div>
           {isMultiDay ? (
             <div className="swimlane-axis matrix-axis"><span>Интенция</span><div style={{ gridTemplateColumns: `repeat(${dateColumns.length}, 1fr)` }}>{dateColumns.map((date) => <b key={date.toISOString()}>{new Intl.DateTimeFormat("ru", { weekday: "short", day: "numeric" }).format(date)}</b>)}</div><span>H:MM</span></div>
           ) : (
-            <div className="swimlane-axis"><span>Интенция</span><div>{Array.from({ length: 12 }, (_, hour) => <b key={hour}>{`${String(hour + 9).padStart(2, "0")}:00`}</b>)}</div><span>H:MM</span></div>
+            <div className="swimlane-axis"><span>Интенция</span><div>{Array.from({ length: 13 }, (_, hour) => <b key={hour}>{`${String(hour + 9).padStart(2, "0")}:00`}</b>)}</div><span>H:MM</span></div>
           )}
+          <div className="swimlane-time-area">
+            {!isMultiDay && <div className="swimlane-gridlines" aria-hidden="true">{Array.from({ length: 13 }, (_, index) => <i key={index} style={{ left: `${(index / 12) * 100}%` }} />)}</div>}
           <div className="swimlane-sections">
             {sections.map(({ stream, branch }) => {
               const intentions = [...(branch.children ?? [])].sort((a, b) => b.minutes - a.minutes);
               return (
                 <section className={`swimlane-section family-${activeFamily(branch)}`} key={branch.id}>
-                  <h2>{stream.name === "Личное" ? branch.name : `${branch.name} · ${fmtMinutes(branch.minutes)}`}</h2>
-                  {intentions.map((node) => {
-                    const visibleEpisodes = rowEpisodes(node);
-                    const hasChildren = Boolean(node.children?.length);
-                    const isExpanded = expandedIds.includes(node.id);
-                    const renderRow = (rowNode: PublicNode, nested = false) => {
-                      const rowItems = rowEpisodes(rowNode);
-                      const episodeGroups = mergeCloseEpisodes(rowItems);
-                      const matrixMax = Math.max(1, ...dateColumns.map((_, index) => matrixMinutes(rowNode, index)));
-                      return (
-                        <div className={`swimlane-row ${nested ? "subtask" : ""} ${selectedNode.id === rowNode.id ? "selected" : ""}`} key={rowNode.id}>
-                          <div className="swimlane-name">
-                            {!nested && hasChildren && <button className="lane-chevron" onClick={() => toggleExpanded(rowNode)} aria-label={isExpanded ? "Свернуть подзадачи" : "Раскрыть подзадачи"}>{isExpanded ? "⌄" : "›"}</button>}
-                            <button onClick={() => selectNode(rowNode)} title={rowNode.name}>{rowNode.name}</button>
-                          </div>
-                          {isMultiDay ? (
-                            <div className="swimlane-matrix" style={{ gridTemplateColumns: `repeat(${dateColumns.length}, 1fr)` }}>
-                              {dateColumns.map((_, index) => {
-                                const minutes = matrixMinutes(rowNode, index);
-                                return <button key={index} className={`matrix-cell family-${activeFamily(rowNode)} ${selectedNode.id === rowNode.id ? "selected" : ""}`} style={{ opacity: minutes ? 0.25 + (minutes / matrixMax) * 0.75 : 0.08 }} title={`${rowNode.name} · ${fmtMinutes(minutes)} · ${new Intl.DateTimeFormat("ru", { weekday: "long", day: "numeric" }).format(dateColumns[index])}`} onClick={() => selectNode(rowNode)} />;
-                              })}
-                            </div>
-                          ) : (
-                            <div className="swimlane-track">
-                              {episodeGroups.map((group) => {
-                                const left = (group.startMinute / 660) * 100;
-                                const width = Math.max(0.45, ((group.endMinute - group.startMinute) / 660) * 100);
-                                const selected = group.episodes.some((episode) => selectedEpisodeId === episode.id);
-                                const firstEpisode = group.episodes[0];
-                                const label = group.episodes.length === 1
-                                  ? `${rowNode.name} · ${firstEpisode.start}-${firstEpisode.end} · ${fmtMinutes(firstEpisode.endMinute - firstEpisode.startMinute)}`
-                                  : `${group.episodes.length} эпизода · ${firstEpisode.start}-${group.episodes.at(-1)?.end} · ${fmtMinutes(group.endMinute - group.startMinute)}`;
-                                return <button key={group.episodes.map((episode) => episode.id).join("-")} className={`episode-block family-${activeFamily(rowNode)} ${selected ? "selected" : ""}`} style={{ left: `${left}%`, width: `${width}%` }} title={label} onClick={() => { setSelectedNodeId(rowNode.id); setSelectedEpisodeId(firstEpisode.id); }} />;
-                              })}
-                            </div>
-                          )}
-                          <strong>{fmtMinutes(rowNode.minutes)}</strong>
-                        </div>
-                      );
-                    };
-                    return <div key={node.id}>{renderRow(node)}{isExpanded && node.children?.map((child) => renderRow(child, true))}</div>;
-                  })}
+                  <h2>{branch.name} · {fmtMinutes(branch.minutes)}</h2>
+                  {intentions.map((node) => renderRow(node))}
                 </section>
               );
             })}
+          </div>
           </div>
         </div>
 
@@ -718,15 +778,25 @@ function PublicDashboardShell() {
           {selectedEpisode && (
             <p className="selected-episode">Выбранный эпизод: <b>{selectedEpisode.start}-{selectedEpisode.end}</b> · {selectedEpisode.label}</p>
           )}
-          <div className="detail-grid" role="list">
-            {(detailChildren.length ? detailChildren : root.children ?? []).map((child) => (
-              <button key={child.id} className="detail-row" onClick={() => selectNode(child)} role="listitem">
-                <span>{child.name}</span>
-                <i><b style={{ width: `${Math.max(6, (child.minutes / detailTotal) * 100)}%` }} /></i>
-                <strong>{fmtMinutes(child.minutes)}</strong>
-              </button>
-            ))}
-          </div>
+          {detailChildren.length > 0 ? (
+            <div className="detail-grid" role="list">
+              {detailChildren.map((child) => (
+                <button key={child.id} className={`detail-row family-${activeFamily(child)}`} onClick={() => selectNode(child)} role="listitem">
+                  <span>{child.name}</span>
+                  <i><b style={{ width: `${Math.max(3, (child.minutes / selectedDetailMinutes) * 100)}%` }} /></i>
+                  <strong>{fmtMinutes(child.minutes)}</strong>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="detail-episodes" role="list">
+              {rowEpisodes(selectedNode).sort((a, b) => a.startMinute - b.startMinute).map((episode) => (
+                <button key={episode.id} className={selectedEpisodeId === episode.id ? "selected" : ""} onClick={() => { setSelectedNodeId(selectedNode.id); setSelectedEpisodeId(episode.id); }} role="listitem">
+                  <b>{episode.start}–{episode.end}</b><span>{fmtMinutes(episode.endMinute - episode.startMinute)}</span><em>{episode.label}</em>
+                </button>
+              ))}
+            </div>
+          )}
           {Boolean((selectedNode.decisions ?? 0) || (selectedNode.unresolved ?? 0) || selectedNode.evidenceKinds?.length) && (
             <div className="detail-footer">
               {Boolean(selectedNode.decisions) && (
@@ -751,7 +821,7 @@ function PublicDashboardShell() {
           )}
           {openDrawer === "evidence" && (
             <div className="episode-chain compact-chain">
-              {episodes.slice(0, 5).map((episode) => <p key={episode.id}><b>{episode.start}-{episode.end}</b> {episode.label}</p>)}
+              {rowEpisodes(selectedNode).slice(0, 5).map((episode) => <p key={episode.id}><b>{episode.start}-{episode.end}</b> {episode.label}</p>)}
             </div>
           )}
         </section>
@@ -769,6 +839,23 @@ function PublicDashboardShell() {
             <span>{openDigestKey === item.short ? item.full : item.short}</span>
           </button>
         ))}
+      </section>
+
+      <section className="trust-status" aria-label="Trust Pass status">
+        <div>
+          <p className="eyebrow">Trust Pass</p>
+          <h2>Защитные механизмы установлены</h2>
+        </div>
+        <table>
+          <thead><tr><th>Контур</th><th>Статус</th><th>Что проверяется</th></tr></thead>
+          <tbody>
+            <tr><td>Crash recovery</td><td>установлен</td><td>degraded-close, singleton lock, restart backoff</td></tr>
+            <tr><td>Presence gate</td><td>установлен</td><td>отсутствие закрывает эпизод и исключает его из задач</td></tr>
+            <tr><td>Schedule / restart</td><td>установлен</td><td>рестарт вне окна не создаёт рабочую активность</td></tr>
+            <tr><td>Privacy / evidence</td><td>установлен</td><td>редакция секретов и обязательная lineage у гипотез</td></tr>
+            <tr><td>3-day validation</td><td>наблюдается</td><td>нужны три полных дня без падения и дублей</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <footer className="public-footer">
