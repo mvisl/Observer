@@ -30,12 +30,16 @@ def ellipse_alpha(x, y, cx, cy, rx, ry, softness=1.2):
 
 
 def rounded_rect_alpha(x, y, w, h, radius):
+    distance = rounded_rect_distance(x, y, w, h, radius)
+    return max(0.0, min(1.0, 0.5 - distance))
+
+
+def rounded_rect_distance(x, y, w, h, radius):
     qx = abs(x - w / 2) - (w / 2 - radius)
     qy = abs(y - h / 2) - (h / 2 - radius)
     outside = math.sqrt(max(qx, 0) ** 2 + max(qy, 0) ** 2)
     inside = min(max(qx, qy), 0)
-    distance = outside + inside - radius
-    return max(0.0, min(1.0, 0.5 - distance))
+    return outside + inside - radius
 
 
 def soft_circle_ring(x, y, cx, cy, radius, width):
@@ -99,13 +103,14 @@ def draw_icon(size, transparent=False):
                 tile = rounded_rect_alpha(x, y, w, h, w * 0.22)
                 color = (0, 0, 0, 0)
                 if tile > 0:
-                    radial = math.sqrt((x - w * 0.43) ** 2 + (y - h * 0.30) ** 2) / (w * 0.95)
-                    color = blend(color, (7, 18, 48, min(1, tile)))
-                    color = blend(color, (20, 62, 138, max(0, (1 - radial) * 0.58) * tile))
-                    color = blend(color, (255, 255, 255, max(0, 1 - y / h) * 0.08 * tile))
-                    # A restrained rim makes the tile read as glass, not a flat square.
-                    top_rim = smoothstep(h * 0.16, h * 0.04, y) * smoothstep(w * 0.08, w * 0.20, x) * smoothstep(w * 0.92, w * 0.80, x)
-                    color = blend(color, (210, 230, 255, 0.18 * top_rim * tile))
+                    # The tile is deliberately flat and dark. Its glass effect is
+                    # confined to two diagonal rim fragments, not a broad gradient.
+                    color = blend(color, (10, 24, 57, min(1, tile)))
+                    edge = smoothstep(1.75, 0.18, abs(rounded_rect_distance(x, y, w, h, w * 0.22)))
+                    upper_left = smoothstep(w * 0.62, w * 0.08, x) * smoothstep(h * 0.62, h * 0.08, y)
+                    lower_right = smoothstep(w * 0.38, w * 0.92, x) * smoothstep(h * 0.38, h * 0.92, y)
+                    color = blend(color, (194, 216, 248, 0.34 * edge * upper_left * tile))
+                    color = blend(color, (72, 118, 188, 0.23 * edge * lower_right * tile))
 
             cx = w * 0.50
             cy = h * 0.485
