@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct MediaPlaybackSnapshot: Equatable {
@@ -9,459 +10,87 @@ struct MediaPlaybackSnapshot: Equatable {
     let volume: Int?
 
     var identityKey: String {
-        [
-            source,
-            state,
-            title ?? "",
-            artist ?? "",
-            album ?? "",
-            volume.map(String.init) ?? ""
-        ].joined(separator: "|")
+        [source, state, title ?? "", artist ?? "", album ?? "", volume.map(String.init) ?? ""].joined(separator: "|")
     }
 
-    var trackIdentityKey: String {
-        [
-            source,
-            title ?? "",
-            artist ?? "",
-            album ?? ""
-        ].joined(separator: "|")
-    }
+    var trackIdentityKey: String { [source, title ?? "", artist ?? "", album ?? ""].joined(separator: "|") }
 
     var eventPayload: [String: String] {
-        var payload: [String: String] = [
+        var payload = [
             "source": source,
             "state": state,
-            "sensor_tier": "tier2_source_metadata",
+            "sensor_tier": "native_system_media",
             "track_identified": (title?.isEmpty == false) ? "true" : "false"
         ]
-        if let title, !title.isEmpty {
-            payload["title"] = title
-        }
-        if let artist, !artist.isEmpty {
-            payload["artist"] = artist
-        }
-        if let album, !album.isEmpty {
-            payload["album"] = album
-        }
-        if let volume {
-            payload["volume"] = "\(volume)"
-        }
+        if let title, !title.isEmpty { payload["title"] = title }
+        if let artist, !artist.isEmpty { payload["artist"] = artist }
+        if let album, !album.isEmpty { payload["album"] = album }
+        if let volume { payload["volume"] = "\(volume)" }
         return payload
     }
 
     var sourceForObserverResume: String? {
-        guard state == "playing" else {
-            return nil
-        }
-        switch source {
-        case "Music", "Spotify", "YouTube Chrome", "YouTube Safari":
-            return source
-        default:
-            return nil
-        }
+        state == "playing" ? source : nil
     }
 }
 
+/// Deliberately uses the system media route only. AppleScript against Music,
+/// Spotify and browser tabs was both permission-heavy and able to crash the app.
 struct MediaPlaybackService {
-    private static let youtubePlaybackJavaScript = "(function(){ const videos = Array.from(document.querySelectorAll('video')); const video = videos.find(v => !v.paused) || videos[0]; if (!video) return ''; const heading = document.querySelector('h1 yt-formatted-string, h1.title, h1'); const rawTitle = ((heading && heading.innerText) || document.title || '').split('|').join('/').replace(/ - YouTube$/i, '').trim(); const state = video.paused ? 'paused' : 'playing'; const volume = Math.round((video.volume || 0) * 100); return state + '|' + rawTitle + '|' + volume; })();"
-
-    private static let youtubePauseJavaScript = "(function(){ let didPause = false; Array.from(document.querySelectorAll('video')).forEach(v => { if (!v.paused) { v.pause(); didPause = true; } }); return didPause ? 'paused' : ''; })();"
-
     struct ProbeResult {
         let snapshot: MediaPlaybackSnapshot?
         let failures: [String]
     }
 
-    func currentPlayback() -> MediaPlaybackSnapshot? {
-        currentPlaybackProbe().snapshot
-    }
+    func currentPlayback() -> MediaPlaybackSnapshot? { currentPlaybackProbe().snapshot }
 
     func currentPlaybackProbe() -> ProbeResult {
-        var failures: [String] = []
-        let snapshots = [
-            currentAppleMusicPlayback(failures: &failures),
-            currentYouTubePlaybackInChrome(failures: &failures),
-            currentYouTubePlaybackInSafari(failures: &failures),
-            currentSpotifyPlayback(failures: &failures)
-        ].compactMap { $0 }
-
-        return ProbeResult(
-            snapshot: snapshots.first { $0.state == "playing" } ?? snapshots.first,
-            failures: failures
-        )
+        // MPNowPlayingInfoCenter exposes this app's publication channel, not a
+        // reliable cross-app reader. We never pretend it can identify YouTube.
+        ProbeResult(snapshot: nil, failures: [])
     }
 
     func pauseAllKnownSources() -> [String] {
-        [
-            pauseAppleMusic(),
-            pauseSpotify(),
-            pauseYouTubeInChrome(),
-            pauseYouTubeInSafari()
-        ].compactMap { $0 }
+        postSystemMediaKey(.playPause) ? ["System Media Key"] : []
     }
 
     func pauseSystemMediaKey() -> String? {
-        // System Events key code 16 is the letter Y, not the macOS media key.
-        // Do not fabricate a successful pause when the selected player did not
-        // confirm that it accepted one.
-        nil
+        postSystemMediaKey(.playPause) ? "System Media Key" : nil
     }
 
     func resumeSources(_ sources: [String]) -> [String] {
-        sources.compactMap { source in
-            switch source {
-            case "Music":
-                return resumeAppleMusic()
-            case "Spotify":
-                return resumeSpotify()
-            case "YouTube Chrome":
-                return resumeYouTubeInChrome()
-            case "YouTube Safari":
-                return resumeYouTubeInSafari()
-            case "System Media Key":
-                return pauseSystemMediaKey()
-            default:
-                return nil
-            }
-        }
-    }
-
-    private func currentAppleMusicPlayback(failures: inout [String]) -> MediaPlaybackSnapshot? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Music") then return ""
-        end tell
-        tell application "Music"
-            set playerState to player state as string
-            set playerVolume to sound volume as integer
-            if playerState is "stopped" then return "Music|stopped||||" & playerVolume
-            set trackName to ""
-            set trackArtist to ""
-            set trackAlbum to ""
-            try
-                set trackName to name of current track
-                set trackArtist to artist of current track
-                set trackAlbum to album of current track
-            end try
-            return "Music|" & playerState & "|" & trackName & "|" & trackArtist & "|" & trackAlbum & "|" & playerVolume
-        end tell
-        """
-        return runPlaybackScript(script, label: "Music playback", failures: &failures)
-    }
-
-    private func currentSpotifyPlayback(failures: inout [String]) -> MediaPlaybackSnapshot? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Spotify") then return ""
-        end tell
-        tell application "Spotify"
-            set playerState to player state as string
-            set playerVolume to sound volume as integer
-            if playerState is "stopped" then return "Spotify|stopped||||" & playerVolume
-            set trackName to name of current track
-            set trackArtist to artist of current track
-            set trackAlbum to album of current track
-            return "Spotify|" & playerState & "|" & trackName & "|" & trackArtist & "|" & trackAlbum & "|" & playerVolume
-        end tell
-        """
-        return runPlaybackScript(script, label: "Spotify playback", failures: &failures)
-    }
-
-    private func currentYouTubePlaybackInChrome(failures: inout [String]) -> MediaPlaybackSnapshot? {
-        let javaScript = Self.appleScriptStringLiteral(Self.youtubePlaybackJavaScript)
-        let script = """
-        tell application "System Events"
-            if not (exists process "Google Chrome") then return ""
-        end tell
-        tell application "Google Chrome"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set playbackInfo to execute javascript "\(javaScript)" in t
-                        if playbackInfo is not "" then return "YouTube Chrome|" & playbackInfo
-                    end if
-                end repeat
-            end repeat
-        end tell
-        return ""
-        """
-        return runPlaybackScript(script, label: "YouTube Chrome playback", failures: &failures)
-    }
-
-    private func currentYouTubePlaybackInSafari(failures: inout [String]) -> MediaPlaybackSnapshot? {
-        let javaScript = Self.appleScriptStringLiteral(Self.youtubePlaybackJavaScript)
-        let script = """
-        tell application "System Events"
-            if not (exists process "Safari") then return ""
-        end tell
-        tell application "Safari"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set playbackInfo to do JavaScript "\(javaScript)" in t
-                        if playbackInfo is not "" then return "YouTube Safari|" & playbackInfo
-                    end if
-                end repeat
-            end repeat
-        end tell
-        return ""
-        """
-        return runPlaybackScript(script, label: "YouTube Safari playback", failures: &failures)
-    }
-
-    private func runPlaybackScript(
-        _ source: String,
-        label: String,
-        failures: inout [String]
-    ) -> MediaPlaybackSnapshot? {
-        guard let output = runScript(source, label: label, failures: &failures) else {
-            return nil
-        }
-
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        return Self.parseOutput(trimmed)
-    }
-
-    private func pauseAppleMusic() -> String? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Music") then return ""
-        end tell
-        tell application "Music"
-            if player state is playing then
-                pause
-                return "Music"
-            end if
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func pauseSpotify() -> String? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Spotify") then return ""
-        end tell
-        tell application "Spotify"
-            if player state is playing then
-                pause
-                return "Spotify"
-            end if
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func pauseYouTubeInChrome() -> String? {
-        let javaScript = Self.appleScriptStringLiteral(Self.youtubePauseJavaScript)
-        let script = """
-        tell application "System Events"
-            if not (exists process "Google Chrome") then return ""
-        end tell
-        tell application "Google Chrome"
-            set didPause to false
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set pauseInfo to execute javascript "\(javaScript)" in t
-                        if pauseInfo is "paused" then set didPause to true
-                    end if
-                end repeat
-            end repeat
-            if didPause then return "YouTube Chrome"
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func pauseYouTubeInSafari() -> String? {
-        let javaScript = Self.appleScriptStringLiteral(Self.youtubePauseJavaScript)
-        let script = """
-        tell application "System Events"
-            if not (exists process "Safari") then return ""
-        end tell
-        tell application "Safari"
-            set didPause to false
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set pauseInfo to do JavaScript "\(javaScript)" in t
-                        if pauseInfo is "paused" then set didPause to true
-                    end if
-                end repeat
-            end repeat
-            if didPause then return "YouTube Safari"
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func resumeAppleMusic() -> String? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Music") then return ""
-        end tell
-        tell application "Music"
-            play
-            return "Music"
-        end tell
-        """
-        return runActionScript(script)
-    }
-
-    private func resumeSpotify() -> String? {
-        let script = """
-        tell application "System Events"
-            if not (exists process "Spotify") then return ""
-        end tell
-        tell application "Spotify"
-            play
-            return "Spotify"
-        end tell
-        """
-        return runActionScript(script)
-    }
-
-    private func resumeYouTubeInChrome() -> String? {
-        let javaScript = Self.appleScriptStringLiteral("(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();")
-        let script = """
-        tell application "System Events"
-            if not (exists process "Google Chrome") then return ""
-        end tell
-        tell application "Google Chrome"
-            set didResume to false
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set resumeInfo to execute javascript "\(javaScript)" in t
-                        if resumeInfo is "resumed" then set didResume to true
-                    end if
-                end repeat
-            end repeat
-            if didResume then return "YouTube Chrome"
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func resumeYouTubeInSafari() -> String? {
-        let javaScript = Self.appleScriptStringLiteral("(function(){ let didResume = false; document.querySelectorAll('video').forEach(v => { if (v.paused) { v.play(); didResume = true; } }); return didResume ? 'resumed' : ''; })();")
-        let script = """
-        tell application "System Events"
-            if not (exists process "Safari") then return ""
-        end tell
-        tell application "Safari"
-            set didResume to false
-            repeat with w in windows
-                repeat with t in tabs of w
-                    if URL of t contains "youtube.com" then
-                        set resumeInfo to do JavaScript "\(javaScript)" in t
-                        if resumeInfo is "resumed" then set didResume to true
-                    end if
-                end repeat
-            end repeat
-            if didResume then return "YouTube Safari"
-        end tell
-        return ""
-        """
-        return runActionScript(script)
-    }
-
-    private func runActionScript(_ source: String) -> String? {
-        var failures: [String] = []
-        guard let output = runScript(source, label: "media action", failures: &failures) else {
-            return nil
-        }
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func runScript(
-        _ source: String,
-        label: String,
-        failures: inout [String]
-    ) -> String? {
-        var error: NSDictionary?
-        if let output = NSAppleScript(source: source)?.executeAndReturnError(&error).stringValue {
-            return output
-        }
-
-        if let error {
-            failures.append("\(label): NSAppleScript \(Self.errorSummary(error))")
-        } else {
-            failures.append("\(label): NSAppleScript returned no output")
-        }
-
-        if let output = runOSAScript(source) {
-            return output
-        }
-
-        failures.append("\(label): osascript fallback returned no output")
-        return nil
-    }
-
-    private func runOSAScript(_ source: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", source]
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let text = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return text.isEmpty ? nil : text
-    }
-
-    private static func errorSummary(_ error: NSDictionary) -> String {
-        let number = error[NSAppleScript.errorNumber] ?? "unknown"
-        let message = error[NSAppleScript.errorMessage] ?? "unknown"
-        return "\(number) \(message)"
-    }
-
-    static func appleScriptStringLiteral(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "")
+        guard sources.contains("System Media Key") else { return [] }
+        return postSystemMediaKey(.playPause) ? ["System Media Key"] : []
     }
 
     static func parseOutput(_ output: String) -> MediaPlaybackSnapshot? {
         let parts = output.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 5 else {
-            return nil
+        guard parts.count >= 2 else { return nil }
+        func value(_ index: Int) -> String? {
+            guard parts.indices.contains(index), !parts[index].isEmpty else { return nil }
+            return parts[index]
         }
-
         return MediaPlaybackSnapshot(
-            source: parts[0],
-            state: parts[1],
-            title: parts[2].isEmpty ? nil : parts[2],
-            artist: parts[3].isEmpty ? nil : parts[3],
-            album: parts[4].isEmpty ? nil : parts[4],
-            volume: parts.count >= 6 ? Int(parts[5]) : nil
+            source: parts[0], state: parts[1], title: value(2), artist: value(3), album: value(4), volume: value(5).flatMap(Int.init)
         )
+    }
+
+    private enum MediaKey: Int32 { case playPause = 16 }
+
+    private func postSystemMediaKey(_ key: MediaKey) -> Bool {
+        // NX_SYSDEFINED media events are routed by macOS to the current player.
+        // No process automation, browser scripting, or accessibility prompt.
+        let downData = Int((key.rawValue << 16) | (0xA << 8))
+        let upData = Int((key.rawValue << 16) | (0xB << 8))
+        guard let down = NSEvent.otherEvent(
+            with: .systemDefined, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, subtype: 8, data1: downData, data2: -1
+        ), let up = NSEvent.otherEvent(
+            with: .systemDefined, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, subtype: 8, data1: upData, data2: -1
+        ) else { return false }
+        down.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
+        up.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
+        return true
     }
 }

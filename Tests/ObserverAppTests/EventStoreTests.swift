@@ -56,4 +56,46 @@ struct EventStoreTests {
         #expect(events.contains { $0.type == .contentContext } == true)
         #expect(try reopened.archivedActivityInsightCount() == 1)
     }
+
+    @Test func contentKindsRespectRawStoragePolicy() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("observer-store-contract-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try EventStore(directory: directory)
+        for kind in ["message", "email", "feed", "prompt", "code", "doc"] {
+            try store.append(
+                ObserverEvent(
+                    type: .contentContext,
+                    payload: ["content_kind": kind, "raw_fragment": "private text \(kind)"],
+                    workspaceTopologyVersion: 1
+                )
+            )
+        }
+        let byKind = Dictionary(uniqueKeysWithValues: try store.allEvents().compactMap { event in
+            event.payload["content_kind"].map { ($0, event) }
+        })
+        #expect(byKind["message"]?.payload["raw_fragment"] == nil)
+        #expect(byKind["email"]?.payload["raw_fragment"] == nil)
+        #expect(byKind["feed"]?.payload["raw_fragment"] == nil)
+        #expect(byKind["prompt"]?.payload["raw_fragment"] == "private text prompt")
+        #expect(byKind["code"]?.payload["raw_fragment"] == "private text code")
+        #expect(byKind["doc"]?.payload["raw_fragment"] == "private text doc")
+    }
+
+    @Test func evidenceFreeCandidateIsQuarantinedBeforeItReachesEvents() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("observer-store-evidence-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try EventStore(directory: directory)
+        try store.append(
+            ObserverEvent(type: .causalHypothesis, payload: ["claim": "unsupported"], workspaceTopologyVersion: 1)
+        )
+
+        #expect(try store.allEvents().isEmpty)
+        #expect(try store.quarantinedContractViolationCount() == 1)
+    }
 }

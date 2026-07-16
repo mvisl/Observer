@@ -88,7 +88,7 @@ struct DashboardReadModelBuilder {
         episodes: [ObserverEvent],
         threadNames: [String: String]
     ) -> [DashboardTimelineSegment] {
-        let episodeByID = Dictionary(uniqueKeysWithValues: episodes.map { ($0.id.uuidString, $0) })
+        let episodeByID = Dictionary(episodes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
         return slices.sorted { $0.timestamp < $1.timestamp }.map { slice in
             let episodeId = slice.payload["episode_event_id"]
             let episode = episodeId.flatMap { episodeByID[$0] }
@@ -124,7 +124,7 @@ struct DashboardReadModelBuilder {
         segments: [DashboardTimelineSegment],
         episodes: [ObserverEvent]
     ) -> [DashboardThreadSummary] {
-        let episodeByID = Dictionary(uniqueKeysWithValues: episodes.map { ($0.id.uuidString, $0) })
+        let episodeByID = Dictionary(episodes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
         return threads.compactMap { thread in
             let id = thread.payload["activity_thread_id"] ?? thread.id.uuidString
             let threadSegments = segments.filter { $0.threadId == id }

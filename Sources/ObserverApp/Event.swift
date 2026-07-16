@@ -94,6 +94,9 @@ enum ObserverEventType: String, Codable {
     case weeklyReport
     case workNode
     case episodeWorkAssignment
+    case heartbeat
+    case sensorHealth
+    case focusIntervalRejected
 }
 
 enum ObserverPipeline {

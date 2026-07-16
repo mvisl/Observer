@@ -71,9 +71,10 @@ final class ObserverController {
     private var currentSessionID: String?
     private var currentEpisodeID: String?
     private var summaryTimer: Timer?
+    private var heartbeatTimer: Timer?
+    private var focusFlushTimer: Timer?
     private var geminiInsightTimer: Timer?
     private var mediaTimer: Timer?
-    private let mediaProbeQueue = DispatchQueue(label: "local.observer.media-probe", qos: .utility)
     private var isMediaProbeInFlight = false
     private var isMediaActionInFlight = false
     private var predictionTimer: Timer?
@@ -88,9 +89,16 @@ final class ObserverController {
     private var lastAudioOutputLooksLikeHeadphones: Bool?
     private var lastAudioActive: Bool?
     private var lastAudioActivityEventAt: Date?
+    private var lastGeminiKeyAvailability: Bool?
     private var autoPausedSources: [String] = []
     private var headphoneWearStateMachine = HeadphoneWearStateMachine()
     private var lastVisualObjectEventAt: [String: Date] = [:]
+    private var lastCameraPersistedSignature: String?
+    private var lastCameraPersistedAt: Date?
+    private var lastCameraEvidenceSignature: String?
+    private var lastCameraEvidenceAt: Date?
+    private var lastCameraHealthAt: Date?
+    private var cameraHealthSamples: [(timestamp: Date, facePresent: Bool, confidence: Double)] = []
     private var scheduleOverride: ScheduleOverride?
     private var currentObservationIntervalStartedAt: Date?
     private var currentObservationOutsideDefaultSchedule = false
@@ -897,6 +905,7 @@ final class ObserverController {
                 workspaceTopologyVersion: environment.topology.version
             )
         )
+        recordGeminiKeyStatusIfChanged()
         append(
             .init(
                 type: .workspaceTopologyLoaded,
@@ -939,6 +948,7 @@ final class ObserverController {
             self?.handleSensorEvent(event)
         }
         startSummaryTimer()
+        startStabilityTimers()
         startGeminiInsightTimer()
         startMediaTimer()
         startPredictionTimer()
@@ -967,6 +977,7 @@ final class ObserverController {
         )
         sensor?.stop()
         stopSummaryTimer()
+        stopStabilityTimers()
         stopGeminiInsightTimer()
         stopMediaTimer()
         stopPredictionTimer()
@@ -1345,7 +1356,7 @@ final class ObserverController {
         let alreadyProcessed = Set(events.filter { event in
             event.type == .causalHypothesis || event.type == .stateTransition
         }.compactMap { $0.payload["episode_event_id"] })
-        let eventByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id.uuidString, $0) })
+        let eventByID = Dictionary(events.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
         let iso = ISO8601DateFormatter()
         let builder = CausalUnderstandingBuilder()
 
@@ -2015,21 +2026,11 @@ final class ObserverController {
             .apiKey(allowKeychainMigration: false)
 
         guard let apiKey, !apiKey.isEmpty else {
-            append(
-                .init(
-                    type: .externalLLMRequest,
-                    payload: [
-                        "provider": "gemini",
-                        "model": environment.settings.geminiModel,
-                        "request_kind": requestKind,
-                        "status": "skipped_missing_key"
-                    ],
-                    workspaceTopologyVersion: environment.topology.version
-                )
-            )
+            recordGeminiKeyStatusIfChanged()
             print("Gemini API key is not configured. Use Set Gemini API Key first.")
             return
         }
+        recordGeminiKeyStatusIfChanged()
 
         let isDailyMode = requestKind == "daily_patterns"
         let events = (try? environment.eventStore.recentEvents(limit: isDailyMode ? 2500 : 500)) ?? []
@@ -2526,6 +2527,7 @@ final class ObserverController {
             end: now,
             outcome: outcome
         ) else {
+            appendDegradedEpisodeClose(start: start, end: now, outcome: outcome, events: events, reason: events.isEmpty ? "empty_lineage" : "partial_lineage")
             return
         }
 
@@ -2538,6 +2540,12 @@ final class ObserverController {
         append(episodeEvent)
 
         let historicalEvents = (try? environment.eventStore.recentEvents(limit: 8_000)) ?? events
+        // Context and causal interpretation are optional enrichment. A malformed
+        // lineage must never take down the sensor process that just closed work.
+        guard !events.isEmpty else {
+            appendDegradedEpisodeClose(start: start, end: now, outcome: outcome, events: events, reason: "empty_lineage_after_build")
+            return
+        }
         appendContextFabricForRecentEpisodes(from: historicalEvents + [episodeEvent], limit: 10)
         let causal = CausalUnderstandingBuilder().buildForClosedEpisode(
             episode: episodeEvent,
@@ -2589,6 +2597,33 @@ final class ObserverController {
         }
     }
 
+    private func appendDegradedEpisodeClose(
+        start: Date,
+        end: Date,
+        outcome: String,
+        events: [ObserverEvent],
+        reason: String
+    ) {
+        let sourceIDs = events.suffix(40).map { $0.id.uuidString }.joined(separator: ",")
+        append(
+            .init(
+                type: .episode,
+                confidence: 0.2,
+                payload: [
+                    "episode_id": UUID().uuidString,
+                    "status": "degraded_close",
+                    "degraded_reason": reason,
+                    "outcome": outcome,
+                    "start": ISO8601DateFormatter().string(from: start),
+                    "end": ISO8601DateFormatter().string(from: end),
+                    "duration_seconds": String(format: "%.1f", end.timeIntervalSince(start)),
+                    "source_event_ids": sourceIDs
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+    }
+
     private func handleAttentionSnapshot(_ snapshot: AttentionSnapshot) {
         let previousAttention = latestAttention
         let previousAttentionAt = latestAttentionAt
@@ -2603,14 +2638,17 @@ final class ObserverController {
             consecutiveMissingFaceSamples += 1
         }
         latestCameraStatus = nil
-        let attentionEvent = ObserverEvent(
-            type: .attention,
-            confidence: snapshot.confidence,
-            payload: snapshot.eventPayload,
-            workspaceTopologyVersion: environment.topology.version
-        )
-        append(attentionEvent)
-        recordCameraEvidenceIfNeeded(from: attentionEvent, now: now)
+        recordCameraHealth(snapshot, now: now)
+        if shouldPersistCameraAttention(snapshot, now: now) {
+            let attentionEvent = ObserverEvent(
+                type: .attention,
+                confidence: snapshot.confidence,
+                payload: snapshot.eventPayload,
+                workspaceTopologyVersion: environment.topology.version
+            )
+            append(attentionEvent)
+            recordCameraEvidenceIfNeeded(from: attentionEvent, now: now)
+        }
         recordVisualObjectEvidenceIfNeeded(snapshot, now: now)
         recordBehaviorCueIfNeeded(
             previousAttention: previousAttention,
@@ -2640,7 +2678,23 @@ final class ObserverController {
         guard environment.settings.contextFabric.cameraEvidenceEnabled else {
             return
         }
-        for payload in ContextFabricBuilder().cameraEvidencePayloads(from: attentionEvent, now: now) {
+        let payloads = ContextFabricBuilder().cameraEvidencePayloads(from: attentionEvent, now: now)
+        let signature = payloads
+            .map { "\($0["evidence_type"] ?? "unknown"):\($0["label"] ?? "unknown")" }
+            .sorted()
+            .joined(separator: "|")
+        let minimumInterval = environment.settings.contextFabric.cameraEvidenceMinimumIntervalSeconds
+        guard signature != lastCameraEvidenceSignature
+            || lastCameraEvidenceAt.map({ now.timeIntervalSince($0) >= minimumInterval }) ?? true
+        else {
+            return
+        }
+        lastCameraEvidenceSignature = signature
+        lastCameraEvidenceAt = now
+        for payload in payloads {
+            guard (Double(payload["confidence"] ?? "") ?? attentionEvent.confidence) >= environment.settings.contextFabric.cameraEvidenceMinimumConfidence else {
+                continue
+            }
             append(
                 .init(
                     type: .cameraEvidence,
@@ -2650,6 +2704,46 @@ final class ObserverController {
                 )
             )
         }
+    }
+
+    private func shouldPersistCameraAttention(_ snapshot: AttentionSnapshot, now: Date) -> Bool {
+        guard snapshot.confidence >= 0.25 else { return false }
+        let signature = [
+            snapshot.facePresent ? "face" : "no_face",
+            snapshot.attentionZone.rawValue,
+            snapshot.eyeVisibility == "closed" ? "eyes_closed" : "eyes_open",
+            snapshot.facePosition.rawValue
+        ].joined(separator: "|")
+        defer {
+            lastCameraPersistedSignature = signature
+            lastCameraPersistedAt = now
+        }
+        if signature != lastCameraPersistedSignature { return true }
+        return lastCameraPersistedAt.map { now.timeIntervalSince($0) >= 30 } ?? true
+    }
+
+    private func recordCameraHealth(_ snapshot: AttentionSnapshot, now: Date) {
+        cameraHealthSamples.append((now, snapshot.facePresent, snapshot.confidence))
+        cameraHealthSamples = cameraHealthSamples.filter { now.timeIntervalSince($0.timestamp) <= 5 * 60 }
+        guard lastCameraHealthAt.map({ now.timeIntervalSince($0) >= 5 * 60 }) ?? true else { return }
+        lastCameraHealthAt = now
+        let samples = cameraHealthSamples
+        let faceFrames = samples.filter(\.facePresent).count
+        let meanConfidence = samples.map(\.confidence).reduce(0, +) / Double(max(samples.count, 1))
+        append(
+            .init(
+                type: .sensorHealth,
+                confidence: 1,
+                payload: [
+                    "sensor": "camera",
+                    "sample_count": "\(samples.count)",
+                    "face_frame_ratio": String(format: "%.3f", Double(faceFrames) / Double(max(samples.count, 1))),
+                    "mean_confidence": String(format: "%.3f", meanConfidence),
+                    "health_interval_seconds": "300"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
     }
 
     private func recordVisualObjectEvidenceIfNeeded(_ snapshot: AttentionSnapshot, now: Date = Date()) {
@@ -2662,7 +2756,7 @@ final class ObserverController {
                 continue
             }
             let lastEventAt = lastVisualObjectEventAt[objectClass] ?? .distantPast
-            guard now.timeIntervalSince(lastEventAt) >= 20 else {
+            guard now.timeIntervalSince(lastEventAt) >= environment.settings.contextFabric.objectPresenceMinimumIntervalSeconds else {
                 continue
             }
             guard let payload = builder.payload(
@@ -3758,6 +3852,23 @@ final class ObserverController {
             return
         }
 
+        guard duration <= 18 * 60 * 60 else {
+            append(
+                .init(
+                    type: .focusIntervalRejected,
+                    confidence: 1,
+                    payload: [
+                        "reason": "duration_over_18h",
+                        "duration_seconds": String(format: "%.1f", duration),
+                        "app_name": currentFocus.appName
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+            self.currentFocusStartedAt = Date()
+            return
+        }
+
         var payload: [String: String] = [
             "app_name": currentFocus.appName,
             "duration_seconds": String(format: "%.1f", duration),
@@ -3869,6 +3980,37 @@ final class ObserverController {
         summaryTimer = nil
     }
 
+    private func startStabilityTimers() {
+        stopStabilityTimers()
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.mode == .observing else { return }
+                self.append(
+                    .init(
+                        type: .heartbeat,
+                        confidence: 1,
+                        payload: ["mode": "observing", "sensor_active": "true"],
+                        workspaceTopologyVersion: self.environment.topology.version
+                    )
+                )
+            }
+        }
+        focusFlushTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.mode == .observing, self.currentFocus != nil else { return }
+                self.closeCurrentFocusInterval(reason: "periodic_flush")
+                self.currentFocusStartedAt = Date()
+            }
+        }
+    }
+
+    private func stopStabilityTimers() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
+        focusFlushTimer?.invalidate()
+        focusFlushTimer = nil
+    }
+
     private func startGeminiInsightTimer() {
         stopGeminiInsightTimer()
         guard environment.settings.geminiEnabled, environment.settings.geminiAutoInsightEnabled else {
@@ -3913,6 +4055,29 @@ final class ObserverController {
     private func stopGeminiInsightTimer() {
         geminiInsightTimer?.invalidate()
         geminiInsightTimer = nil
+    }
+
+    private func recordGeminiKeyStatusIfChanged() {
+        let configured = GeminiKeyStore(directory: environment.dataDirectory).hasKey()
+        guard lastGeminiKeyAvailability != configured else { return }
+        lastGeminiKeyAvailability = configured
+        append(
+            .init(
+                type: .externalLLMRequest,
+                confidence: 1,
+                payload: [
+                    "provider": "gemini",
+                    "status": configured ? "key_ready" : "key_missing",
+                    "status_change": "true",
+                    "storage": "local_private_file"
+                ],
+                workspaceTopologyVersion: environment.topology.version
+            )
+        )
+        if !configured {
+            latestHint = "Внешний анализ выключен: нет ключа"
+            lastHintAt = Date()
+        }
     }
 
     private func startPredictionTimer() {
@@ -4016,22 +4181,13 @@ final class ObserverController {
         handleAudioOutputTransition()
         recordAudioActivityStateIfNeeded()
 
-        // Browser AppleScript can stall on an unresponsive tab. Keep it off the
-        // main actor so the pill, camera and input sensors remain responsive.
         guard !isMediaProbeInFlight else {
             return
         }
         isMediaProbeInFlight = true
-        mediaProbeQueue.async { [weak self] in
-            let probe = MediaPlaybackService().currentPlaybackProbe()
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
-                self.isMediaProbeInFlight = false
-                self.consumeMediaPlaybackProbe(probe)
-            }
-        }
+        let probe = MediaPlaybackService().currentPlaybackProbe()
+        isMediaProbeInFlight = false
+        consumeMediaPlaybackProbe(probe)
     }
 
     private func consumeMediaPlaybackProbe(_ probe: MediaPlaybackService.ProbeResult) {
@@ -4114,26 +4270,17 @@ final class ObserverController {
         lastMediaPlaybackSnapshot = snapshot
     }
 
-    // NSAppleScript is not safe to run concurrently against browser tabs. Both
-    // polling and actual pause/resume commands use this one serial queue.
     private func performMediaAction(
-        _ operation: @escaping (MediaPlaybackService) -> [String],
-        completion: @escaping ([String]) -> Void
+        _ operation: (MediaPlaybackService) -> [String],
+        completion: ([String]) -> Void
     ) {
         guard !isMediaActionInFlight else {
             return
         }
         isMediaActionInFlight = true
-        mediaProbeQueue.async { [weak self] in
-            let result = operation(MediaPlaybackService())
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
-                self.isMediaActionInFlight = false
-                completion(result)
-            }
-        }
+        let result = operation(MediaPlaybackService())
+        isMediaActionInFlight = false
+        completion(result)
     }
 
     private func updateMediaListenSession(
@@ -4367,14 +4514,17 @@ final class ObserverController {
             return
         }
 
-        guard let playbackSnapshot = lastMediaPlaybackSnapshot, playbackSnapshot.state == "playing" else {
+        let mediaSource = lastMediaPlaybackSnapshot?.state == "playing"
+            ? lastMediaPlaybackSnapshot?.source
+            : (lastAudioActive == true ? "System Media Key" : nil)
+        guard let mediaSource else {
             return
         }
 
         performMediaAction({ $0.pauseAllKnownSources() }) { [weak self] pausedSources in
             guard let self else { return }
             guard !pausedSources.isEmpty else {
-                self.latestHint = "Медиа: снял наушники, источник не подтвердил паузу"
+                self.latestHint = "Медиа: снял наушники, не удалось отправить паузу"
                 self.lastHintAt = now
                 self.append(
                     .init(
@@ -4383,7 +4533,7 @@ final class ObserverController {
                             "action": "auto_pause_skipped",
                             "reason": reason,
                             "audio_output": outputName ?? "unknown",
-                            "source": playbackSnapshot.source
+                            "source": mediaSource
                         ],
                         workspaceTopologyVersion: self.environment.topology.version
                     )
@@ -4395,7 +4545,7 @@ final class ObserverController {
             self.lastHeadphonesAutoPauseAt = now
             self.lastAutoPauseAt = now
             self.autoPausedSources = pausedSources
-            self.latestHint = "Медиа: снял наушники, поставил на паузу"
+            self.latestHint = "Медиа: снял наушники, отправил паузу"
             self.lastHintAt = now
             self.append(
                 .init(
@@ -4406,8 +4556,8 @@ final class ObserverController {
                         "pause_actor": "observer",
                         "paused_sources": pausedSources.joined(separator: ", "),
                         "audio_output": outputName ?? "unknown",
-                        "source": playbackSnapshot.source,
-                        "title": playbackSnapshot.title ?? ""
+                        "source": mediaSource,
+                        "command_confirmed": "false"
                     ],
                     workspaceTopologyVersion: self.environment.topology.version
                 )
@@ -4501,7 +4651,10 @@ final class ObserverController {
             return
         }
 
-        guard let playbackSnapshot = lastMediaPlaybackSnapshot, playbackSnapshot.state == "playing" else {
+        let mediaSource = lastMediaPlaybackSnapshot?.state == "playing"
+            ? lastMediaPlaybackSnapshot?.source
+            : (lastAudioActive == true ? "System Media Key" : nil)
+        guard let mediaSource else {
             return
         }
 
@@ -4523,8 +4676,8 @@ final class ObserverController {
                         "paused_sources": pausedSources.joined(separator: ", "),
                         "missing_face_samples": "\(self.consecutiveMissingFaceSamples)",
                         "seconds_since_any_input": String(format: "%.1f", inputIdleSeconds),
-                        "source": playbackSnapshot.source,
-                        "title": playbackSnapshot.title ?? ""
+                        "source": mediaSource,
+                        "command_confirmed": "false"
                     ],
                     workspaceTopologyVersion: self.environment.topology.version
                 )

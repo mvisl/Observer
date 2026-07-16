@@ -40,10 +40,10 @@ struct MediaPlaybackServiceTests {
         #expect(paused.sourceForObserverResume == nil)
     }
 
-    @Test func escapesJavaScriptForAppleScriptExecution() {
-        let literal = MediaPlaybackService.appleScriptStringLiteral(#"document.querySelector(\"video\").pause()"#)
+    @Test func mediaProbeDoesNotUseBrowserAutomation() {
+        let result = MediaPlaybackService().currentPlaybackProbe()
 
-        #expect(literal.contains(#"\\\"video\\\""#))
-        #expect(literal.contains("pause()"))
+        #expect(result.snapshot == nil)
+        #expect(result.failures.isEmpty)
     }
 }

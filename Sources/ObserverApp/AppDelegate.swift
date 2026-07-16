@@ -8,7 +8,10 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
     private var widgetController: WidgetPanelController?
     private var timelineController: TimelineWindowController?
     private var cameraPermissionTimer: Timer?
+    private var delayedStartupTimer: Timer?
     private var dashboardServer: DashboardHTTPServer?
+    private var processLock: ObserverProcessLock?
+    private var restartBackoff: ObserverRestartBackoff?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -16,6 +19,14 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
         do {
             let environment = try AppEnvironment.bootstrap()
+            let lock = ObserverProcessLock(directory: environment.dataDirectory)
+            guard try lock.acquire() else {
+                NSApp.terminate(nil)
+                return
+            }
+            processLock = lock
+            let backoff = ObserverRestartBackoff(directory: environment.dataDirectory)
+            restartBackoff = backoff
             controller = ObserverController(environment: environment)
             if environment.settings.dashboard.enabled {
                 let server = DashboardHTTPServer(environment: environment)
@@ -28,9 +39,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             configureStatusItem()
             configureWidget()
             controller?.recordLaunch()
-            startConfiguredServices()
-            startPermissionReconciliation()
-            runDeveloperAutomationIfRequested()
+            startAfterStabilityBackoff(seconds: backoff.recordLaunchAndBackoff())
         } catch {
             presentStartupFailure(error)
         }
@@ -448,8 +457,39 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         dashboardServer?.stop()
-        controller?.recordShutdown()
         NSApp.terminate(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dashboardServer?.stop()
+        delayedStartupTimer?.invalidate()
+        controller?.recordShutdown()
+        restartBackoff?.recordGracefulShutdown()
+        processLock?.release()
+    }
+
+    private func startAfterStabilityBackoff(seconds: TimeInterval) {
+        guard seconds > 0 else {
+            startDeferredServices()
+            return
+        }
+
+        delayedStartupTimer = Timer.scheduledTimer(
+            timeInterval: seconds,
+            target: self,
+            selector: #selector(startDeferredServices),
+            userInfo: nil,
+            repeats: false
+        )
+        RunLoop.main.add(delayedStartupTimer!, forMode: .common)
+    }
+
+    @objc private func startDeferredServices() {
+        delayedStartupTimer?.invalidate()
+        delayedStartupTimer = nil
+        startConfiguredServices()
+        startPermissionReconciliation()
+        runDeveloperAutomationIfRequested()
     }
 
     private func presentStartupFailure(_ error: Error) {

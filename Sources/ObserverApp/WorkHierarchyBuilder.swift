@@ -103,13 +103,13 @@ struct WorkHierarchyBuilder {
         episodes: [ObserverEvent],
         actionItems: [ObserverEvent]
     ) -> Report {
-        let threadsByID = Dictionary(uniqueKeysWithValues: threads.compactMap { event -> (String, ObserverEvent)? in
+        let threadsByID = Dictionary(threads.compactMap { event -> (String, ObserverEvent)? in
             guard let id = event.payload["activity_thread_id"], !id.isEmpty else {
                 return nil
             }
             return (id, event)
-        })
-        let episodesByID = Dictionary(uniqueKeysWithValues: episodes.map { ($0.id.uuidString, $0) })
+        }, uniquingKeysWith: { _, newer in newer })
+        let episodesByID = Dictionary(episodes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
         var leaves: [Path: Leaf] = [:]
         var timelineRows: [(start: Date, end: Date, path: Path, apps: [String])] = []
         var globalUnassignedSeconds: Double = 0

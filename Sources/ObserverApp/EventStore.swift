@@ -19,6 +19,11 @@ final class EventStore {
     }
 
     func append(_ event: ObserverEvent) throws {
+        let payload = EventDataContract.sanitizedPayload(for: event)
+        if let reason = EventDataContract.missingEvidenceReason(for: event, payload: payload) {
+            try quarantine(event: event, payload: payload, reason: reason)
+            return
+        }
         let sql = """
         INSERT INTO events (
             id, timestamp, type, source, platform, display_role, app_id,
@@ -35,7 +40,7 @@ final class EventStore {
             bindOptionalText(statement, 6, event.displayRole?.rawValue)
             bindOptionalText(statement, 7, event.appID)
             sqlite3_bind_double(statement, 8, event.confidence)
-            sqlite3_bind_text(statement, 9, try payloadJSONString(event.payload), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 9, try payloadJSONString(payload), -1, SQLITE_TRANSIENT)
             sqlite3_bind_int(statement, 10, Int32(event.workspaceTopologyVersion))
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
@@ -101,6 +106,17 @@ final class EventStore {
 
     func archivedActivityInsightCount() throws -> Int {
         let sql = "SELECT COUNT(*) FROM _archive_activity_insight;"
+        var count = 0
+        try withStatement(sql) { statement in
+            if sqlite3_step(statement) == SQLITE_ROW {
+                count = Int(sqlite3_column_int(statement, 0))
+            }
+        }
+        return count
+    }
+
+    func quarantinedContractViolationCount() throws -> Int {
+        let sql = "SELECT COUNT(*) FROM _quarantine_contract_violations;"
         var count = 0
         try withStatement(sql) { statement in
             if sqlite3_step(statement) == SQLITE_ROW {
@@ -178,6 +194,9 @@ final class EventStore {
         try execute("CREATE INDEX IF NOT EXISTS idx_events_type_timestamp ON events(type, timestamp);")
         try execute("CREATE INDEX IF NOT EXISTS idx_events_app_timestamp ON events(app_id, timestamp);")
         try archiveLegacyActivityInsights()
+        try createContractQuarantine()
+        try migratePrivacyAndEvidenceContracts()
+        try deduplicateRestartSummaries()
     }
 
     private func archiveLegacyActivityInsights() throws {
@@ -213,6 +232,80 @@ final class EventStore {
         )
         try execute("DELETE FROM events WHERE type = 'activityInsight';")
         try execute("CREATE INDEX IF NOT EXISTS idx_archive_activity_insight_timestamp ON _archive_activity_insight(timestamp);")
+    }
+
+    private func createContractQuarantine() throws {
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS _quarantine_contract_violations (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                quarantined_at TEXT NOT NULL
+            );
+            """
+        )
+    }
+
+    private func migratePrivacyAndEvidenceContracts() throws {
+        let events = try allEvents()
+        for event in events {
+            let sanitized = EventDataContract.sanitizedPayload(for: event)
+            if let reason = EventDataContract.missingEvidenceReason(for: event, payload: sanitized) {
+                try quarantine(event: event, payload: sanitized, reason: reason)
+                try deleteEvent(id: event.id)
+                continue
+            }
+            guard sanitized != event.payload else { continue }
+            try withStatement("UPDATE events SET payload_json = ? WHERE id = ?;") { statement in
+                sqlite3_bind_text(statement, 1, try payloadJSONString(sanitized), -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(statement, 2, event.id.uuidString, -1, SQLITE_TRANSIENT)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw EventStoreError.sqlite(message: lastErrorMessage)
+                }
+            }
+        }
+    }
+
+    private func deduplicateRestartSummaries() throws {
+        let summaries = try allEvents().filter { $0.type == .localSummary }
+        var seen = Set<String>()
+        for event in summaries {
+            let bucket = Int(event.timestamp.timeIntervalSince1970 / 300)
+            let kind = event.payload["summary_kind"] ?? event.payload["trigger"] ?? "default"
+            if seen.insert("\(kind)|\(bucket)").inserted { continue }
+            try deleteEvent(id: event.id)
+        }
+    }
+
+    private func deleteEvent(id: UUID) throws {
+        try withStatement("DELETE FROM events WHERE id = ?;") { statement in
+            sqlite3_bind_text(statement, 1, id.uuidString, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw EventStoreError.sqlite(message: lastErrorMessage)
+            }
+        }
+    }
+
+    private func quarantine(event: ObserverEvent, payload: [String: String], reason: String) throws {
+        let sql = """
+        INSERT OR IGNORE INTO _quarantine_contract_violations
+        (id, timestamp, type, reason, payload_json, quarantined_at)
+        VALUES (?, ?, ?, ?, ?, ?);
+        """
+        try withStatement(sql) { statement in
+            sqlite3_bind_text(statement, 1, event.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, isoFormatter.string(from: event.timestamp), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 3, event.type.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 4, reason, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 5, try payloadJSONString(payload), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 6, isoFormatter.string(from: Date()), -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw EventStoreError.sqlite(message: lastErrorMessage)
+            }
+        }
     }
 
     private func execute(_ sql: String) throws {

@@ -68,6 +68,13 @@ struct ContentContextAnnotator {
         ].joined(separator: " ").lowercased()
         let haystack = [appSurface, contentSurface].joined(separator: " ")
 
+        // A fixed application prior wins over incidental text from the canvas.
+        if appSurface.contains("figma") {
+            return "design_artifact"
+        }
+        if appSurface.contains("mail") || appSurface.contains("outlook") || appSurface.contains("gmail") {
+            return "email"
+        }
         if isMeetingSurface(appSurface, contentSurface) {
             if haystack.contains("caption") || haystack.contains("captions") || haystack.contains("subtitles") || haystack.contains("субтит") {
                 return "meeting_captions"

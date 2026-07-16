@@ -262,7 +262,10 @@ struct ObserverSettings: Codable {
     struct ContextFabricSettings: Codable {
         var contextFabricEnabled: Bool
         var cameraEvidenceEnabled: Bool
+        var cameraEvidenceMinimumConfidence: Double
+        var cameraEvidenceMinimumIntervalSeconds: Double
         var objectGestureLayerEnabled: Bool
+        var objectPresenceMinimumIntervalSeconds: Double
         var episodeEngineEnabled: Bool
         var contextLinkerEnabled: Bool
         var activityTrackerEnabled: Bool
@@ -282,7 +285,10 @@ struct ObserverSettings: Codable {
         init(
             contextFabricEnabled: Bool,
             cameraEvidenceEnabled: Bool,
+            cameraEvidenceMinimumConfidence: Double,
+            cameraEvidenceMinimumIntervalSeconds: Double,
             objectGestureLayerEnabled: Bool,
+            objectPresenceMinimumIntervalSeconds: Double,
             episodeEngineEnabled: Bool,
             contextLinkerEnabled: Bool,
             activityTrackerEnabled: Bool,
@@ -301,7 +307,10 @@ struct ObserverSettings: Codable {
         ) {
             self.contextFabricEnabled = contextFabricEnabled
             self.cameraEvidenceEnabled = cameraEvidenceEnabled
+            self.cameraEvidenceMinimumConfidence = cameraEvidenceMinimumConfidence
+            self.cameraEvidenceMinimumIntervalSeconds = cameraEvidenceMinimumIntervalSeconds
             self.objectGestureLayerEnabled = objectGestureLayerEnabled
+            self.objectPresenceMinimumIntervalSeconds = objectPresenceMinimumIntervalSeconds
             self.episodeEngineEnabled = episodeEngineEnabled
             self.contextLinkerEnabled = contextLinkerEnabled
             self.activityTrackerEnabled = activityTrackerEnabled
@@ -324,7 +333,10 @@ struct ObserverSettings: Codable {
             let defaults = ObserverSettings.defaults.contextFabric
             self.contextFabricEnabled = try container.decodeIfPresent(Bool.self, forKey: .contextFabricEnabled) ?? defaults.contextFabricEnabled
             self.cameraEvidenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEvidenceEnabled) ?? defaults.cameraEvidenceEnabled
+            self.cameraEvidenceMinimumConfidence = try container.decodeIfPresent(Double.self, forKey: .cameraEvidenceMinimumConfidence) ?? defaults.cameraEvidenceMinimumConfidence
+            self.cameraEvidenceMinimumIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .cameraEvidenceMinimumIntervalSeconds) ?? defaults.cameraEvidenceMinimumIntervalSeconds
             self.objectGestureLayerEnabled = try container.decodeIfPresent(Bool.self, forKey: .objectGestureLayerEnabled) ?? defaults.objectGestureLayerEnabled
+            self.objectPresenceMinimumIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .objectPresenceMinimumIntervalSeconds) ?? defaults.objectPresenceMinimumIntervalSeconds
             self.episodeEngineEnabled = try container.decodeIfPresent(Bool.self, forKey: .episodeEngineEnabled) ?? defaults.episodeEngineEnabled
             self.contextLinkerEnabled = try container.decodeIfPresent(Bool.self, forKey: .contextLinkerEnabled) ?? defaults.contextLinkerEnabled
             self.activityTrackerEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityTrackerEnabled) ?? defaults.activityTrackerEnabled
@@ -601,7 +613,10 @@ struct ObserverSettings: Codable {
         contextFabric: ContextFabricSettings(
             contextFabricEnabled: true,
             cameraEvidenceEnabled: true,
+            cameraEvidenceMinimumConfidence: 0.25,
+            cameraEvidenceMinimumIntervalSeconds: 90,
             objectGestureLayerEnabled: true,
+            objectPresenceMinimumIntervalSeconds: 60,
             episodeEngineEnabled: true,
             contextLinkerEnabled: true,
             activityTrackerEnabled: true,
