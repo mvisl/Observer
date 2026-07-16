@@ -4549,6 +4549,9 @@ final class ObserverController {
         let visualState = headphoneAppearanceProfile.observe(
             jpegData: snapshot.jpegData,
             facePresent: snapshot.facePresent,
+            faceCenterX: snapshot.faceCenterX,
+            faceCenterY: snapshot.faceCenterY,
+            faceArea: snapshot.faceArea,
             yaw: snapshot.yaw,
             pitch: snapshot.pitch,
             genericHeadphoneConfidence: genericHeadphoneConfidence,
