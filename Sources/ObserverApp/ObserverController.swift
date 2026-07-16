@@ -88,7 +88,7 @@ final class ObserverController {
     private var lastMediaProbeFailureAt: Date?
     private var lastAutoPauseAt: Date?
     private var lastHeadphonesAutoPauseAt: Date?
-    private var lastAudioOutputLooksLikeHeadphones: Bool?
+    private var headphoneOutputTransitionGate = HeadphoneOutputTransitionGate()
     private var lastAudioActive: Bool?
     private var lastAudioActivityEventAt: Date?
     private var lastGeminiKeyAvailability: Bool?
@@ -2346,9 +2346,6 @@ final class ObserverController {
         } catch {
             print("Failed to write event: \(error)")
         }
-        if eventToWrite.type == .objectPresence {
-            pauseMediaIfHeadphonesObjectSuggestsRemoval(eventToWrite)
-        }
     }
 
     private func lineagePayload(for event: ObserverEvent, payload: [String: String]) -> [String: String] {
@@ -4239,7 +4236,7 @@ final class ObserverController {
         currentMediaTrackKey = nil
         currentMediaTrackStartedAt = nil
         currentMediaListenSession = nil
-        lastAudioOutputLooksLikeHeadphones = nil
+        headphoneOutputTransitionGate.reset()
         lastAudioActive = nil
         lastAudioActivityEventAt = nil
         isMediaProbeInFlight = false
@@ -4481,30 +4478,23 @@ final class ObserverController {
 
         let audioService = AudioOutputService()
         let outputName = audioService.currentOutputName()
-        let outputLooksLikeHeadphones = audioService.looksLikeHeadphones(outputName)
-        defer {
-            lastAudioOutputLooksLikeHeadphones = outputLooksLikeHeadphones
-        }
-
-        if lastAudioOutputLooksLikeHeadphones == false, outputLooksLikeHeadphones == true {
-            resumeMediaIfHeadphonesReturned(outputName: outputName)
-            return
-        }
-
-        guard lastAudioOutputLooksLikeHeadphones == true, outputLooksLikeHeadphones == false else {
-            return
-        }
-
-        let now = Date()
-        guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
-            return
-        }
-
-        pauseMediaAfterHeadphonesRemoved(
-            reason: "audio_output_headphones_removed",
-            outputName: outputName,
-            now: now
+        let transition = headphoneOutputTransitionGate.observe(
+            outputLooksLikeHeadphones: outputName.map(audioService.looksLikeHeadphones),
+            now: Date()
         )
+
+        switch transition {
+        case .none:
+            return
+        case .returned:
+            resumeMediaIfHeadphonesReturned(outputName: outputName)
+        case .removed:
+            pauseMediaAfterHeadphonesRemoved(
+                reason: "audio_output_headphones_removed_confirmed",
+                outputName: outputName,
+                now: Date()
+            )
+        }
     }
 
     private func resumeMediaIfHeadphonesReturned(outputName: String?) {
@@ -4561,13 +4551,22 @@ final class ObserverController {
         case .none:
             return
         case .removed:
-            pauseMediaAfterHeadphonesRemoved(
-                reason: "camera_headphones_removed_confirmed",
-                outputName: AudioOutputService().currentOutputName(),
-                now: now
+            // Image classification cannot reliably see ordinary headphones from a
+            // side-mounted camera. A missing label is evidence only, never a command.
+            append(
+                .init(
+                    type: .mediaPlayback,
+                    confidence: 0.35,
+                    payload: [
+                        "action": "headphones_visual_transition_shadow",
+                        "reason": "camera_headphones_not_visible",
+                        "display_eligible": "false"
+                    ],
+                    workspaceTopologyVersion: environment.topology.version
+                )
             )
         case .putOn:
-            resumeMediaIfHeadphonesWornAgain(now: now)
+            return
         }
     }
 
@@ -4638,75 +4637,6 @@ final class ObserverController {
         }
     }
 
-    private func resumeMediaIfHeadphonesWornAgain(now: Date = Date()) {
-        guard environment.settings.autoResumeMediaWhenBack else {
-            return
-        }
-        guard !autoPausedSources.isEmpty else {
-            return
-        }
-        guard latestAttention?.facePresent == true else {
-            return
-        }
-        guard let lastAutoPauseAt, now.timeIntervalSince(lastAutoPauseAt) <= 1800 else {
-            autoPausedSources = []
-            return
-        }
-
-        let sources = autoPausedSources
-        performMediaAction({ $0.resumeSources(sources) }) { [weak self] resumedSources in
-            guard let self, !resumedSources.isEmpty else { return }
-            self.autoPausedSources = []
-            self.latestHint = "Медиа: наушники вернулись, продолжил"
-            self.lastHintAt = now
-            self.append(
-                .init(
-                    type: .mediaPlayback,
-                    payload: [
-                        "action": "auto_resume",
-                        "reason": "camera_headphones_worn_confirmed",
-                        "resumed_sources": resumedSources.joined(separator: ", ")
-                    ],
-                    workspaceTopologyVersion: self.environment.topology.version
-                )
-            )
-            self.notifyStateChanged()
-        }
-    }
-
-    private func pauseMediaIfHeadphonesObjectSuggestsRemoval(_ event: ObserverEvent, now: Date = Date()) {
-        guard environment.settings.autoPauseMediaWhenAway else {
-            return
-        }
-        guard mode == .observing else {
-            return
-        }
-        let objectClass = (event.payload["object_class"] ?? "")
-            .lowercased()
-            .replacingOccurrences(of: "_", with: " ")
-        guard ["headphones", "earphones", "airpods"].contains(objectClass) else {
-            return
-        }
-        let relation = (event.payload["object_relation"] ?? event.payload["placement"] ?? event.payload["state"] ?? "")
-            .lowercased()
-        let looksRemoved = event.payload["in_hand"] == "true"
-            || ["removed", "put_down", "on_table", "not_on_head", "away_from_head"].contains(relation)
-        guard looksRemoved else {
-            return
-        }
-        guard lastHeadphonesAutoPauseAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
-            return
-        }
-
-        // Object detections are evidence only. The shared state machine owns
-        // the actual media action so a one-frame object label cannot pause a
-        // player and so all AppleScript work stays on one queue.
-        pauseMediaAfterHeadphonesRemoved(
-            reason: "camera_headphones_removed_object",
-            outputName: AudioOutputService().currentOutputName(),
-            now: now
-        )
-    }
 
     private func pauseMediaIfUserAppearsAway() {
         guard environment.settings.autoPauseMediaWhenAway else {
