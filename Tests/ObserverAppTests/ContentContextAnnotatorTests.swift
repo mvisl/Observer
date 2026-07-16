@@ -14,6 +14,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: nil,
             focusedElementValue: "Спасибо, классная новость",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8
@@ -39,6 +40,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: nil,
             focusedElementValue: "Сделай новый прогресс бар",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8
@@ -61,6 +63,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: nil,
             focusedElementValue: "ChatGPT Gemini Telegram Станислав Гжебовский хакатон бесполезно потраченное время задача ради задачи",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8
@@ -83,6 +86,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: nil,
             focusedElementValue: "Это не работает, давай переделаем решение",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8
@@ -106,6 +110,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: "Captions",
             focusedElementValue: "Captions Андрей says let's review onboarding flow",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8
@@ -128,6 +133,7 @@ struct ContentContextAnnotatorTests {
             focusedElementTitle: nil,
             focusedElementValue: "Call in progress",
             selectedText: nil,
+            resourceURL: nil,
             screenIndex: nil,
             displayRole: nil,
             confidence: 0.8

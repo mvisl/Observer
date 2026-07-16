@@ -140,6 +140,44 @@ struct DailyActivityReportBuilderTests {
         #expect(!result.markdown.contains("## Task Breakdown"))
     }
 
+    @Test func jiraAnchorTakesPriorityAndKeepsLocalTaskResources() {
+        let now = Date()
+        let episode = event(.episode, at: now, confidence: 0.9, payload: [
+            "episode_kind": "design_work",
+            "topic": "WhatToBuy dividend card",
+            "apps": "Figma -> Google Chrome"
+        ])
+        let slice = event(.contextSlice, at: now, confidence: 0.9, payload: [
+            "activity_thread_id": "",
+            "assignment_state": "assigned",
+            "activity_kind": "design",
+            "episode_event_id": episode.id.uuidString,
+            "started_at": ISO8601DateFormatter().string(from: now),
+            "ended_at": ISO8601DateFormatter().string(from: now.addingTimeInterval(600)),
+            "active_seconds": "600"
+        ])
+        let jira = event(.artifactIdentity, at: now.addingTimeInterval(5), confidence: 0.95, payload: [
+            "kind": "jira_issue",
+            "canonical_key": "jira:PD-43661",
+            "display_name": "[PD-43661] Deposit page redesign",
+            "resource_url": "https://jira.fxclub.org/browse/PD-43661"
+        ])
+        let figma = event(.artifactIdentity, at: now.addingTimeInterval(10), confidence: 0.9, payload: [
+            "kind": "figma_file",
+            "canonical_key": "figma:deposit-page",
+            "display_name": "Deposit page Figma",
+            "resource_url": "https://www.figma.com/design/example/deposit"
+        ])
+
+        let result = DailyActivityReportBuilder().build(events: [episode, slice, jira, figma], day: now)
+
+        #expect(result.markdown.contains("### Work"))
+        #expect(result.markdown.contains("#### Libertex"))
+        #expect(result.markdown.contains("PD-43661 — Deposit page redesign"))
+        #expect(result.markdown.contains("Jira: [PD-43661] Deposit page redesign"))
+        #expect(result.markdown.contains("Figma: Deposit page Figma"))
+    }
+
     private func event(
         _ type: ObserverEventType,
         at date: Date,

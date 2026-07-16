@@ -310,6 +310,9 @@ struct ScreenContextSnapshot {
     let focusedElementTitle: String?
     let focusedElementValue: String?
     let selectedText: String?
+    /// Local-only, secret-scrubbed URL for a task resource. It is never sent to
+    /// an external insight provider.
+    let resourceURL: String?
     let screenIndex: Int?
     let displayRole: WorkspaceTopology.DisplayRole?
     let confidence: Double
@@ -322,7 +325,8 @@ struct ScreenContextSnapshot {
             focusedElementRole ?? "",
             focusedElementTitle ?? "",
             focusedElementValue ?? "",
-            selectedText ?? ""
+            selectedText ?? "",
+            resourceURL ?? ""
         ].joined(separator: "|")
     }
 }
@@ -381,6 +385,12 @@ enum ActiveWindowReader {
                 PrivacyRedactor.redact(stringAttribute(focusedElement, kAXSelectedTextAttribute)),
                 maxLength: 500
             )
+        let resourceURL = sanitizedResourceURL(
+            urlAttribute(focusedElement)
+                ?? urlAttribute(window)
+                ?? urlAttribute(app)
+                ?? (isBrowser(appID: appID, appName: appName) ? browserAddressURL(in: app) : nil)
+        )
 
         let context = ScreenContextSnapshot(
             appID: appID,
@@ -395,6 +405,7 @@ enum ActiveWindowReader {
             ),
             focusedElementValue: focusedElementValue,
             selectedText: selectedText,
+            resourceURL: resourceURL,
             screenIndex: screenIndex,
             displayRole: displayRole,
             confidence: selectedText == nil && focusedElementValue == nil ? 0.65 : 0.85
@@ -454,6 +465,82 @@ enum ActiveWindowReader {
         }
 
         return nil
+    }
+
+    private static func urlAttribute(_ element: AXUIElement?) -> URL? {
+        guard let element else {
+            return nil
+        }
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXURLAttribute as CFString, &value)
+        guard result == .success, let value else {
+            return nil
+        }
+        if let url = value as? URL {
+            return url
+        }
+        if let string = value as? String {
+            return URL(string: string)
+        }
+        return nil
+    }
+
+    private static func sanitizedResourceURL(_ url: URL?) -> String? {
+        guard var components = url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host?.isEmpty == false
+        else {
+            return nil
+        }
+
+        components.user = nil
+        components.password = nil
+        components.fragment = nil
+        let secretKeys: Set<String> = [
+            "access_token", "auth", "code", "key", "password", "session", "signature", "sig", "token"
+        ]
+        components.queryItems = components.queryItems?.filter { item in
+            !secretKeys.contains(item.name.lowercased())
+        }
+        return components.url?.absoluteString
+    }
+
+    private static func isBrowser(appID: String?, appName: String) -> Bool {
+        let identifier = "\(appID ?? "") \(appName)".lowercased()
+        return ["chrome", "safari", "firefox", "arc", "brave", "edge", "opera"].contains { identifier.contains($0) }
+    }
+
+    private static func browserAddressURL(in root: AXUIElement) -> URL? {
+        var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+        var inspected = 0
+        while let current = queue.first, inspected < 80 {
+            queue.removeFirst()
+            inspected += 1
+            let title = stringAttribute(current.element, kAXTitleAttribute)?.lowercased() ?? ""
+            let description = stringAttribute(current.element, kAXDescriptionAttribute)?.lowercased() ?? ""
+            let role = stringAttribute(current.element, kAXRoleAttribute)?.lowercased() ?? ""
+            let isAddressField = title.contains("address") || description.contains("address") || description.contains("url")
+            if isAddressField || role.contains("textfield") {
+                if let value = stringAttribute(current.element, kAXValueAttribute),
+                   let url = URL(string: value),
+                   url.scheme?.hasPrefix("http") == true {
+                    return url
+                }
+            }
+            guard current.depth < 3 else { continue }
+            queue.append(contentsOf: children(of: current.element).map { ($0, current.depth + 1) })
+        }
+        return nil
+    }
+
+    private static func children(of element: AXUIElement) -> [AXUIElement] {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value)
+        guard result == .success, let elements = value as? [AXUIElement] else {
+            return []
+        }
+        return elements
     }
 
     private static func isSecureElement(_ element: AXUIElement?) -> Bool {
@@ -609,7 +696,8 @@ extension ScreenContextSnapshot {
             focusedElementRole,
             focusedElementTitle,
             focusedElementValue,
-            selectedText
+            selectedText,
+            resourceURL
         ].allSatisfy { ($0 ?? "").isEmpty }
     }
 
@@ -663,6 +751,10 @@ extension ScreenContextSnapshot {
         }
         if let selectedText {
             payload["selected_text"] = selectedText
+        }
+        if let resourceURL {
+            payload["resource_url"] = resourceURL
+            payload["resource_domain"] = URL(string: resourceURL)?.host ?? ""
         }
         if let screenIndex {
             payload["screen_index"] = "\(screenIndex)"

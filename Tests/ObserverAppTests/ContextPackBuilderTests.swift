@@ -27,7 +27,8 @@ struct ContextPackBuilderTests {
                 type: .writingContext,
                 payload: [
                     "app_name": "ChatGPT",
-                    "focused_element_value": "Формулирую задачу для Observer"
+                    "focused_element_value": "Формулирую задачу для Observer",
+                    "resource_url": "https://example.com/private?token=secret"
                 ],
                 workspaceTopologyVersion: 1
             )
@@ -37,7 +38,9 @@ struct ContextPackBuilderTests {
 
         #expect(pack.contains("## Attention Signal"))
         #expect(pack.contains("## Active Writing Context"))
-        #expect(pack.contains("Формулирую задачу"))
+        #expect(!pack.contains("Формулирую задачу"))
+        #expect(!pack.contains("example.com/private"))
+        #expect(pack.contains("raw writing stays local"))
         #expect(pack.contains("Face: present"))
         #expect(pack.contains("Privacy Notes"))
     }

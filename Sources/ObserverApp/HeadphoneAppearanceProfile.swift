@@ -27,7 +27,6 @@ struct HeadphoneAppearanceProfile {
         faceArea: Double?,
         genericHeadphoneConfidence: Double?,
         audioOutputIndicatesHeadphones: Bool,
-        audioIsActive: Bool,
         confirmedWearing: Bool
     ) -> HeadphoneVisualState {
         guard facePresent, let jpegData,
@@ -46,7 +45,7 @@ struct HeadphoneAppearanceProfile {
         // Bootstrapping only establishes an initial positive profile. It never
         // creates a removal event, because wired and Bluetooth routes can remain
         // selected after the headphones leave the user's head.
-        if audioOutputIndicatesHeadphones, audioIsActive, wearingFeatures.count < 3 {
+        if audioOutputIndicatesHeadphones, wearingFeatures.count < 3 {
             learn(feature)
             return .wearing(0.58)
         }

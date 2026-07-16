@@ -93,6 +93,13 @@ struct WorkHierarchyBuilder {
         var episodeTopics: Set<String> = []
         var reasonCodes: Set<String> = []
         var confidences: [WorkNodeType: Double] = [:]
+        var resources: Set<Resource> = []
+    }
+
+    private struct Resource: Hashable {
+        let kind: String
+        let label: String
+        let url: String?
     }
 
     private let iso = ISO8601DateFormatter()
@@ -101,7 +108,8 @@ struct WorkHierarchyBuilder {
         threads: [ObserverEvent],
         slices: [ObserverEvent],
         episodes: [ObserverEvent],
-        actionItems: [ObserverEvent]
+        actionItems: [ObserverEvent],
+        artifacts: [ObserverEvent] = []
     ) -> Report {
         let threadsByID = Dictionary(threads.compactMap { event -> (String, ObserverEvent)? in
             guard let id = event.payload["activity_thread_id"], !id.isEmpty else {
@@ -121,7 +129,8 @@ struct WorkHierarchyBuilder {
             }
             let thread = slice.payload["activity_thread_id"].flatMap { threadsByID[$0] }
             let episode = slice.payload["episode_event_id"].flatMap { episodesByID[$0] }
-            let assignment = assign(slice: slice, thread: thread, episode: episode)
+            let relatedArtifacts = relatedArtifacts(for: slice, episode: episode, allArtifacts: artifacts)
+            let assignment = assign(slice: slice, thread: thread, episode: episode, artifacts: relatedArtifacts)
 
             guard assignment.path.project != nil else {
                 globalUnassignedSeconds += seconds
@@ -140,6 +149,7 @@ struct WorkHierarchyBuilder {
                 leaf.episodeTopics.insert(safeReportText(topic))
             }
             leaf.reasonCodes.formUnion(assignment.reasonCodes)
+            leaf.resources.formUnion(relatedArtifacts.compactMap(resource(from:)))
             for (level, confidence) in assignment.confidences {
                 leaf.confidences[level] = max(leaf.confidences[level] ?? 0, confidence)
             }
@@ -163,14 +173,31 @@ struct WorkHierarchyBuilder {
         )
     }
 
-    private func assign(slice: ObserverEvent, thread: ObserverEvent?, episode: ObserverEvent?) -> Assignment {
+    private func assign(
+        slice: ObserverEvent,
+        thread: ObserverEvent?,
+        episode: ObserverEvent?,
+        artifacts: [ObserverEvent]
+    ) -> Assignment {
         let text = combinedContext(slice: slice, thread: thread, episode: episode)
+            + " "
+            + artifacts.compactMap { artifact in
+                [artifact.payload["display_name"], artifact.payload["resource_domain"]]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+            }.joined(separator: " ")
         let lower = text.lowercased()
         var reasons = Set<String>()
         var confidences: [WorkNodeType: Double] = [:]
 
+        let jiraArtifact = artifacts.first { $0.payload["kind"] == "jira_issue" }
+
         let project: String?
-        if lower.contains("oboard") || lower.contains("obord") || lower.contains("onboard") || lower.contains("dashboard") || lower.contains("дашбор") || lower.contains("дешбор") {
+        if jiraArtifact != nil {
+            project = "Work"
+            confidences[.project] = 0.96
+            reasons.insert("project_from_jira_anchor")
+        } else if lower.contains("oboard") || lower.contains("obord") || lower.contains("onboard") || lower.contains("dashboard") || lower.contains("дашбор") || lower.contains("дешбор") {
             project = "Oboard"
             confidences[.project] = lower.contains("oboard") || lower.contains("obord") ? 0.94 : 0.72
             reasons.insert("project_from_artifact_or_topic")
@@ -194,13 +221,19 @@ struct WorkHierarchyBuilder {
             return Assignment(path: Path(), confidences: confidences, reasonCodes: reasons)
         }
 
-        let workstream = inferWorkstream(project: project, lower: lower)
+        let workstream = inferWorkstream(project: project, lower: lower, jiraArtifact: jiraArtifact)
         if workstream != nil {
             confidences[.workstream] = 0.78
             reasons.insert("workstream_from_artifact_or_content")
         }
 
-        let intention = inferIntention(project: project, workstream: workstream, lower: lower, episode: episode)
+        let intention = inferIntention(
+            project: project,
+            workstream: workstream,
+            lower: lower,
+            episode: episode,
+            jiraArtifact: jiraArtifact
+        )
         if intention != nil {
             confidences[.intention] = 0.70
             reasons.insert("intention_from_expected_result")
@@ -224,7 +257,13 @@ struct WorkHierarchyBuilder {
         )
     }
 
-    private func inferWorkstream(project: String, lower: String) -> String? {
+    private func inferWorkstream(project: String, lower: String, jiraArtifact: ObserverEvent? = nil) -> String? {
+        if project == "Work", jiraArtifact != nil {
+            if lower.contains("libertex") || lower.contains("fxclub") || lower.contains("what to buy") || lower.contains("whattobuy") {
+                return "Libertex"
+            }
+            return "Рабочая задача"
+        }
         if lower.contains("dashboard") || lower.contains("дашбор") || lower.contains("дешбор") {
             return "Dashboard"
         }
@@ -252,7 +291,23 @@ struct WorkHierarchyBuilder {
         return nil
     }
 
-    private func inferIntention(project: String, workstream: String?, lower: String, episode: ObserverEvent?) -> String? {
+    private func inferIntention(
+        project: String,
+        workstream: String?,
+        lower: String,
+        episode: ObserverEvent?,
+        jiraArtifact: ObserverEvent? = nil
+    ) -> String? {
+        if let jiraArtifact {
+            let key = jiraArtifact.payload["canonical_key"]?.replacingOccurrences(of: "jira:", with: "") ?? "Jira"
+            let title = jiraArtifact.payload["display_name"] ?? "Рабочая задача"
+            let cleaned = title
+                .replacingOccurrences(of: key, with: "", options: .caseInsensitive)
+                .replacingOccurrences(of: "[", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? key : "\(key) — \(cleaned)"
+        }
         if project == "Oboard" && workstream == "Dashboard" {
             if lower.contains("вит") || lower.contains("call") || lower.contains("созвон") {
                 return "Уточнить требования к Dashboard"
@@ -316,6 +371,48 @@ struct WorkHierarchyBuilder {
         ].compactMap { $0 }.joined(separator: " ")
     }
 
+    private func relatedArtifacts(
+        for slice: ObserverEvent,
+        episode: ObserverEvent?,
+        allArtifacts: [ObserverEvent]
+    ) -> [ObserverEvent] {
+        let sourceIDs = Set(
+            eventIDs(in: slice.payload["source_event_ids"])
+                + eventIDs(in: episode?.payload["source_event_ids"])
+                + eventIDs(in: episode?.payload["trace_event_ids"])
+        )
+        let linked = allArtifacts.filter { artifact in
+            !sourceIDs.isDisjoint(with: Set(eventIDs(in: artifact.payload["source_event_ids"])))
+        }
+        if !linked.isEmpty {
+            return linked
+        }
+        // Fabric artifacts can be materialized moments after a slice closes. A
+        // narrow temporal fallback preserves the link without merging a whole day.
+        return allArtifacts.filter { abs($0.timestamp.timeIntervalSince(slice.timestamp)) <= 20 * 60 }
+    }
+
+    private func eventIDs(in value: String?) -> [String] {
+        (value ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func resource(from artifact: ObserverEvent) -> Resource? {
+        guard let kind = artifact.payload["kind"],
+              let rawLabel = artifact.payload["display_name"],
+              !rawLabel.isEmpty
+        else {
+            return nil
+        }
+        return Resource(
+            kind: kind,
+            label: safeReportText(rawLabel),
+            url: artifact.payload["resource_url"].flatMap { $0.isEmpty ? nil : $0 }
+        )
+    }
+
     private func renderProjects(leaves: [Leaf], globalUnassignedSeconds: Double) -> String {
         guard !leaves.isEmpty else {
             if globalUnassignedSeconds > 0 {
@@ -347,6 +444,7 @@ struct WorkHierarchyBuilder {
                           Интервалы: \(leaf.intervals.prefix(5).joined(separator: ", "))
                           Приложения: \(safeReportText(leaf.apps.sorted().joined(separator: " → ")))
                           ActivityKind: \(leaf.activityKinds.sorted().joined(separator: ", "))
+                          Ресурсы: \(resourceLine(leaf.resources))
                           Confidence: \(confidenceLine(leaf.confidences))
                           Причины связи: \(leaf.reasonCodes.sorted().joined(separator: ", "))
                         """)
@@ -389,6 +487,30 @@ struct WorkHierarchyBuilder {
             return "\(level.rawValue) \(String(format: "%.2f", confidence))"
         }
         return parts.isEmpty ? "unknown" : parts.joined(separator: "; ")
+    }
+
+    private func resourceLine(_ resources: Set<Resource>) -> String {
+        guard !resources.isEmpty else {
+            return "не найдены"
+        }
+        return resources
+            .sorted { $0.label < $1.label }
+            .prefix(6)
+            .map { resource in
+                let label = "\(resourceKindLabel(resource.kind)): \(resource.label)"
+                guard let url = resource.url else { return label }
+                return "[\(label)](\(url))"
+            }
+            .joined(separator: "; ")
+    }
+
+    private func resourceKindLabel(_ kind: String) -> String {
+        switch kind {
+        case "jira_issue": return "Jira"
+        case "figma_file": return "Figma"
+        case "document": return "Документ"
+        default: return "Ссылка"
+        }
     }
 
     private func apps(from event: ObserverEvent?) -> [String] {

@@ -12,9 +12,13 @@ final class CameraAttentionService: NSObject {
     private var isConfigured = false
     private var isRunning = false
     private var lastEmittedAt = Date.distantPast
+    private var lastSceneClassificationAt = Date.distantPast
     private var minimumEmitInterval: TimeInterval = 15
     private var smileCandidateThreshold: Double = 0.62
     private var mouthOpenCandidateThreshold: Double = 0.62
+    // General scene classification is materially heavier than face and hand
+    // landmarks. It is a slow, shadow-only source, not a per-sample sensor.
+    private let sceneClassificationInterval: TimeInterval = 30
 
     var isActive: Bool {
         isRunning
@@ -101,18 +105,34 @@ final class CameraAttentionService: NSObject {
         let frameQuality = CameraFrameQuality.measure(pixelBuffer: pixelBuffer)
 
         let faceRequest = VNDetectFaceLandmarksRequest()
-        let classifyRequest = VNClassifyImageRequest()
+        let handRequest = VNDetectHumanHandPoseRequest()
+        handRequest.maximumHandCount = 2
+        let shouldClassifyScene = now.timeIntervalSince(lastSceneClassificationAt) >= sceneClassificationInterval
+        let classifyRequest = shouldClassifyScene ? VNClassifyImageRequest() : nil
         let requestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
 
         do {
-            try requestHandler.perform([faceRequest, classifyRequest])
+            var requests: [VNRequest] = [faceRequest, handRequest]
+            if let classifyRequest {
+                requests.append(classifyRequest)
+                lastSceneClassificationAt = now
+            }
+            try requestHandler.perform(requests)
             let observations = faceRequest.results ?? []
-            let visualObjects = (classifyRequest.results ?? [])
+            let handObservations = (handRequest.results ?? []).compactMap(HandPoseSample.init).map {
+                AttentionSnapshot.HandPoseObservation(
+                    wristX: $0.wristX,
+                    wristY: $0.wristY,
+                    confidence: $0.confidence
+                )
+            }
+            let visualObjects = (classifyRequest?.results ?? [])
                 .filter { $0.confidence >= 0.20 }
                 .prefix(8)
                 .map { AttentionSnapshot.CameraObjectObservation(label: $0.identifier, confidence: Double($0.confidence)) }
             let snapshot = AttentionSnapshot.from(
                 faceObservations: observations,
+                handObservations: handObservations,
                 visualObjects: visualObjects,
                 jpegData: observations.isEmpty ? nil : CameraFrameEncoder.jpegData(from: pixelBuffer),
                 smileCandidateThreshold: smileCandidateThreshold,
@@ -180,6 +200,12 @@ struct AttentionSnapshot: Sendable {
         let confidence: Double
     }
 
+    struct HandPoseObservation: Sendable, Equatable {
+        let wristX: Double
+        let wristY: Double
+        let confidence: Double
+    }
+
     let facePresent: Bool
     let attentionZone: AttentionZone
     let facePosition: FacePosition
@@ -208,6 +234,9 @@ struct AttentionSnapshot: Sendable {
     let frameBrightness: Double?
     let frameSharpness: Double?
     let visualObjects: [CameraObjectObservation]
+    let handCount: Int
+    let handNearFace: Bool
+    let raisedHand: Bool
     let jpegData: Data?
     let isTemporarilyLostFace: Bool
 
@@ -240,6 +269,9 @@ struct AttentionSnapshot: Sendable {
         frameBrightness: Double? = nil,
         frameSharpness: Double? = nil,
         visualObjects: [CameraObjectObservation] = [],
+        handCount: Int = 0,
+        handNearFace: Bool = false,
+        raisedHand: Bool = false,
         jpegData: Data? = nil,
         isTemporarilyLostFace: Bool = false
     ) {
@@ -271,12 +303,16 @@ struct AttentionSnapshot: Sendable {
         self.frameBrightness = frameBrightness
         self.frameSharpness = frameSharpness
         self.visualObjects = visualObjects
+        self.handCount = handCount
+        self.handNearFace = handNearFace
+        self.raisedHand = raisedHand
         self.jpegData = jpegData
         self.isTemporarilyLostFace = isTemporarilyLostFace
     }
 
     static func from(
         faceObservations: [VNFaceObservation],
+        handObservations: [HandPoseObservation] = [],
         visualObjects: [CameraObjectObservation] = [],
         jpegData: Data? = nil,
         smileCandidateThreshold: Double = 0.62,
@@ -299,7 +335,8 @@ struct AttentionSnapshot: Sendable {
                 yaw: nil,
                 pitch: nil,
                 roll: nil,
-                visualObjects: visualObjects
+                visualObjects: visualObjects,
+                handCount: handObservations.count
             )
         }
 
@@ -328,6 +365,18 @@ struct AttentionSnapshot: Sendable {
         }
 
         let confidence = min(0.95, max(0.35, area * 6.0))
+        let expandedFace = CGRect(
+            x: max(0, box.minX - 0.18),
+            y: max(0, box.minY - 0.20),
+            width: min(1, box.width + 0.36),
+            height: min(1, box.height + 0.40)
+        )
+        let handNearFace = handObservations.contains {
+            expandedFace.contains(CGPoint(x: $0.wristX, y: $0.wristY))
+        }
+        let raisedHand = handObservations.contains {
+            $0.wristY >= Double(box.midY - box.height * 0.35)
+        }
 
         return AttentionSnapshot(
             facePresent: true,
@@ -358,6 +407,9 @@ struct AttentionSnapshot: Sendable {
             frameBrightness: frameBrightness,
             frameSharpness: frameSharpness,
             visualObjects: visualObjects,
+            handCount: handObservations.count,
+            handNearFace: handNearFace,
+            raisedHand: raisedHand,
             jpegData: jpegData
         )
     }
@@ -392,6 +444,9 @@ struct AttentionSnapshot: Sendable {
             frameBrightness: frameBrightness,
             frameSharpness: frameSharpness,
             visualObjects: visualObjects,
+            handCount: handCount,
+            handNearFace: handNearFace,
+            raisedHand: raisedHand,
             jpegData: jpegData,
             isTemporarilyLostFace: true
         )
@@ -487,11 +542,32 @@ struct AttentionSnapshot: Sendable {
             payload["visual_object_candidate_count"] = "\(visualObjects.count)"
             payload["visual_object_policy"] = "shadow_only_destroy_frame_after_inference"
         }
+        if handCount > 0 {
+            payload["hand_count"] = "\(handCount)"
+            payload["hand_near_face"] = handNearFace ? "true" : "false"
+            payload["raised_hand"] = raisedHand ? "true" : "false"
+            payload["hand_pose_policy"] = "frame_local_shadow_signal"
+        }
         if isTemporarilyLostFace {
             payload["temporarily_lost_face"] = "true"
         }
 
         return payload
+    }
+}
+
+private struct HandPoseSample {
+    let wristX: Double
+    let wristY: Double
+    let confidence: Double
+
+    init?(_ observation: VNHumanHandPoseObservation) {
+        guard let wrist = try? observation.recognizedPoint(.wrist), wrist.confidence >= 0.35 else {
+            return nil
+        }
+        wristX = Double(wrist.location.x)
+        wristY = Double(wrist.location.y)
+        confidence = Double(wrist.confidence)
     }
 }
 

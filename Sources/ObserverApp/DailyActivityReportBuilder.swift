@@ -13,6 +13,7 @@ struct DailyActivityReportBuilder {
         let assignments = dayEvents.filter { $0.type == .episodeThreadAssignment }
         let threads = dayEvents.filter { $0.type == .activityThread }
         let episodes = dayEvents.filter { $0.type == .episode }
+        let artifacts = dayEvents.filter { $0.type == .artifactIdentity }
         let meetingEpisodes = episodes.filter { $0.payload["episode_kind"] == "meeting" }
         let callEpisodes = episodes.filter { $0.payload["episode_kind"] == "call" }
         let actionItems = dayEvents.filter { $0.type == .actionItem }
@@ -32,7 +33,8 @@ struct DailyActivityReportBuilder {
             threads: threads,
             slices: slices,
             episodes: episodes,
-            actionItems: actionItems
+            actionItems: actionItems,
+            artifacts: artifacts
         )
         let threadSections = activityThreadSections(threads: threads, slices: slices, episodes: episodes)
         let timeline = timelineLines(slices: slices)

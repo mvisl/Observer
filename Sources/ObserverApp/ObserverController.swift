@@ -97,12 +97,14 @@ final class ObserverController {
     private var lastGeminiKeyAvailability: Bool?
     private var autoPausedSources: [String] = []
     private var headphoneWearStateMachine = HeadphoneWearStateMachine()
-    private var headphoneAppearanceProfile = HeadphoneAppearanceProfile()
+    private let headphoneAppearanceService = HeadphoneAppearanceService()
+    private var recentMediaPageTracker = RecentMediaPageTracker()
     private var lastVisualObjectEventAt: [String: Date] = [:]
     private var lastCameraPersistedSignature: String?
     private var lastCameraPersistedAt: Date?
     private var lastCameraEvidenceSignature: String?
     private var lastCameraEvidenceAt: Date?
+    private var lastCognitiveEvaluationAt: Date?
     private var lastCameraHealthAt: Date?
     private var cameraHealthSamples: [(timestamp: Date, facePresent: Bool, confidence: Double)] = []
     private var scheduleOverride: ScheduleOverride?
@@ -366,15 +368,25 @@ final class ObserverController {
         else {
             return nil
         }
-        guard (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 20 else {
-            return nil
-        }
-        guard attention.looksLikePhoneAttention else {
+        guard (latestInputActivity?.secondsSinceAnyInput ?? 0) >= 8 else {
             return nil
         }
 
         let appName = currentFocus?.appName ?? "экран"
-        return "Фокус вне Mac: смотришь в телефон; не связываю паузу с \(appName)"
+        let hasPhoneObject = attention.visualObjects.contains {
+            let label = $0.label.lowercased()
+            return label.contains("phone") || label.contains("mobile") || label.contains("smartphone")
+        }
+        if hasPhoneObject && attention.handNearFace {
+            return "Фокус вне Mac: телефон в руках; не связываю паузу с \(appName)"
+        }
+        if attention.handNearFace && attention.looksLikePhoneAttention {
+            return "Фокус вне Mac: смотришь в телефон; не связываю паузу с \(appName)"
+        }
+        if attention.handNearFace || attention.raisedHand {
+            return "Пауза вне Mac: руки у лица; не приписываю её \(appName)"
+        }
+        return nil
     }
 
     private func currentWidgetAttentionBoundaryLine() -> String? {
@@ -402,7 +414,7 @@ final class ObserverController {
     private func currentFocusFallbackLine(now: Date = Date()) -> String? {
         let events = ((try? environment.eventStore.recentEvents(limit: 120)) ?? [])
             .filter { now.timeIntervalSince($0.timestamp) <= 10 * 60 }
-        if let spanLine = latestAttentionSpanFallbackLine(events: events),
+        if let spanLine = latestAttentionSpanFallbackLine(events: events, now: now),
            insightLineMatchesCurrentFocus(spanLine) {
             return spanLine
         }
@@ -483,8 +495,10 @@ final class ObserverController {
         return nil
     }
 
-    private func latestAttentionSpanFallbackLine(events: [ObserverEvent]) -> String? {
-        guard let span = events.last(where: { $0.type == .attentionSpan }) else {
+    private func latestAttentionSpanFallbackLine(events: [ObserverEvent], now: Date) -> String? {
+        guard let span = events.last(where: { $0.type == .attentionSpan }),
+              now.timeIntervalSince(span.timestamp) <= 90
+        else {
             return nil
         }
         let apps = span.payload["apps"] ?? ""
@@ -2771,7 +2785,7 @@ final class ObserverController {
         commitPendingAwayPresenceIncidentIfNeeded(now: now)
         updateOwnerFaceProfileIfNeeded(snapshot)
         recordGazeCalibrationSampleIfNeeded(now: now)
-        recordCognitiveStateIfNeeded(now: now)
+        recordCognitiveStateOnCadence(now: now)
         updateHeadphoneWearState(from: snapshot, now: now)
         pauseMediaIfUserAppearsAway()
         resumeMediaIfUserReturned()
@@ -2984,7 +2998,17 @@ final class ObserverController {
                 appName: context.appName
             )
         }
-        recordCognitiveStateIfNeeded()
+        recordCognitiveStateOnCadence()
+    }
+
+    /// State evaluation decodes a non-trivial history window. Keeping it on a
+    /// cadence prevents input and camera traffic from blocking the menu-bar UI.
+    private func recordCognitiveStateOnCadence(now: Date = Date()) {
+        guard lastCognitiveEvaluationAt.map({ now.timeIntervalSince($0) >= 30 }) ?? true else {
+            return
+        }
+        lastCognitiveEvaluationAt = now
+        recordCognitiveStateIfNeeded(now: now)
     }
 
     private func recordCognitiveStateIfNeeded(now: Date = Date()) {
@@ -3048,6 +3072,11 @@ final class ObserverController {
         guard isPresenceActive() else {
             return
         }
+        recentMediaPageTracker.observe(
+            resourceURL: context.resourceURL,
+            appName: context.appName,
+            windowTitle: context.windowTitle
+        )
         let allowRawKinds = Set(environment.settings.rawContextStorageKinds)
         guard let annotation = ContentContextAnnotator().annotate(
             context: context,
@@ -3068,6 +3097,12 @@ final class ObserverController {
         }
         if let screenIndex = context.screenIndex {
             payload["screen_index"] = "\(screenIndex)"
+        }
+        if let resourceURL = context.resourceURL {
+            // The reader removes credentials and secret query parameters before
+            // this point. URLs remain local and are excluded from cloud prompts.
+            payload["resource_url"] = resourceURL
+            payload["resource_domain"] = URL(string: resourceURL)?.host ?? ""
         }
         if let entityName = annotation.sourceEntityDisplayName,
            let entity = try? environment.entityStore.upsertEntity(
@@ -3262,6 +3297,7 @@ final class ObserverController {
                 focusedElementTitle: nil,
                 focusedElementValue: result.text,
                 selectedText: nil,
+                resourceURL: nil,
                 screenIndex: currentFocus.screenIndex,
                 displayRole: currentFocus.displayRole,
                 confidence: min(result.confidence, 0.55)
@@ -3328,6 +3364,7 @@ final class ObserverController {
                 focusedElementTitle: nil,
                 focusedElementValue: result.text,
                 selectedText: nil,
+                resourceURL: context.resourceURL,
                 screenIndex: currentFocus.screenIndex,
                 displayRole: currentFocus.displayRole,
                 confidence: min(result.confidence, 0.7)
@@ -4665,8 +4702,7 @@ final class ObserverController {
             .max()
         let audioOutputIndicatesHeadphones = AudioOutputService().currentOutputName()
             .map { AudioOutputService().looksLikeHeadphones($0) } ?? false
-        let audioIsActive = AudioOutputService().isAudioActive() == true
-        let visualState = headphoneAppearanceProfile.observe(
+        headphoneAppearanceService.observe(
             jpegData: snapshot.jpegData,
             facePresent: snapshot.facePresent,
             faceCenterX: snapshot.faceCenterX,
@@ -4674,25 +4710,26 @@ final class ObserverController {
             faceArea: snapshot.faceArea,
             genericHeadphoneConfidence: genericHeadphoneConfidence,
             audioOutputIndicatesHeadphones: audioOutputIndicatesHeadphones,
-            audioIsActive: audioIsActive,
             confirmedWearing: headphoneWearStateMachine.isWearing == true
-        )
-        let transition = headphoneWearStateMachine.observe(
-            facePresent: snapshot.facePresent,
-            visualState: visualState,
-            now: now
-        )
-        switch transition {
-        case .none:
-            return
-        case .removed:
-            pauseMediaAfterHeadphonesRemoved(
-                reason: "camera_headphones_removed_profile_confirmed",
-                outputName: AudioOutputService().currentOutputName(),
+        ) { [weak self] visualState in
+            guard let self, self.mode == .observing else { return }
+            let transition = self.headphoneWearStateMachine.observe(
+                facePresent: snapshot.facePresent,
+                visualState: visualState,
                 now: now
             )
-        case .putOn:
-            resumeMediaIfHeadphonesWornAgain(now: now)
+            switch transition {
+            case .none:
+                return
+            case .removed:
+                self.pauseMediaAfterHeadphonesRemoved(
+                    reason: "camera_headphones_removed_profile_confirmed",
+                    outputName: AudioOutputService().currentOutputName(),
+                    now: now
+                )
+            case .putOn:
+                self.resumeMediaIfHeadphonesWornAgain(now: now)
+            }
         }
     }
 
@@ -4714,7 +4751,9 @@ final class ObserverController {
         let audioActiveNow = AudioOutputService().isAudioActive() == true
         let mediaSource = lastMediaPlaybackSnapshot?.state == "playing"
             ? lastMediaPlaybackSnapshot?.source
-            : ((lastAudioActive == true || audioActiveNow) ? "System Media Key" : nil)
+            : ((lastAudioActive == true || audioActiveNow)
+                ? "System Media Key"
+                : recentMediaPageTracker.recentSource(now: now))
         guard let mediaSource else {
             return
         }
@@ -4743,7 +4782,7 @@ final class ObserverController {
             self.lastHeadphonesAutoPauseAt = now
             self.lastAutoPauseAt = now
             self.autoPausedSources = pausedSources
-            self.latestHint = "Медиа: снял наушники, проверяю паузу"
+            self.latestHint = "Медиа: снял наушники, команда паузы отправлена"
             self.lastHintAt = now
             self.append(
                 .init(
@@ -4797,8 +4836,8 @@ final class ObserverController {
                 )
             )
             self.latestHint = audioStillActive
-                ? "Медиа: YouTube всё ещё играет"
-                : "Медиа: снял наушники, остановил"
+                ? "Медиа: после паузы звук ещё активен"
+                : "Медиа: команда паузы отправлена"
             self.lastHintAt = Date()
             self.notifyStateChanged()
         }
@@ -4853,7 +4892,9 @@ final class ObserverController {
 
         let mediaSource = lastMediaPlaybackSnapshot?.state == "playing"
             ? lastMediaPlaybackSnapshot?.source
-            : (lastAudioActive == true ? "System Media Key" : nil)
+            : (lastAudioActive == true
+                ? "System Media Key"
+                : recentMediaPageTracker.recentSource(now: Date()))
         guard let mediaSource else {
             return
         }
@@ -5072,11 +5113,16 @@ private extension AttentionSnapshot {
         guard facePresent, !isTemporarilyLostFace else {
             return false
         }
-        if let yaw, abs(yaw) > 0.45 {
+        if let yaw, abs(yaw) > 0.70 {
             return false
         }
-        if let leftPupilY, let rightPupilY, (leftPupilY + rightPupilY) / 2 <= 0.30 {
-            return true
+        if let leftPupilY, let rightPupilY {
+            // Vision's eye coordinates are camera-relative. For this side-camera
+            // setup a downward look moves the pupil centroid toward the lower band.
+            let pupilY = (leftPupilY + rightPupilY) / 2
+            if pupilY >= 0.60 {
+                return true
+            }
         }
         if let pitch, pitch < -0.25 {
             return true

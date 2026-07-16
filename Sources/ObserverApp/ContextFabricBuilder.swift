@@ -417,7 +417,20 @@ struct ContextFabricBuilder {
         } else {
             return nil
         }
-        return artifactPayload(kind: kind, canonicalKey: key, displayName: title.isEmpty ? app : safeTitle, sourceApp: app, sourceIDs: event.id.uuidString)
+        var payload = artifactPayload(
+            kind: kind,
+            canonicalKey: key,
+            displayName: title.isEmpty ? app : safeTitle,
+            sourceApp: app,
+            sourceIDs: event.id.uuidString
+        )
+        // Resource URLs have already been scrubbed at capture time. They are a
+        // local navigation aid for the task tree, not model input.
+        if let resourceURL = event.payload["resource_url"], !resourceURL.isEmpty {
+            payload["resource_url"] = resourceURL
+            payload["resource_domain"] = event.payload["resource_domain"] ?? ""
+        }
+        return payload
     }
 
     private func artifactPayload(kind: String, canonicalKey: String, displayName: String, sourceApp: String?, sourceIDs: String) -> [String: String] {

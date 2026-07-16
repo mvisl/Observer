@@ -136,10 +136,7 @@ struct ContextPackBuilder {
             return compactLines([
                 requiredLine("App", event.payload["app_name"] ?? event.appID ?? "unknown"),
                 optionalLine("Window", event.payload["window_title"]),
-                optionalLine("Document", event.payload["document"]),
-                optionalLine("Focused element", event.payload["focused_element_role"]),
-                optionalLine("Selected text", event.payload["selected_text"]),
-                optionalLine("Element value", event.payload["focused_element_value"]),
+                requiredLine("Content", "local-only; semantic annotation pending"),
                 optionalLine("Display", event.payload["display_role"])
             ])
 
@@ -175,9 +172,7 @@ struct ContextPackBuilder {
         return contexts.map { event in
             let app = event.payload["app_name"] ?? event.appID ?? "unknown"
             let window = event.payload["window_title"].map { " · \($0)" } ?? ""
-            let selected = event.payload["selected_text"].map { " · selected: \($0)" } ?? ""
-            let value = event.payload["focused_element_value"].map { " · value: \($0)" } ?? ""
-            return "- \(app)\(window)\(selected)\(value)"
+            return "- \(app)\(window) · raw screen text stays local"
         }.joined(separator: "\n")
     }
 
@@ -190,10 +185,7 @@ struct ContextPackBuilder {
         return contexts.map { event in
             let app = event.payload["app_name"] ?? event.appID ?? "unknown"
             let window = event.payload["window_title"].map { " · \($0)" } ?? ""
-            let text = event.payload["focused_element_value"]
-                ?? event.payload["selected_text"]
-                ?? ""
-            return "- \(app)\(window) · writing: \(text)"
+            return "- \(app)\(window) · raw writing stays local"
         }.joined(separator: "\n")
     }
 
@@ -203,9 +195,7 @@ struct ContextPackBuilder {
             return "- No user notes captured."
         }
 
-        return notes.map { event in
-            "- \(event.payload["note"] ?? "")"
-        }.joined(separator: "\n")
+        return "- \(notes.count) local user note(s) excluded from this external pack."
     }
 
     private func describeOCRContexts(_ ocrContexts: [ObserverEvent]) -> String {
@@ -216,9 +206,8 @@ struct ContextPackBuilder {
 
         return contexts.map { event in
             let app = event.payload["app_name"] ?? event.appID ?? "unknown"
-            let text = event.payload["text"] ?? ""
             let kind = event.payload["context_kind"].map { " · \($0)" } ?? ""
-            return "- \(app)\(kind) · OCR: \(text)"
+            return "- \(app)\(kind) · raw OCR stays local"
         }.joined(separator: "\n")
     }
 
@@ -364,7 +353,7 @@ struct ContextPackBuilder {
         }
 
         return events.map { event in
-            "- \(formatter.string(from: event.timestamp)) | \(event.type.rawValue) | \(event.safePayloadSummary)"
+            "- \(formatter.string(from: event.timestamp)) | \(event.type.rawValue)"
         }.joined(separator: "\n")
     }
 
