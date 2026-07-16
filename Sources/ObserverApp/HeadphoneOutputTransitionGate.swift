@@ -13,7 +13,7 @@ struct HeadphoneOutputTransitionGate {
     private var lastLooksLikeHeadphones: Bool?
     private var removalCandidateStartedAt: Date?
 
-    init(confirmationSeconds: TimeInterval = 20) {
+    init(confirmationSeconds: TimeInterval = 5) {
         self.confirmationSeconds = confirmationSeconds
     }
 

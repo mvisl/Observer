@@ -4,13 +4,13 @@ import Testing
 
 struct HeadphoneOutputTransitionGateTests {
     @Test func requiresTwoStableNonHeadphoneOutputProbesBeforeRemoval() {
-        var gate = HeadphoneOutputTransitionGate(confirmationSeconds: 20)
+        var gate = HeadphoneOutputTransitionGate(confirmationSeconds: 5)
         let start = Date()
 
         #expect(gate.observe(outputLooksLikeHeadphones: true, now: start) == .none)
         #expect(gate.observe(outputLooksLikeHeadphones: false, now: start.addingTimeInterval(10)) == .none)
-        #expect(gate.observe(outputLooksLikeHeadphones: false, now: start.addingTimeInterval(25)) == .none)
-        #expect(gate.observe(outputLooksLikeHeadphones: false, now: start.addingTimeInterval(31)) == .removed)
+        #expect(gate.observe(outputLooksLikeHeadphones: false, now: start.addingTimeInterval(14)) == .none)
+        #expect(gate.observe(outputLooksLikeHeadphones: false, now: start.addingTimeInterval(16)) == .removed)
     }
 
     @Test func unknownAudioOutputCannotCausePause() {

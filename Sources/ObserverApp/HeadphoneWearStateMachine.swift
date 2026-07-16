@@ -11,30 +11,33 @@ struct HeadphoneWearStateMachine {
     private var visibleSamples = 0
     private var absentSamples = 0
 
-    mutating func observe(facePresent: Bool, headphoneConfidence: Double?) -> HeadphoneWearTransition {
+    mutating func observe(facePresent: Bool, visualState: HeadphoneVisualState) -> HeadphoneWearTransition {
         guard facePresent else {
             visibleSamples = 0
             absentSamples = 0
             return .none
         }
 
-        if (headphoneConfidence ?? 0) >= 0.35 {
+        switch visualState {
+        case let .wearing(confidence) where confidence >= 0.48:
             visibleSamples += 1
             absentSamples = 0
             guard visibleSamples >= 2 else { return .none }
             let wasWearing = isWearing
             isWearing = true
             return wasWearing == false ? .putOn : .none
+        case let .notWearing(confidence) where confidence >= 0.6:
+            absentSamples += 1
+            visibleSamples = 0
+            guard absentSamples >= 2 else { return .none }
+            let wasWearing = isWearing
+            isWearing = false
+            return wasWearing == true ? .removed : .none
+        default:
+            // A turned head or weak frame is not evidence of removal.
+            visibleSamples = 0
+            absentSamples = 0
+            return .none
         }
-
-        absentSamples += 1
-        visibleSamples = 0
-        // Camera attention arrives every five seconds. Two consistent samples
-        // keep the response prompt without turning a transient occlusion into
-        // a pause; a missing face is handled above as a separate away signal.
-        guard absentSamples >= 2 else { return .none }
-        let wasWearing = isWearing
-        isWearing = false
-        return wasWearing == true ? .removed : .none
     }
 }

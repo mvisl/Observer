@@ -94,6 +94,7 @@ final class ObserverController {
     private var lastGeminiKeyAvailability: Bool?
     private var autoPausedSources: [String] = []
     private var headphoneWearStateMachine = HeadphoneWearStateMachine()
+    private var headphoneAppearanceProfile = HeadphoneAppearanceProfile()
     private var lastVisualObjectEventAt: [String: Date] = [:]
     private var lastCameraPersistedSignature: String?
     private var lastCameraPersistedAt: Date?
@@ -4535,7 +4536,7 @@ final class ObserverController {
     }
 
     private func updateHeadphoneWearState(from snapshot: AttentionSnapshot, now: Date = Date()) {
-        let headphoneConfidence = snapshot.visualObjects
+        let genericHeadphoneConfidence = snapshot.visualObjects
             .compactMap { observation -> Double? in
                 guard ObjectPresenceBuilder().normalizedClass(from: observation.label) == "headphones" else {
                     return nil
@@ -4543,30 +4544,31 @@ final class ObserverController {
                 return observation.confidence
             }
             .max()
+        let audioOutputIndicatesHeadphones = AudioOutputService().currentOutputName()
+            .map { AudioOutputService().looksLikeHeadphones($0) } ?? false
+        let visualState = headphoneAppearanceProfile.observe(
+            jpegData: snapshot.jpegData,
+            facePresent: snapshot.facePresent,
+            yaw: snapshot.yaw,
+            pitch: snapshot.pitch,
+            genericHeadphoneConfidence: genericHeadphoneConfidence,
+            audioOutputIndicatesHeadphones: audioOutputIndicatesHeadphones
+        )
         let transition = headphoneWearStateMachine.observe(
             facePresent: snapshot.facePresent,
-            headphoneConfidence: headphoneConfidence
+            visualState: visualState
         )
         switch transition {
         case .none:
             return
         case .removed:
-            // Image classification cannot reliably see ordinary headphones from a
-            // side-mounted camera. A missing label is evidence only, never a command.
-            append(
-                .init(
-                    type: .mediaPlayback,
-                    confidence: 0.35,
-                    payload: [
-                        "action": "headphones_visual_transition_shadow",
-                        "reason": "camera_headphones_not_visible",
-                        "display_eligible": "false"
-                    ],
-                    workspaceTopologyVersion: environment.topology.version
-                )
+            pauseMediaAfterHeadphonesRemoved(
+                reason: "camera_headphones_removed_profile_confirmed",
+                outputName: AudioOutputService().currentOutputName(),
+                now: now
             )
         case .putOn:
-            return
+            resumeMediaIfHeadphonesWornAgain(now: now)
         }
     }
 
@@ -4629,6 +4631,37 @@ final class ObserverController {
                         "audio_output": outputName ?? "unknown",
                         "source": mediaSource,
                         "command_confirmed": "false"
+                    ],
+                    workspaceTopologyVersion: self.environment.topology.version
+                )
+            )
+            self.notifyStateChanged()
+        }
+    }
+
+    private func resumeMediaIfHeadphonesWornAgain(now: Date = Date()) {
+        guard environment.settings.autoResumeMediaWhenBack,
+              !autoPausedSources.isEmpty,
+              latestAttention?.facePresent == true,
+              let lastAutoPauseAt,
+              now.timeIntervalSince(lastAutoPauseAt) <= 1800
+        else {
+            return
+        }
+
+        let sources = autoPausedSources
+        performMediaAction({ $0.resumeSources(sources) }) { [weak self] resumedSources in
+            guard let self, !resumedSources.isEmpty else { return }
+            self.autoPausedSources = []
+            self.latestHint = "Медиа: наушники вернулись, продолжил"
+            self.lastHintAt = now
+            self.append(
+                .init(
+                    type: .mediaPlayback,
+                    payload: [
+                        "action": "auto_resume",
+                        "reason": "camera_headphones_worn_profile_confirmed",
+                        "resumed_sources": resumedSources.joined(separator: ", ")
                     ],
                     workspaceTopologyVersion: self.environment.topology.version
                 )
