@@ -1,70 +1,98 @@
-import CoreGraphics
 import Foundation
-import ImageIO
+import Vision
 
+/// Keeps an in-memory profile of the owner from actively used frames. It compares
+/// only a face-relative crop: a perceptual hash of the whole office frame made
+/// different people at the same desk look like the owner.
 final class OwnerFaceRecognizer {
-    private var ownerFingerprints: [UInt64] = []
-    private let maximumFingerprints = 16
-    private let hammingThreshold = 18
+    private var ownerFeatures: [VNFeaturePrintObservation] = []
+    private var withinProfileDistances: [Float] = []
+    private let maximumFeatures = 48
+    private let minimumProfileSize = 6
 
     var hasProfile: Bool {
-        !ownerFingerprints.isEmpty
+        ownerFeatures.count >= minimumProfileSize
     }
 
-    func learnOwnerFace(from jpegData: Data?) {
-        guard let fingerprint = visualFingerprint(from: jpegData) else {
+    func learnOwnerFace(from attention: AttentionSnapshot) {
+        guard attention.facePresent,
+              attention.faceCount == 1,
+              let feature = featurePrint(from: attention)
+        else {
             return
         }
-        ownerFingerprints.append(fingerprint)
-        if ownerFingerprints.count > maximumFingerprints {
-            ownerFingerprints.removeFirst(ownerFingerprints.count - maximumFingerprints)
+
+        if let distance = nearestDistance(to: feature) {
+            withinProfileDistances.append(distance)
+            withinProfileDistances = Array(withinProfileDistances.suffix(32))
         }
+        ownerFeatures.append(feature)
+        ownerFeatures = Array(ownerFeatures.suffix(maximumFeatures))
     }
 
-    func isOwnerFace(_ jpegData: Data?) -> Bool? {
-        guard !ownerFingerprints.isEmpty,
-              let current = visualFingerprint(from: jpegData)
+    /// Returns true only for a high-quality, single-face match. Unknown is never
+    /// treated as an owner match, because missing a visitor is worse than asking
+    /// the owner to review a local security snapshot.
+    func isOwnerFace(_ attention: AttentionSnapshot) -> Bool? {
+        guard attention.facePresent,
+              attention.faceCount == 1,
+              (attention.faceArea ?? 0) >= 0.012,
+              ownerFeatures.count >= minimumProfileSize,
+              let feature = featurePrint(from: attention),
+              let distance = nearestDistance(to: feature)
         else {
             return nil
         }
-        let best = ownerFingerprints.map { Self.hammingDistance(current, $0) }.min() ?? Int.max
-        return best <= hammingThreshold
+        return distance <= similarityThreshold
     }
 
-    private func visualFingerprint(from jpegData: Data?) -> UInt64? {
-        guard let jpegData,
-              let source = CGImageSourceCreateWithData(jpegData as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else {
+    private func featurePrint(from attention: AttentionSnapshot) -> VNFeaturePrintObservation? {
+        guard let jpegData = attention.jpegData else {
             return nil
         }
-
-        let width = 8
-        let height = 8
-        var pixels = [UInt8](repeating: 0, count: width * height)
-        guard let context = CGContext(
-            data: &pixels,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width,
-            space: CGColorSpaceCreateDeviceGray(),
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else {
+        let request = VNGenerateImageFeaturePrintRequest()
+        request.regionOfInterest = faceRegion(
+            centerX: attention.faceCenterX,
+            centerY: attention.faceCenterY,
+            faceArea: attention.faceArea
+        )
+        let handler = VNImageRequestHandler(data: jpegData, options: [:])
+        do {
+            try handler.perform([request])
+            return request.results?.first as? VNFeaturePrintObservation
+        } catch {
             return nil
         }
-
-        context.interpolationQuality = .low
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let average = pixels.reduce(0) { $0 + Int($1) } / max(1, pixels.count)
-        var hash: UInt64 = 0
-        for (index, pixel) in pixels.enumerated() where Int(pixel) >= average {
-            hash |= UInt64(1) << UInt64(index)
-        }
-        return hash
     }
 
-    private static func hammingDistance(_ lhs: UInt64, _ rhs: UInt64) -> Int {
-        (lhs ^ rhs).nonzeroBitCount
+    private func faceRegion(centerX: Double?, centerY: Double?, faceArea: Double?) -> CGRect {
+        guard let centerX, let centerY, let faceArea, faceArea > 0 else {
+            return .zero
+        }
+        let faceSide = sqrt(faceArea)
+        let width = min(1, max(0.16, faceSide * 1.35))
+        let height = min(1, max(0.18, faceSide * 1.55))
+        let x = min(max(0, centerX - width / 2), 1 - width)
+        let y = min(max(0, centerY - height / 2), 1 - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func nearestDistance(to feature: VNFeaturePrintObservation) -> Float? {
+        ownerFeatures.compactMap { sample in
+            var distance: Float = 0
+            guard (try? feature.computeDistance(&distance, to: sample)) != nil else {
+                return nil
+            }
+            return distance
+        }.min()
+    }
+
+    private var similarityThreshold: Float {
+        guard !withinProfileDistances.isEmpty else {
+            return 5
+        }
+        let sorted = withinProfileDistances.sorted()
+        let percentileIndex = Int(Double(sorted.count - 1) * 0.8)
+        return max(2, sorted[percentileIndex] * 1.55 + 0.4)
     }
 }

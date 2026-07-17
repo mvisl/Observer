@@ -3616,7 +3616,7 @@ final class ObserverController {
             return
         }
 
-        if ownerFaceRecognizer.isOwnerFace(currentAttention.jpegData) == true {
+        if ownerFaceRecognizer.isOwnerFace(currentAttention) == true {
             append(
                 .init(
                     type: .awayPresenceIncident,
@@ -3666,25 +3666,6 @@ final class ObserverController {
 
     private func commitPendingAwayPresenceIncidentIfNeeded(now: Date = Date()) {
         guard let pending = pendingAwayPresenceIncident else {
-            return
-        }
-
-        if ownerFaceRecognizer.isOwnerFace(pending.jpegData) == true {
-            pendingAwayPresenceIncident = nil
-            append(
-                .init(
-                    type: .awayPresenceIncident,
-                    displayRole: pending.displayRole,
-                    appID: pending.appID,
-                    confidence: min(pending.confidence, 0.45),
-                    payload: pending.payload.merging([
-                        "owner_identity": "recognized_owner",
-                        "review_state": "dismissed_owner_face_match",
-                        "media_written": "false"
-                    ]) { current, _ in current },
-                    workspaceTopologyVersion: environment.topology.version
-                )
-            )
             return
         }
 
@@ -3760,7 +3741,7 @@ final class ObserverController {
         guard (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 10 else {
             return
         }
-        ownerFaceRecognizer.learnOwnerFace(from: attention.jpegData)
+        ownerFaceRecognizer.learnOwnerFace(from: attention)
     }
 
     private func recordSmileCueIfNeeded(_ attention: AttentionSnapshot, now: Date = Date()) {
