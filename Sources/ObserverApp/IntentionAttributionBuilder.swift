@@ -12,6 +12,8 @@ struct IntentionAttributionBuilder {
     var anchorWindowSeconds: TimeInterval = 20 * 60
     var propagationDecay: Double = 0.7
     var chainWindowSeconds: TimeInterval = 30 * 60
+    var propagationGapSeconds: TimeInterval = 20 * 60
+    var calendar: Calendar = .current
 
     private let iso = ISO8601DateFormatter()
 
@@ -93,6 +95,7 @@ struct IntentionAttributionBuilder {
         var assigned: [Int: (anchor: Anchor, confidence: Double, assignedBy: String, sourceAssignment: String?)] = [:]
         for (index, span) in spans.enumerated() {
             guard let anchor = anchorModels
+                .filter({ sameLocalDay($0.timestamp, span.midpoint) })
                 .filter({ abs($0.timestamp.timeIntervalSince(span.midpoint)) <= anchorWindowSeconds })
                 .max(by: { directScore(anchor: $0, span: span) < directScore(anchor: $1, span: span) })
             else {
@@ -108,7 +111,10 @@ struct IntentionAttributionBuilder {
         for index in spans.indices {
             guard assigned[index] == nil else { continue }
             let candidates = [index - 1, index + 1].compactMap { neighbor -> (Int, (anchor: Anchor, confidence: Double, assignedBy: String, sourceAssignment: String?))? in
-                guard spans.indices.contains(neighbor), let source = assigned[neighbor] else { return nil }
+                guard spans.indices.contains(neighbor),
+                      let source = assigned[neighbor],
+                      mayPropagate(from: spans[neighbor], to: spans[index], events: events)
+                else { return nil }
                 return (neighbor, source)
             }
             guard let inherited = candidates.max(by: { relatedness(spans[index], spans[$0.0]) < relatedness(spans[index], spans[$1.0]) }) else {
@@ -197,7 +203,28 @@ struct IntentionAttributionBuilder {
                 apps: tokenSet(event.payload["apps"] ?? ""),
                 context: tokenSet(event.payload["context_refs"] ?? "")
             )
+        }.sorted { $0.start < $1.start }
+    }
+
+    /// A task may be revived tomorrow only by fresh evidence. Adjacent spans alone
+    /// must never carry a label across a calendar boundary or an observation gap.
+    private func mayPropagate(from source: Span, to target: Span, events: [ObserverEvent]) -> Bool {
+        guard sameLocalDay(source.midpoint, target.midpoint) else {
+            return false
         }
+        let gap = target.start.timeIntervalSince(source.end)
+        guard gap >= 0, gap <= propagationGapSeconds else {
+            return false
+        }
+        return events.contains { event in
+            event.type == .observationGap
+                && event.timestamp >= source.end
+                && event.timestamp <= target.start
+        } == false
+    }
+
+    private func sameLocalDay(_ lhs: Date, _ rhs: Date) -> Bool {
+        calendar.isDate(lhs, inSameDayAs: rhs)
     }
 
     private func directScore(anchor: Anchor, span: Span) -> Double {

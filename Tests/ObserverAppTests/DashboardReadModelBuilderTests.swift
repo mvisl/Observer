@@ -167,6 +167,56 @@ struct DashboardReadModelBuilderTests {
         #expect(snapshot.totals.sensorGapSeconds == 120)
     }
 
+    @Test
+    func todaySnapshotDoesNotShowYesterdaysAndreyThread() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let yesterday = calendar.date(from: DateComponents(year: 2026, month: 7, day: 16, hour: 16))!
+        let today = calendar.date(from: DateComponents(year: 2026, month: 7, day: 17, hour: 10))!
+        let yesterdayThreadID = UUID().uuidString
+
+        let yesterdayThread = event(
+            type: .activityThread,
+            at: yesterday,
+            payload: [
+                "activity_thread_id": yesterdayThreadID,
+                "generated_name": "Andrey feedback for WhatToBuy",
+                "confidence": "0.90"
+            ]
+        )
+        let yesterdaySlice = event(
+            type: .contextSlice,
+            at: yesterday.addingTimeInterval(60),
+            payload: [
+                "started_at": ISO8601DateFormatter().string(from: yesterday),
+                "ended_at": ISO8601DateFormatter().string(from: yesterday.addingTimeInterval(600)),
+                "active_seconds": "600",
+                "activity_thread_id": yesterdayThreadID,
+                "assignment_state": "assigned"
+            ]
+        )
+        let todaySlice = event(
+            type: .contextSlice,
+            at: today,
+            payload: [
+                "started_at": ISO8601DateFormatter().string(from: today),
+                "ended_at": ISO8601DateFormatter().string(from: today.addingTimeInterval(300)),
+                "active_seconds": "300",
+                "assignment_state": "unassigned"
+            ]
+        )
+
+        let snapshot = DashboardReadModelBuilder().buildDaySnapshot(
+            events: [yesterdayThread, yesterdaySlice, todaySlice],
+            date: today,
+            timezone: TimeZone(secondsFromGMT: 0)!,
+            settings: .defaults
+        )
+
+        #expect(snapshot.threadSummaries.isEmpty)
+        #expect(snapshot.timelineSegments.allSatisfy { $0.activityThreadID == nil })
+    }
+
     private func event(
         id: UUID = UUID(),
         type: ObserverEventType,

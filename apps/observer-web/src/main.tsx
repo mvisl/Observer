@@ -330,6 +330,9 @@ const artifactRoleLabel: Record<ArtifactRole, string> = {
 
 const publicReportDate = "2026-07-15";
 const publicReportGeneratedAt = "2026-07-15T18:03:00+02:00";
+// This is deliberately visible in the DOM so GitHub Pages clients receive a
+// fresh asset when a stale static report rule is corrected.
+const publicDashboardBuild = "2026-07-17-temporal-hygiene";
 const publicDayStartMinute = 9 * 60;
 const publicDayEndMinute = 21 * 60 + 6;
 
@@ -890,7 +893,7 @@ function PublicDashboardShell() {
   }
 
   return (
-    <main className="public-shell public-dashboard-app">
+    <main className="public-shell public-dashboard-app" data-build={publicDashboardBuild}>
       <header className="public-day-header">
         <div>
           <h1>{dateWords}</h1>
