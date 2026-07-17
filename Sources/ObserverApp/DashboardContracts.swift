@@ -23,6 +23,7 @@ struct DayDashboardSnapshot: Codable {
     let sensorSummary: DashboardSensorSummary
     let causalSummary: DashboardCausalSummary
     let readinessSummary: DashboardReadinessSummary
+    let artifactRelations: [DashboardArtifactRelation]
 }
 
 struct DashboardTotals: Codable {
@@ -144,6 +145,47 @@ struct DashboardReadinessSummary: Codable {
     let status: String
     let blockers: [String]
     let metrics: [String: String]
+}
+
+/// A task-facing view of a local artifact. This deliberately avoids exposing a
+/// chronological list of apps or URLs: the role explains why a material belongs
+/// to the selected work instead.
+enum DashboardArtifactRole: String, Codable, CaseIterable {
+    case primaryArtifact = "primary_artifact"
+    case currentResult = "current_result"
+    case decisionInput = "decision_input"
+    case communication
+    case implementation
+    case reference
+    case previousVersion = "previous_version"
+
+    var sortOrder: Int {
+        switch self {
+        case .primaryArtifact: 0
+        case .currentResult: 1
+        case .decisionInput: 2
+        case .communication: 3
+        case .implementation: 4
+        case .reference: 5
+        case .previousVersion: 6
+        }
+    }
+}
+
+struct DashboardArtifactRelation: Codable, Identifiable {
+    let id: String
+    let taskId: String
+    let role: DashboardArtifactRole
+    let artifactKind: String
+    let sourceIcon: String
+    let title: String
+    let roleSummary: String
+    let directLink: String?
+    let lastUsedAt: Date
+    let relatedEpisodeCount: Int
+    let confidence: Double
+    let aliases: [String]
+    let evidenceEventIds: [String]
 }
 
 struct DashboardCorrectionResponse: Codable {

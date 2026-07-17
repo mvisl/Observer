@@ -70,6 +70,12 @@ struct DashboardReadModelBuilder {
             blockers: readinessBlockers,
             metrics: readinessMetrics
         )
+        let artifactRelations = DashboardArtifactInspectorBuilder().build(
+            artifacts: dayEvents.filter { $0.type == .artifactIdentity },
+            threads: threads,
+            segments: timelineSegments,
+            corrections: events.filter { $0.type == .contextLinkUserLabel && $0.source == "dashboard_api" }
+        )
 
         return DayDashboardSnapshot(
             schemaVersion: DashboardContract.schemaVersion,
@@ -88,7 +94,8 @@ struct DashboardReadModelBuilder {
             reviewSummary: review,
             sensorSummary: sensorSummary,
             causalSummary: causalSummary,
-            readinessSummary: readinessSummary
+            readinessSummary: readinessSummary,
+            artifactRelations: artifactRelations
         )
     }
 

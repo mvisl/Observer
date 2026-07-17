@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, RouterProvider, createBrowserRouter, useLocation, useSearchParams } from "react-router-dom";
 import { getDailyMarkdown, getDaySnapshot, getSession, pairDevice, submitCorrection } from "./api";
-import type { DayDashboardSnapshot, SensorChannel, ThreadSummary, TimelineSegment } from "./types";
+import type { ArtifactRelation, ArtifactRole, DayDashboardSnapshot, SensorChannel, ThreadSummary, TimelineSegment } from "./types";
 import "./styles.css";
 
 const queryClient = new QueryClient();
@@ -304,6 +304,30 @@ type PublicEpisode = {
   label: string;
 };
 
+type PublicArtifactRelation = ArtifactRelation & {
+  nodeIds: string[];
+};
+
+const artifactRoleOrder: ArtifactRole[] = [
+  "primary_artifact",
+  "current_result",
+  "decision_input",
+  "communication",
+  "implementation",
+  "reference",
+  "previous_version"
+];
+
+const artifactRoleLabel: Record<ArtifactRole, string> = {
+  primary_artifact: "Главный артефакт",
+  current_result: "Текущий результат",
+  decision_input: "Вход для решения",
+  communication: "Коммуникация",
+  implementation: "Реализация",
+  reference: "Справка",
+  previous_version: "Предыдущая версия"
+};
+
 const publicReportDate = "2026-07-15";
 const publicReportGeneratedAt = "2026-07-15T18:03:00+02:00";
 const publicDayStartMinute = 9 * 60;
@@ -473,6 +497,136 @@ function publicDashboardTree() {
   });
 }
 
+function publicArtifactRelations(): PublicArtifactRelation[] {
+  return [
+    {
+      id: "artifact-jira-whattobuy",
+      taskId: "intention-andrey",
+      nodeIds: ["stream-work", "branch-libertex", "intention-andrey", "subtask-andrey-feedback", "subtask-dividends", "subtask-card-hierarchy", "subtask-figma-execution"],
+      role: "primary_artifact",
+      artifactKind: "jira_issue",
+      sourceIcon: "Jira",
+      title: "PD-6455 — Contextual bottom navigation for MT users",
+      roleSummary: "Рабочий якорь: задача задаёт предмет обсуждения и критерий готового решения.",
+      directLink: "https://jira.fxclub.org/browse/PD-6455",
+      lastUsedAt: "2026-07-15T15:29:00+02:00",
+      relatedEpisodeCount: 4,
+      confidence: 0.98,
+      aliases: ["WhatToBuy", "задача из Jira"],
+      evidenceEventIds: ["ep-andrey-feedback", "ep-jira-triage"]
+    },
+    {
+      id: "artifact-figma-whattobuy",
+      taskId: "intention-andrey",
+      nodeIds: ["stream-work", "branch-libertex", "intention-andrey", "subtask-dividends", "subtask-card-hierarchy", "subtask-figma-execution"],
+      role: "current_result",
+      artifactKind: "figma_file",
+      sourceIcon: "Figma",
+      title: "WhatToBuy — market card system",
+      roleSummary: "Текущий макет, где проверялись buy-by date, иерархия карточек и видимые сигналы.",
+      directLink: "https://www.figma.com/",
+      lastUsedAt: "2026-07-15T13:49:00+02:00",
+      relatedEpisodeCount: 3,
+      confidence: 0.94,
+      aliases: ["Figma dividend section", "выбранная секция"],
+      evidenceEventIds: ["ep-dividends", "ep-card-hierarchy", "ep-figma-execution"]
+    },
+    {
+      id: "artifact-chat-andrey",
+      taskId: "intention-andrey",
+      nodeIds: ["stream-work", "branch-libertex", "intention-andrey", "subtask-andrey-feedback"],
+      role: "communication",
+      artifactKind: "chat_thread",
+      sourceIcon: "Chat",
+      title: "Обсуждение решения с Андреем",
+      roleSummary: "Источник обратной связи, из которого были выделены требования к карточкам и приоритетам.",
+      directLink: "https://mail.google.com/",
+      lastUsedAt: "2026-07-15T09:39:00+02:00",
+      relatedEpisodeCount: 1,
+      confidence: 0.88,
+      aliases: ["Andrey feedback"],
+      evidenceEventIds: ["ep-andrey-feedback"]
+    },
+    {
+      id: "artifact-ai-decision",
+      taskId: "intention-andrey",
+      nodeIds: ["stream-work", "branch-libertex", "intention-andrey", "subtask-card-hierarchy", "subtask-figma-execution"],
+      role: "decision_input",
+      artifactKind: "ai_conversation",
+      sourceIcon: "AI",
+      title: "Проверка формулировок и приоритетов",
+      roleSummary: "Использовалась, чтобы проверить объяснение ценности карточек до применения в макете.",
+      directLink: "https://chatgpt.com/",
+      lastUsedAt: "2026-07-15T12:31:00+02:00",
+      relatedEpisodeCount: 2,
+      confidence: 0.72,
+      aliases: [],
+      evidenceEventIds: ["ep-card-hierarchy", "ep-figma-execution"]
+    },
+    {
+      id: "artifact-repo-observer",
+      taskId: "intention-observer-brain",
+      nodeIds: ["stream-work", "branch-observer", "intention-observer-brain", "subtask-public-dashboard", "subtask-pill-quality", "subtask-reporting-model"],
+      role: "primary_artifact",
+      artifactKind: "repository",
+      sourceIcon: "Code",
+      title: "Observer repository",
+      roleSummary: "Главный рабочий материал для изменений мозга, пилюли и отчётного интерфейса.",
+      directLink: "https://github.com/mvisl/Observer",
+      lastUsedAt: "2026-07-15T21:06:00+02:00",
+      relatedEpisodeCount: 3,
+      confidence: 0.97,
+      aliases: ["Observer app", "dashboard code"],
+      evidenceEventIds: ["ep-public-dashboard-a", "ep-public-dashboard-b", "ep-reporting-model"]
+    },
+    {
+      id: "artifact-pages-dashboard",
+      taskId: "intention-observer-brain",
+      nodeIds: ["stream-work", "branch-observer", "intention-observer-brain", "subtask-public-dashboard"],
+      role: "current_result",
+      artifactKind: "browser_page",
+      sourceIcon: "Web",
+      title: "Observer dashboard preview",
+      roleSummary: "Текущий внешний результат, на котором проверялись карта дня и читаемость иерархии.",
+      directLink: "https://mvisl.github.io/Observer/",
+      lastUsedAt: "2026-07-15T18:39:00+02:00",
+      relatedEpisodeCount: 2,
+      confidence: 0.91,
+      aliases: ["GitHub Pages dashboard"],
+      evidenceEventIds: ["ep-public-dashboard-a", "ep-public-dashboard-b"]
+    },
+    {
+      id: "artifact-wife-chat",
+      taskId: "intention-personal-coordination",
+      nodeIds: ["stream-personal", "branch-communication", "intention-personal-coordination", "subtask-personal-coordination"],
+      role: "communication",
+      artifactKind: "chat_thread",
+      sourceIcon: "Chat",
+      title: "Личная координация",
+      roleSummary: "Личная переписка, отделённая от рабочих веток и не используемая для рабочих выводов.",
+      directLink: "https://web.whatsapp.com/",
+      lastUsedAt: "2026-07-15T17:56:00+02:00",
+      relatedEpisodeCount: 1,
+      confidence: 0.84,
+      aliases: [],
+      evidenceEventIds: ["ep-personal-coordination"]
+    }
+  ];
+}
+
+function artifactRelationsForNode(
+  node: PublicNode,
+  relations: PublicArtifactRelation[],
+  titleOverrides: Record<string, string>,
+  roleOverrides: Record<string, ArtifactRole>,
+  hiddenIds: Set<string>
+) {
+  return relations
+    .filter((relation) => relation.nodeIds.includes(node.id) && !hiddenIds.has(relation.id))
+    .map((relation) => ({ ...relation, title: titleOverrides[relation.id] ?? relation.title, role: roleOverrides[relation.id] ?? relation.role }))
+    .sort((left, right) => artifactRoleOrder.indexOf(left.role) - artifactRoleOrder.indexOf(right.role) || right.lastUsedAt.localeCompare(left.lastUsedAt));
+}
+
 function flattenPublicNodes(node: PublicNode): PublicNode[] {
   return [node, ...(node.children ?? []).flatMap(flattenPublicNodes)];
 }
@@ -514,6 +668,13 @@ function PublicDashboardShell() {
   const [expandedIds, setExpandedIds] = useState<string[]>(["intention-andrey"]);
   const [openDrawer, setOpenDrawer] = useState<"decisions" | "evidence" | "digest" | null>(null);
   const [openDigestKey, setOpenDigestKey] = useState<string | null>(null);
+  const [showAllArtifacts, setShowAllArtifacts] = useState(false);
+  const [artifactDiagnostics, setArtifactDiagnostics] = useState(false);
+  const [artifactTitles, setArtifactTitles] = useState<Record<string, string>>({});
+  const [artifactRoles, setArtifactRoles] = useState<Record<string, ArtifactRole>>({});
+  const [hiddenArtifactIds, setHiddenArtifactIds] = useState<Set<string>>(() => new Set());
+  const [editingArtifactId, setEditingArtifactId] = useState<string | null>(null);
+  const [editingArtifactTitle, setEditingArtifactTitle] = useState("");
 
   function applyPreset(next: "today" | "7d" | "custom") {
     setRangePreset(next);
@@ -528,8 +689,11 @@ function PublicDashboardShell() {
   }
 
   const rangeDays = daysBetweenInclusive(startDate, endDate);
-  const hasSnapshot = startDate <= publicReportDate && endDate >= publicReportDate;
+  // A static report is valid only for its own calendar day. It must never
+  // masquerade as a live "Today" view or as a seven-day aggregate.
+  const hasSnapshot = startDate === publicReportDate && endDate === publicReportDate;
   const root = useMemo(publicDashboardTree, []);
+  const artifactRelations = useMemo(publicArtifactRelations, []);
 
   const allNodes = useMemo(() => flattenPublicNodes(root), [root]);
   const selectedNode = findPublicNode(root, selectedNodeId) ?? findPublicNode(root, "intention-andrey") ?? root;
@@ -569,12 +733,14 @@ function PublicDashboardShell() {
   };
   const timingErrors = allNodes.filter((node) => node.kind !== "root" && timingIssue(node));
   const selectedDetailMinutes = Math.max(1, selectedNode.minutes);
+  const selectedArtifacts = artifactRelationsForNode(selectedNode, artifactRelations, artifactTitles, artifactRoles, hiddenArtifactIds);
+  const displayedArtifacts = showAllArtifacts ? selectedArtifacts : selectedArtifacts.slice(0, 6);
   const dateWords = formatDateWords(startDate, endDate, rangePreset);
   const generatedAt = new Date(publicReportGeneratedAt);
   const staleSnapshot = Date.now() - generatedAt.getTime() > 26 * 60 * 60 * 1000;
   const snapshotNotice = hasSnapshot
     ? `данные сформированы ${formatSnapshotDay(publicReportDate)} в ${fmtTime(publicReportGeneratedAt)} · наблюдалось ${fmtMinutes(root.minutes)} · coverage 94%`
-    : `показан ближайший доступный срез: ${formatSnapshotDay(publicReportDate)} · выбранный день ещё собирается`;
+    : "живые данные не публикуются в статической витрине";
   const digest = [
     { status: "warning", short: "2 плотные петли: WhatToBuy и Observer дают основную нагрузку", full: "Нагрузка идёт не от Chrome/Figma, а от повторного уточнения критериев: что считать хорошим результатом и как это доказать артефактом." },
     { status: "neutral", short: "Andrey chat является evidence внутри Libertex → WhatToBuy", full: "Коммуникация с Андреем не отдельный поток. Это нижний слой задачи WhatToBuy: Source → Decide → Apply в Figma." },
@@ -637,6 +803,35 @@ function PublicDashboardShell() {
     setSelectedNodeId((current) => current === node.id ? "day" : node.id);
     setSelectedEpisodeId(null);
     setOpenDrawer(null);
+    setShowAllArtifacts(false);
+    setEditingArtifactId(null);
+  }
+
+  function setPrimaryArtifact(relation: PublicArtifactRelation) {
+    setArtifactRoles((current) => {
+      const next = { ...current };
+      for (const candidate of selectedArtifacts) {
+        if (candidate.role === "primary_artifact") next[candidate.id] = "current_result";
+      }
+      next[relation.id] = "primary_artifact";
+      return next;
+    });
+  }
+
+  function beginArtifactRename(relation: PublicArtifactRelation) {
+    setEditingArtifactId(relation.id);
+    setEditingArtifactTitle(relation.title);
+  }
+
+  function saveArtifactRename(relation: PublicArtifactRelation) {
+    const title = editingArtifactTitle.trim();
+    if (title) setArtifactTitles((current) => ({ ...current, [relation.id]: title }));
+    setEditingArtifactId(null);
+  }
+
+  function unbindArtifact(relation: PublicArtifactRelation) {
+    setHiddenArtifactIds((current) => new Set([...current, relation.id]));
+    setEditingArtifactId(null);
   }
 
   function toggleExpanded(node: PublicNode) {
@@ -716,6 +911,7 @@ function PublicDashboardShell() {
         </div>
       </header>
 
+      {hasSnapshot ? <>
       <section className="dashboard-workbench" aria-label="Карта дня">
         <div className="structure-pane swimlane-map">
           <div className="day-strip-row" aria-label="Доля дня">
@@ -746,6 +942,7 @@ function PublicDashboardShell() {
           </div>
         </div>
 
+        <div className="detail-and-inspector">
         <section className="detail-panel" aria-label="Детали">
           <div className="detail-title-row">
             <h2>{selectedNode.name}</h2>
@@ -804,6 +1001,57 @@ function PublicDashboardShell() {
             </div>
           )}
         </section>
+        <aside className="artifact-inspector" aria-label="Связанные материалы">
+          <div className="artifact-inspector-head">
+            <div>
+              <p className="eyebrow">Linked artifacts</p>
+              <h2>Материалы задачи</h2>
+            </div>
+            <button className="artifact-diagnostics-toggle" onClick={() => setArtifactDiagnostics((value) => !value)} aria-pressed={artifactDiagnostics}>
+              {artifactDiagnostics ? "Скрыть IDs" : "IDs"}
+            </button>
+          </div>
+          <p className="artifact-inspector-note">Не список вкладок: только материалы, у которых есть роль в выбранном контексте.</p>
+          {displayedArtifacts.length ? (
+            <div className="artifact-list">
+              {displayedArtifacts.map((relation) => (
+                <article className="artifact-card" key={relation.id}>
+                  <div className="artifact-card-topline">
+                    <span className="artifact-source" title={relation.artifactKind}>{relation.sourceIcon}</span>
+                    <span className="artifact-role">{artifactRoleLabel[relation.role]}</span>
+                    <span className="artifact-confidence">{Math.round(relation.confidence * 100)}%</span>
+                  </div>
+                  {editingArtifactId === relation.id ? (
+                    <form className="artifact-rename" onSubmit={(event) => { event.preventDefault(); saveArtifactRename(relation); }}>
+                      <input value={editingArtifactTitle} onChange={(event) => setEditingArtifactTitle(event.target.value)} autoFocus />
+                      <button type="submit">Save</button>
+                    </form>
+                  ) : relation.directLink ? (
+                    <a href={relation.directLink} target="_blank" rel="noreferrer" className="artifact-title">{relation.title}</a>
+                  ) : <h3 className="artifact-title">{relation.title}</h3>}
+                  <p>{relation.roleSummary}</p>
+                  <div className="artifact-meta">
+                    <span>{fmtTime(relation.lastUsedAt)}</span>
+                    <span>{relation.relatedEpisodeCount} {pluralRu(relation.relatedEpisodeCount, "эпизод", "эпизода", "эпизодов")}</span>
+                  </div>
+                  {relation.aliases.length > 0 && <p className="artifact-aliases">Также: {relation.aliases.join(" · ")}</p>}
+                  {artifactDiagnostics && <p className="artifact-evidence">evidence: {relation.evidenceEventIds.join(" · ")}</p>}
+                  <div className="artifact-actions">
+                    <button onClick={() => beginArtifactRename(relation)}>Переименовать</button>
+                    {relation.role !== "primary_artifact" && <button onClick={() => setPrimaryArtifact(relation)}>Сделать главным</button>}
+                    <button className="quiet-danger" onClick={() => unbindArtifact(relation)}>Отвязать</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : <p className="artifact-empty">Для выбранного контекста пока нет доказанно связанных материалов.</p>}
+          {selectedArtifacts.length > 6 && (
+            <button className="show-all-artifacts" onClick={() => setShowAllArtifacts((value) => !value)}>
+              {showAllArtifacts ? "Скрыть лишнее" : `Показать все (${selectedArtifacts.length})`}
+            </button>
+          )}
+        </aside>
+        </div>
       </section>
 
       <section className="digest-row" aria-label="Сигналы дня">
@@ -836,6 +1084,17 @@ function PublicDashboardShell() {
           </tbody>
         </table>
       </section>
+      </> : (
+        <section className="public-empty-day" aria-label="Live dashboard">
+          <p className="eyebrow">Live data stays local</p>
+          <h2>Today is not replaced with an old report.</h2>
+          <p>Этот экран больше не подставляет 15 июля вместо сегодняшнего дня. Открой локальный Core на рабочем Mac, чтобы увидеть живые эпизоды, задачи и связанные материалы.</p>
+          <div className="empty-actions">
+            <a href={`http://127.0.0.1:43127/today?date=${startDate}`}>Open live dashboard</a>
+            <button onClick={() => { setRangePreset("custom"); setStartDate(publicReportDate); setEndDate(publicReportDate); }}>Open available report</button>
+          </div>
+        </section>
+      )}
 
       <footer className="public-footer">
         <a href="https://github.com/mvisl/Observer/tree/main/apps/observer-web">Dashboard Code</a>
@@ -991,21 +1250,66 @@ function TimelinePage() {
 
 function ContextsPage() {
   const { data } = useSnapshot();
+  const queryClient = useQueryClient();
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [showAllArtifacts, setShowAllArtifacts] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamedTitle, setRenamedTitle] = useState("");
+  const correction = useMutation({
+    mutationFn: ({ kind, payload }: { kind: string; payload: Record<string, unknown> }) => submitCorrection(kind, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["v1", "day"] })
+  });
   return (
     <SnapshotState snapshot={data}>
-      {(snapshot) => (
-        <section className="panel">
-          <h2>Contexts</h2>
-          <div className="table-list">
-            {snapshot.threadSummaries.map((thread) => (
-              <article key={thread.id}>
-                <h3>{thread.name}</h3>
-                <p>{fmtDuration(thread.activeSeconds)} · {thread.episodes} episodes · {thread.applications.join(", ")}</p>
-              </article>
-            ))}
+      {(snapshot) => {
+        const selectedThread = snapshot.threadSummaries.find((thread) => thread.id === selectedThreadId) ?? snapshot.threadSummaries[0];
+        const relations = selectedThread
+          ? snapshot.artifactRelations
+            .filter((relation) => relation.taskId === selectedThread.id)
+            .sort((left, right) => artifactRoleOrder.indexOf(left.role) - artifactRoleOrder.indexOf(right.role) || new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime())
+          : [];
+        const visibleRelations = showAllArtifacts ? relations : relations.slice(0, 6);
+        return (
+          <div className="contexts-with-inspector">
+            <section className="panel">
+              <div className="section-head"><h2>Contexts</h2><span>Intentions and tasks</span></div>
+              <div className="table-list context-list">
+                {snapshot.threadSummaries.map((thread) => (
+                  <button key={thread.id} className={selectedThread?.id === thread.id ? "selected" : ""} onClick={() => { setSelectedThreadId(thread.id); setShowAllArtifacts(false); }}>
+                    <b>{thread.name}</b>
+                    <span>{fmtDuration(thread.activeSeconds)} · {thread.episodes} episodes</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <aside className="artifact-inspector" aria-label="Linked task artifacts">
+              <div className="artifact-inspector-head">
+                <div><p className="eyebrow">Linked artifacts</p><h2>{selectedThread?.name ?? "Select a task"}</h2></div>
+                <button className="artifact-diagnostics-toggle" onClick={() => setDiagnostics((value) => !value)} aria-pressed={diagnostics}>{diagnostics ? "Hide IDs" : "IDs"}</button>
+              </div>
+              <p className="artifact-inspector-note">Роли, а не список вкладок: главный материал, текущий результат, входы решения и коммуникация.</p>
+              {visibleRelations.length ? <div className="artifact-list">
+                {visibleRelations.map((relation) => (
+                  <article className="artifact-card" key={relation.id}>
+                    <div className="artifact-card-topline"><span className="artifact-source" title={relation.artifactKind}>{relation.sourceIcon}</span><span className="artifact-role">{artifactRoleLabel[relation.role]}</span><span className="artifact-confidence">{Math.round(relation.confidence * 100)}%</span></div>
+                    {renamingId === relation.id ? <form className="artifact-rename" onSubmit={(event) => { event.preventDefault(); correction.mutate({ kind: "artifact_rename", payload: { artifact_id: relation.id, task_id: relation.taskId, title: renamedTitle } }); setRenamingId(null); }}><input value={renamedTitle} onChange={(event) => setRenamedTitle(event.target.value)} autoFocus /><button type="submit">Save</button></form> : relation.directLink ? <a href={relation.directLink} target="_blank" rel="noreferrer" className="artifact-title">{relation.title}</a> : <h3 className="artifact-title">{relation.title}</h3>}
+                    <p>{relation.roleSummary}</p>
+                    <div className="artifact-meta"><span>{fmtTime(relation.lastUsedAt)}</span><span>{relation.relatedEpisodeCount} {pluralRu(relation.relatedEpisodeCount, "эпизод", "эпизода", "эпизодов")}</span></div>
+                    {diagnostics && <p className="artifact-evidence">evidence: {relation.evidenceEventIds.join(" · ")}</p>}
+                    <div className="artifact-actions">
+                      <button onClick={() => { setRenamingId(relation.id); setRenamedTitle(relation.title); }}>Переименовать</button>
+                      {relation.role !== "primary_artifact" && <button onClick={() => correction.mutate({ kind: "artifact_primary", payload: { artifact_id: relation.id, task_id: relation.taskId } })}>Сделать главным</button>}
+                      <button className="quiet-danger" onClick={() => correction.mutate({ kind: "artifact_unbind", payload: { artifact_id: relation.id, task_id: relation.taskId } })}>Отвязать</button>
+                    </div>
+                  </article>
+                ))}
+              </div> : <p className="artifact-empty">Для этой задачи пока нет материалов с доказанной связью.</p>}
+              {relations.length > 6 && <button className="show-all-artifacts" onClick={() => setShowAllArtifacts((value) => !value)}>{showAllArtifacts ? "Скрыть лишнее" : `Показать все (${relations.length})`}</button>}
+            </aside>
           </div>
-        </section>
-      )}
+        );
+      }}
     </SnapshotState>
   );
 }

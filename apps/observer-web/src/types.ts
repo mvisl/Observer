@@ -71,6 +71,31 @@ export type SensorChannel = {
   lastEventAt?: string;
 };
 
+export type ArtifactRole =
+  | "primary_artifact"
+  | "current_result"
+  | "decision_input"
+  | "communication"
+  | "implementation"
+  | "reference"
+  | "previous_version";
+
+export type ArtifactRelation = {
+  id: string;
+  taskId: string;
+  role: ArtifactRole;
+  artifactKind: string;
+  sourceIcon: string;
+  title: string;
+  roleSummary: string;
+  directLink?: string;
+  lastUsedAt: string;
+  relatedEpisodeCount: number;
+  confidence: number;
+  aliases: string[];
+  evidenceEventIds: string[];
+};
+
 export type DayDashboardSnapshot = {
   schemaVersion: string;
   snapshotId: string;
@@ -109,4 +134,5 @@ export type DayDashboardSnapshot = {
     blockers: string[];
     metrics: Record<string, string>;
   };
+  artifactRelations: ArtifactRelation[];
 };
