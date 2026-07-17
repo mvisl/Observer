@@ -66,6 +66,7 @@ enum ObserverEventType: String, Codable {
     case scheduleOverride
     case securityIncident
     case sequencePattern
+    case routineCandidate
     case spanIntentionAssignment
     case situationModel
     case stateTransition
@@ -168,6 +169,7 @@ extension ObserverEventType {
              .readinessReport,
              .researchDigest,
              .resumptionLag,
+             .routineCandidate,
              .sequencePattern,
              .spanIntentionAssignment,
              .situationModel,

@@ -1379,6 +1379,31 @@ final class ObserverController {
         }
     }
 
+    /// This collector has no UI or execution path. It only emits a revised
+    /// candidate when a concrete capture-to-transform chain gains evidence.
+    private func appendRoutineCandidates(from events: [ObserverEvent]) {
+        let candidates = RoutineMiningBuilder(settings: environment.settings.routineMining).build(events: events)
+        guard candidates.isEmpty == false else { return }
+
+        let latestSupport = Dictionary(
+            grouping: events.filter { $0.type == .routineCandidate },
+            by: { $0.payload["routine_key"] ?? "" }
+        ).mapValues { candidates in
+            candidates.compactMap { Int($0.payload["completion_count"] ?? "") }.max() ?? 0
+        }
+
+        for candidate in candidates where candidate.completionCount > (latestSupport[candidate.routineKey] ?? 0) {
+            append(
+                .init(
+                    type: .routineCandidate,
+                    confidence: candidate.confidence,
+                    payload: candidate.payload,
+                    workspaceTopologyVersion: environment.topology.version
+                )
+            )
+        }
+    }
+
     private func appendCausalUnderstandingForRecentEpisodes(from events: [ObserverEvent], limit: Int = 25) {
         let alreadyProcessed = Set(events.filter { event in
             event.type == .causalHypothesis || event.type == .stateTransition
@@ -2581,6 +2606,7 @@ final class ObserverController {
             return
         }
         appendContextFabricForRecentEpisodes(from: historicalEvents + [episodeEvent], limit: 10)
+        appendRoutineCandidates(from: historicalEvents + [episodeEvent])
         let causal = CausalUnderstandingBuilder().buildForClosedEpisode(
             episode: episodeEvent,
             episodeEvents: events,

@@ -32,7 +32,8 @@ enum EventDataContract {
         switch type {
         case .behaviorCue, .boundReaction, .causalAntecedent, .causalHypothesis,
              .comparisonLayoutCandidate, .detectorFired, .fusionHypothesis,
-             .hintCandidate, .interventionCandidate, .localInsight, .mediaReaction:
+             .hintCandidate, .interventionCandidate, .localInsight, .mediaReaction,
+             .routineCandidate:
             return true
         default:
             return false

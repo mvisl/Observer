@@ -127,6 +127,37 @@ struct ObserverSettings: Codable {
         var proactiveBlockedStates: [String]
     }
 
+    /// Repeated tool chains are collected as local evidence before they can
+    /// become a user-visible suggestion. Nothing in this configuration grants
+    /// permission to execute the routine.
+    struct RoutineMiningSettings: Codable {
+        var enabled: Bool
+        var minimumCompletions: Int
+        var maximumTransitionSeconds: Double
+        var observationOnly: Bool
+
+        init(
+            enabled: Bool,
+            minimumCompletions: Int,
+            maximumTransitionSeconds: Double,
+            observationOnly: Bool
+        ) {
+            self.enabled = enabled
+            self.minimumCompletions = minimumCompletions
+            self.maximumTransitionSeconds = maximumTransitionSeconds
+            self.observationOnly = observationOnly
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = ObserverSettings.defaults.routineMining
+            self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+            self.minimumCompletions = try container.decodeIfPresent(Int.self, forKey: .minimumCompletions) ?? defaults.minimumCompletions
+            self.maximumTransitionSeconds = try container.decodeIfPresent(Double.self, forKey: .maximumTransitionSeconds) ?? defaults.maximumTransitionSeconds
+            self.observationOnly = try container.decodeIfPresent(Bool.self, forKey: .observationOnly) ?? defaults.observationOnly
+        }
+    }
+
     struct WorkScheduleSettings: Codable {
         var enabled: Bool
         var weekdays: [Int]
@@ -411,6 +442,7 @@ struct ObserverSettings: Codable {
     var detectorSettings: DetectorSettings
     var cameraDetectorSettings: CameraDetectorSettings
     var cognitiveSettings: CognitiveSettings
+    var routineMining: RoutineMiningSettings
     var workSchedule: WorkScheduleSettings
     var readinessSettings: ReadinessSettings
     var contextFabric: ContextFabricSettings
@@ -441,6 +473,7 @@ struct ObserverSettings: Codable {
         detectorSettings: DetectorSettings,
         cameraDetectorSettings: CameraDetectorSettings,
         cognitiveSettings: CognitiveSettings,
+        routineMining: RoutineMiningSettings,
         workSchedule: WorkScheduleSettings,
         readinessSettings: ReadinessSettings,
         contextFabric: ContextFabricSettings,
@@ -470,6 +503,7 @@ struct ObserverSettings: Codable {
         self.detectorSettings = detectorSettings
         self.cameraDetectorSettings = cameraDetectorSettings
         self.cognitiveSettings = cognitiveSettings
+        self.routineMining = routineMining
         self.workSchedule = workSchedule
         self.readinessSettings = readinessSettings
         self.contextFabric = contextFabric
@@ -503,6 +537,7 @@ struct ObserverSettings: Codable {
         self.detectorSettings = try container.decodeIfPresent(DetectorSettings.self, forKey: .detectorSettings) ?? defaults.detectorSettings
         self.cameraDetectorSettings = try container.decodeIfPresent(CameraDetectorSettings.self, forKey: .cameraDetectorSettings) ?? defaults.cameraDetectorSettings
         self.cognitiveSettings = try container.decodeIfPresent(CognitiveSettings.self, forKey: .cognitiveSettings) ?? defaults.cognitiveSettings
+        self.routineMining = try container.decodeIfPresent(RoutineMiningSettings.self, forKey: .routineMining) ?? defaults.routineMining
         self.workSchedule = try container.decodeIfPresent(WorkScheduleSettings.self, forKey: .workSchedule) ?? defaults.workSchedule
         self.readinessSettings = try container.decodeIfPresent(ReadinessSettings.self, forKey: .readinessSettings) ?? defaults.readinessSettings
         self.contextFabric = try container.decodeIfPresent(ContextFabricSettings.self, forKey: .contextFabric) ?? defaults.contextFabric
@@ -578,6 +613,12 @@ struct ObserverSettings: Codable {
             sequenceMinimumSupport: 3,
             sequenceMinimumConfidence: 0.60,
             proactiveBlockedStates: ["flow"]
+        ),
+        routineMining: RoutineMiningSettings(
+            enabled: true,
+            minimumCompletions: 3,
+            maximumTransitionSeconds: 20 * 60,
+            observationOnly: true
         ),
         workSchedule: WorkScheduleSettings(
             enabled: true,

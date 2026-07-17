@@ -143,6 +143,12 @@ Maturity: sequence, association, plausible mechanism, repeated pattern, counterf
 
 Causal hypotheses are not published in the pill in Wave 0.
 
+## Repeated Routines
+
+A repeated routine is a concrete, ordered tool chain rather than a guessed intention. For example: `GIPHY Capture -> resize tool`. The collector records only normalized action labels, transition time, and source event IDs; it does not retain a video or browser content to establish the pattern.
+
+Lifecycle: `observed -> shadow_qualified -> user-confirmed suggestion -> explicitly enabled action`. The first implementation is observation-only: at least three independent completions within the configured transition window are needed before the chain is even stored as a qualified candidate. It is not shown in the pill, cannot click anything, and cannot run an automation. A later suggestion must name the exact next step and carry the candidate's evidence. Execution is a separate capability and needs an explicit user opt-in for that routine.
+
 ## Readiness
 
 Each capability has its own stage: S0 collect, S1 shadow, S2 calibrated shadow, S3 trusted limited, S4 full.
