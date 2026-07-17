@@ -569,11 +569,12 @@ function PublicDashboardShell() {
   };
   const timingErrors = allNodes.filter((node) => node.kind !== "root" && timingIssue(node));
   const selectedDetailMinutes = Math.max(1, selectedNode.minutes);
-  const dateWords = hasSnapshot
-    ? formatSnapshotDay(publicReportDate)
-    : formatDateWords(startDate, endDate, rangePreset);
+  const dateWords = formatDateWords(startDate, endDate, rangePreset);
   const generatedAt = new Date(publicReportGeneratedAt);
   const staleSnapshot = Date.now() - generatedAt.getTime() > 26 * 60 * 60 * 1000;
+  const snapshotNotice = hasSnapshot
+    ? `данные сформированы ${formatSnapshotDay(publicReportDate)} в ${fmtTime(publicReportGeneratedAt)} · наблюдалось ${fmtMinutes(root.minutes)} · coverage 94%`
+    : `показан ближайший доступный срез: ${formatSnapshotDay(publicReportDate)} · выбранный день ещё собирается`;
   const digest = [
     { status: "warning", short: "2 плотные петли: WhatToBuy и Observer дают основную нагрузку", full: "Нагрузка идёт не от Chrome/Figma, а от повторного уточнения критериев: что считать хорошим результатом и как это доказать артефактом." },
     { status: "neutral", short: "Andrey chat является evidence внутри Libertex → WhatToBuy", full: "Коммуникация с Андреем не отдельный поток. Это нижний слой задачи WhatToBuy: Source → Decide → Apply в Figma." },
@@ -648,12 +649,6 @@ function PublicDashboardShell() {
     return node.family ?? "neutral";
   }
 
-  function showYesterday() {
-    setRangePreset("custom");
-    setStartDate(publicReportDate);
-    setEndDate(publicReportDate);
-  }
-
   function renderRow(rowNode: PublicNode, nested = false, mode: "time" | "proportions" = "time") {
     const items = rowEpisodes(rowNode);
     const groups = mergeCloseEpisodes(items);
@@ -699,32 +694,12 @@ function PublicDashboardShell() {
     );
   }
 
-  if (!hasSnapshot) {
-    const fallbackDate = formatSnapshotDay(publicReportDate);
-    return (
-      <main className="public-shell public-dashboard-app">
-        <header className="public-day-header">
-          <div><h1>{dateWords}</h1><span>живой срез открывается сразу; финальная сводка больше не блокирует dashboard</span></div>
-          <div className="dashboard-controls"><div className="compact-range"><button className="selected" onClick={() => applyPreset("today")}>Today</button><button onClick={() => applyPreset("7d")}>7 days</button><button onClick={() => applyPreset("custom")}>Custom</button></div></div>
-        </header>
-        <section className="public-empty-day live-partial">
-          <h2>Сегодняшний срез пока пуст</h2>
-          <p>Если Core уже запущен на рабочем Mac, локальный dashboard должен показывать текущие эпизоды сразу: открытые намерения, активные артефакты и последние evidence. В публичной витрине нет финального снапшота за этот день, поэтому вместо ожидания вечера показываю ближайший доступный срез.</p>
-          <div className="empty-actions">
-            <button onClick={showYesterday}>открыть срез {fallbackDate}</button>
-            <a href="http://127.0.0.1:43127/" target="_blank" rel="noreferrer">открыть локальный Core</a>
-          </div>
-        </section>
-      </main>
-    );
-  }
-
   return (
     <main className="public-shell public-dashboard-app">
       <header className="public-day-header">
         <div>
           <h1>{dateWords}</h1>
-          <span>{staleSnapshot ? "⚠ " : ""}данные сформированы {formatSnapshotDay(publicReportDate)} в {fmtTime(publicReportGeneratedAt)} · наблюдалось {fmtMinutes(root.minutes)} · coverage 94%</span>
+          <span>{staleSnapshot ? "⚠ " : ""}{snapshotNotice}</span>
         </div>
         <div className="dashboard-controls">
           <div className="compact-range" aria-label="Reporting range">
