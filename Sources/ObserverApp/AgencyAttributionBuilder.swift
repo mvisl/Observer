@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkActor: String, Codable {
+enum WorkActor: String, Codable, CaseIterable {
     case user
     case codex
     case chatgpt
@@ -11,7 +11,7 @@ enum WorkActor: String, Codable {
     case unknownAgent = "unknown_agent"
 }
 
-enum EngagementMode: String, Codable {
+enum EngagementMode: String, Codable, CaseIterable {
     case active
     case formulating
     case reviewing
@@ -20,6 +20,7 @@ enum EngagementMode: String, Codable {
     case delegatedBackground = "delegated_background"
     case waiting
     case passiveObservation = "passive_observation"
+    case meetingParticipation = "meeting_participation"
     case unknown
 }
 

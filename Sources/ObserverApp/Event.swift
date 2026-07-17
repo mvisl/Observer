@@ -94,6 +94,9 @@ enum ObserverEventType: String, Codable {
     case weeklyReport
     case workNode
     case episodeWorkAssignment
+    case intervalEpoch
+    case processRun
+    case predictionLog
     case heartbeat
     case sensorHealth
     case focusIntervalRejected
@@ -112,7 +115,7 @@ extension ObserverEventType {
              .observingStarted, .observingPaused, .sessionBoundary, .scheduleOverride,
              .observationGap, .heartbeat, .focusIntervalRejected, .localSummary,
              .dailyActivityReport, .weeklyReport, .readinessReport, .geminiKeyUpdated,
-             .geminiKeyDeleted, .externalLLMRequest:
+             .geminiKeyDeleted, .externalLLMRequest, .intervalEpoch, .processRun:
             return true
         default:
             return false
@@ -172,7 +175,9 @@ extension ObserverEventType {
              .weeklyReport:
             return true
         case .workNode,
-             .episodeWorkAssignment:
+             .episodeWorkAssignment,
+             .intervalEpoch,
+             .predictionLog:
             return true
         default:
             return false

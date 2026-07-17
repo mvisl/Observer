@@ -1,8 +1,10 @@
 import Foundation
 
 enum WorkNodeType: String, Codable {
+    case stream
     case project
     case workstream
+    case deliverable
     case objective
     case intention
     case attempt
@@ -10,7 +12,13 @@ enum WorkNodeType: String, Codable {
 }
 
 enum WorkNodeStatus: String, Codable {
+    case open
     case active
+    case waiting
+    case blocked
+    case done
+    case abandoned
+    case archived
     case paused
     case completed
     case unknown
@@ -25,6 +33,7 @@ struct WorkNode: Codable, Identifiable {
     let status: WorkNodeStatus
     let goal: String?
     let expectedOutcome: String?
+    let doneCriterion: String?
     let completionEvidence: [UUID]
     let artifactIds: [UUID]
     let entityIds: [UUID]
@@ -32,6 +41,8 @@ struct WorkNode: Codable, Identifiable {
     let firstSeenAt: Date
     let lastSeenAt: Date
     let confidence: Double
+    let userLocked: Bool
+    let source: String
     let pipelineVersion: String
     let createdAt: Date
     let updatedAt: Date
