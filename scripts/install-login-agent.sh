@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_PATH="$ROOT_DIR/build/Observer.app"
+source "$ROOT_DIR/scripts/stable-signing-config.sh"
+
+APP_PATH="$OBSERVER_INSTALL_PATH"
 PLIST_PATH="$HOME/Library/LaunchAgents/local.observer.dev.plist"
 
 if [[ ! -d "$APP_PATH" ]]; then

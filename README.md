@@ -15,12 +15,12 @@ Build a local development app:
 scripts/package-dev-app.sh
 ```
 
-The packaging script uses a stable local signing identity when possible. This helps macOS remember camera permission across development rebuilds instead of treating each ad-hoc build as a new app.
+The packaging script uses the fixed Apple Development identity from `scripts/stable-signing-config.sh`. It intentionally fails if that identity is unavailable, instead of falling back to ad-hoc or self-signed signing.
 
 Open:
 
 ```bash
-open build/Observer.app
+open /Applications/Observer.app
 ```
 
 The app appears only in the macOS menu bar.
@@ -118,5 +118,5 @@ Observation and camera attention now start on launch by default for this prototy
 Optional local LLM model:
 
 ```bash
-OBSERVER_OLLAMA_MODEL=llama3.2 open build/Observer.app
+OBSERVER_OLLAMA_MODEL=llama3.2 open /Applications/Observer.app
 ```
