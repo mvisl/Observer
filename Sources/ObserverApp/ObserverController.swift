@@ -311,6 +311,12 @@ final class ObserverController {
             return protectionLine
         }
 
+        // Chrome is only the container. A fresh message thread inside it must
+        // win over a previously inferred web/research context from another tab.
+        if let communicationLine = freshCommunicationContextLine(now: now) {
+            return communicationLine
+        }
+
         if cameraEyesAreUnavailableForVisualClaims(now: now) {
             return "Глаза закрыты: не связываю это с экраном"
         }
@@ -427,6 +433,10 @@ final class ObserverController {
         }
 
         let appName = currentFocus.appName.lowercased()
+        if hasFreshBrowserCommunicationContext(now: now) {
+            return personalCommunicationLine(events: events)
+                ?? "Переписка: личный разговор; рабочую гипотезу не переношу"
+        }
         if appName.contains("chatgpt")
             || appName.contains("claude")
             || appName.contains("codex")
@@ -464,9 +474,56 @@ final class ObserverController {
             if joinedApps.contains("figma") {
                 return "Связка веб + дизайн: сверяешь экран с материалами задачи"
             }
+            guard hasFreshBrowserResearchContext(now: now) else {
+                return nil
+            }
             return "Исследование: отбираешь материал для текущего решения"
         }
         return "Рабочий фрагмент: собираешь несколько сигналов в один эпизод"
+    }
+
+    private func freshCommunicationContextLine(now: Date) -> String? {
+        let events = freshContentContextEvents(now: now)
+        guard events.contains(where: BrowserSemanticContextClassifier.isCommunication) else {
+            return nil
+        }
+        if let personal = personalCommunicationLine(events: events) {
+            return personal
+        }
+
+        let latest = events.reversed().first(where: BrowserSemanticContextClassifier.isCommunication)
+        let entity = latest.flatMap { cleanInsightFragment($0.payload["source_entity_display_name"] ?? $0.payload["entity_name"]) }
+        let topic = latest.flatMap { usableSemanticTopic($0.payload["topic"]) }
+        if let entity, let topic {
+            return "Переписка с \(entity): \(topic)"
+        }
+        if let entity {
+            return "Переписка с \(entity): личный контекст, не рабочая задача"
+        }
+        return "Переписка: личный контекст, не рабочая задача"
+    }
+
+    private func hasFreshBrowserCommunicationContext(now: Date) -> Bool {
+        freshContentContextEvents(now: now).contains(where: BrowserSemanticContextClassifier.isCommunication)
+    }
+
+    private func hasFreshBrowserResearchContext(now: Date) -> Bool {
+        freshContentContextEvents(now: now).contains { event in
+            BrowserSemanticContextClassifier.supportsResearchFallback(event)
+        }
+    }
+
+    private func freshContentContextEvents(now: Date) -> [ObserverEvent] {
+        ((try? environment.eventStore.recentEvents(limit: 120)) ?? [])
+            .filter { event in
+                guard event.type == .contentContext,
+                      now.timeIntervalSince(event.timestamp) <= 90
+                else {
+                    return false
+                }
+                guard let currentFocus else { return true }
+                return event.appID == currentFocus.appID || currentFocus.isCommunicationContext
+            }
     }
 
     private func personalCommunicationLine(events: [ObserverEvent]) -> String? {
@@ -744,6 +801,12 @@ final class ObserverController {
             return true
         }
         let lower = line.lowercased()
+        if hasFreshBrowserCommunicationContext(now: Date()) {
+            return lower.hasPrefix("переписк")
+                || lower.hasPrefix("сообщен")
+                || lower.contains("женой")
+                || lower.contains("личн")
+        }
         if currentFocus.isCommunicationContext {
             return lower.hasPrefix("переписк")
                 || lower.hasPrefix("сообщен")
