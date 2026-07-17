@@ -72,6 +72,40 @@ struct DashboardReadModelBuilderTests {
     }
 
     @Test
+    func separatesUserTimeFromDelegatedAgentTime() {
+        let calendar = Calendar(identifier: .gregorian)
+        let day = calendar.date(from: DateComponents(year: 2026, month: 7, day: 17, hour: 10))!
+        let slice = event(
+            type: .contextSlice,
+            at: day,
+            payload: [
+                "started_at": ISO8601DateFormatter().string(from: day),
+                "ended_at": ISO8601DateFormatter().string(from: day.addingTimeInterval(900)),
+                "active_seconds": "900",
+                "assignment_state": "assigned",
+                "activity_kind": "ai_assisted_work",
+                "primary_actor": "codex",
+                "engagement_mode": "delegated_background",
+                "user_supervising_seconds": "120",
+                "user_attributable_seconds": "120",
+                "delegated_background_seconds": "780",
+                "agency_confidence": "0.90"
+            ]
+        )
+
+        let snapshot = DashboardReadModelBuilder().buildDaySnapshot(
+            events: [slice],
+            date: day,
+            timezone: TimeZone(secondsFromGMT: 0)!,
+            settings: .defaults
+        )
+
+        #expect(snapshot.totals.activeSeconds == 120)
+        #expect(snapshot.timelineSegments.first?.agentExecutionSeconds == 780)
+        #expect(snapshot.timelineSegments.first?.primaryActor == "codex")
+    }
+
+    @Test
     func exposesSensorChannelsWithoutRawPayloads() {
         let now = Date()
         let snapshot = DashboardReadModelBuilder().buildDaySnapshot(

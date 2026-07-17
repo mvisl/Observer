@@ -47,6 +47,12 @@ struct DashboardTimelineSegment: Codable, Identifiable {
     let start: Date
     let end: Date
     let activeSeconds: Double
+    let elapsedSeconds: Double
+    let userAttributableSeconds: Double
+    let agentExecutionSeconds: Double
+    let primaryActor: String
+    let engagementMode: String
+    let agencyConfidence: Double
     let threadId: String?
     let threadName: String
     let episodeId: String?

@@ -87,6 +87,7 @@ struct WorkHierarchyBuilder {
     private struct Leaf {
         var path: Path
         var seconds: Double = 0
+        var agentSeconds: Double = 0
         var intervals: [String] = []
         var apps: Set<String> = []
         var activityKinds: Set<String> = []
@@ -94,6 +95,8 @@ struct WorkHierarchyBuilder {
         var reasonCodes: Set<String> = []
         var confidences: [WorkNodeType: Double] = [:]
         var resources: Set<Resource> = []
+        var engagementModes: Set<String> = []
+        var actors: Set<String> = []
     }
 
     private struct Resource: Hashable {
@@ -123,8 +126,14 @@ struct WorkHierarchyBuilder {
         var globalUnassignedSeconds: Double = 0
 
         for slice in slices {
-            let seconds = Double(slice.payload["active_seconds"] ?? "") ?? 0
+            let agency = AgencyAttributionBuilder().applyFallback(to: slice)
+            let seconds = agency.userAttributableSeconds
+            let agentSeconds = agency.agentExecutionSeconds
             guard seconds > 0 else {
+                if agentSeconds <= 0 {
+                    continue
+                }
+                globalUnassignedSeconds += 0
                 continue
             }
             let thread = slice.payload["activity_thread_id"].flatMap { threadsByID[$0] }
@@ -139,6 +148,9 @@ struct WorkHierarchyBuilder {
 
             var leaf = leaves[assignment.path] ?? Leaf(path: assignment.path)
             leaf.seconds += seconds
+            leaf.agentSeconds += agentSeconds
+            leaf.engagementModes.insert(agency.engagementMode.rawValue)
+            leaf.actors.insert(agency.primaryActor.rawValue)
             leaf.intervals.append(timeRange(slice))
             leaf.apps.formUnion(apps(from: episode))
             leaf.apps.formUnion(apps(from: thread))
@@ -441,8 +453,10 @@ struct WorkHierarchyBuilder {
                         let attempt = leaf.path.attempt ?? "Неуточнённый шаг"
                         sections.append("""
                         - \(safeReportText(attempt)) — \(formatDuration(leaf.seconds))
+                          Агентское выполнение/ожидание: \(formatDuration(leaf.agentSeconds))
                           Интервалы: \(leaf.intervals.prefix(5).joined(separator: ", "))
                           Приложения: \(safeReportText(leaf.apps.sorted().joined(separator: " → ")))
+                          Роли: \(leaf.actors.sorted().joined(separator: ", ")) / \(leaf.engagementModes.sorted().joined(separator: ", "))
                           ActivityKind: \(leaf.activityKinds.sorted().joined(separator: ", "))
                           Ресурсы: \(resourceLine(leaf.resources))
                           Confidence: \(confidenceLine(leaf.confidences))

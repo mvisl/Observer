@@ -61,6 +61,10 @@ struct ContextFabricBuilderTests {
         #expect(result.contextSlices.count == 1)
         #expect(result.assignments.first?["assignment_state"] == "assigned")
         #expect(result.contextSlices.first?["activity_kind"] == "ai_assisted")
+        #expect(result.contextSlices.first?["primary_actor"] == "user")
+        #expect(result.contextSlices.first?["engagement_mode"] == "formulating")
+        #expect(result.contextSlices.first?["user_attributable_seconds"] != nil)
+        #expect(result.contextSlices.first?["agent_execution_seconds"] != nil)
     }
 
     @Test func duplicatePersistedEventIDsDoNotCrashContextBuild() {

@@ -14,6 +14,12 @@ export type TimelineSegment = {
   start: string;
   end: string;
   activeSeconds: number;
+  elapsedSeconds: number;
+  userAttributableSeconds: number;
+  agentExecutionSeconds: number;
+  primaryActor: string;
+  engagementMode: string;
+  agencyConfidence: number;
   threadId?: string;
   threadName: string;
   episodeId?: string;

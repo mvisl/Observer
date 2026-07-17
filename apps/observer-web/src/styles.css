@@ -1287,13 +1287,20 @@ p { margin: 0; }
 .public-empty-day h2,
 .public-empty-day p { margin: 0; }
 .public-empty-day p { color: var(--text-secondary); max-width: 52ch; line-height: 1.45; }
-.public-empty-day button {
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.public-empty-day button,
+.public-empty-day a {
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 8px 12px;
   background: var(--surface-secondary);
   color: var(--text-primary);
   cursor: pointer;
+  text-decoration: none;
 }
 .trust-status {
   display: grid;

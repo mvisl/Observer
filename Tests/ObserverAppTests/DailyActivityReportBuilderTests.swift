@@ -128,7 +128,7 @@ struct DailyActivityReportBuilderTests {
             day: now
         )
 
-        #expect(result.markdown.contains("## Проекты и задачи"))
+        #expect(result.markdown.contains("## Проекты и намерения"))
         #expect(result.markdown.contains("### Oboard"))
         #expect(result.markdown.contains("#### Dashboard"))
         #expect(result.markdown.contains("##### Улучшение Dashboard"))
@@ -136,7 +136,9 @@ struct DailyActivityReportBuilderTests {
         #expect(result.markdown.contains("Обсуждение текущего решения"))
         #expect(result.markdown.contains("Приложения: ChatGPT → Codex → Figma"))
         #expect(result.markdown.contains("Приложения: Viber"))
-        #expect(result.markdown.contains("## Хронология по задачам"))
+        #expect(result.markdown.contains("## Пользовательское время"))
+        #expect(result.markdown.contains("## Делегированная агентская работа"))
+        #expect(result.markdown.contains("## Хронология намерений"))
         #expect(!result.markdown.contains("## Task Breakdown"))
     }
 

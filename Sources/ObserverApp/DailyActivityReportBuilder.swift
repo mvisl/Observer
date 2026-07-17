@@ -20,13 +20,15 @@ struct DailyActivityReportBuilder {
         let objectPresenceEvents = dayEvents.filter { $0.type == .objectPresence }
 
         let observedSeconds = observedTime(from: dayEvents)
-        let activeSeconds = sum(slices, key: "active_seconds")
+        let elapsedActiveSeconds = sum(slices, key: "active_seconds")
+        let totalUserAttributableSeconds = slices.map(userAttributableSeconds).reduce(0, +)
+        let agentExecutionSeconds = slices.map(agentExecutionSeconds).reduce(0, +)
         let assignedSeconds = slices
             .filter { $0.payload["assignment_state"] == "assigned" && $0.payload["activity_thread_id"]?.isEmpty == false }
-            .compactMap { Double($0.payload["active_seconds"] ?? "") }
+            .map(userAttributableSeconds)
             .reduce(0, +)
-        let unassignedSeconds = max(0, activeSeconds - assignedSeconds)
-        let coverage = observedSeconds > 0 ? min(1, activeSeconds / observedSeconds) : 0
+        let unassignedSeconds = max(0, totalUserAttributableSeconds - assignedSeconds)
+        let coverage = observedSeconds > 0 ? min(1, totalUserAttributableSeconds / observedSeconds) : 0
 
         let confidenceBuckets = confidenceDistribution(assignments)
         let workHierarchy = WorkHierarchyBuilder().build(
@@ -52,7 +54,10 @@ struct DailyActivityReportBuilder {
             "assigned_intervals": "\(slices.filter { $0.payload["assignment_state"] == "assigned" }.count)",
             "unassigned_intervals": "\(slices.filter { $0.payload["assignment_state"] != "assigned" }.count)",
             "observed_seconds": String(format: "%.1f", observedSeconds),
-            "active_seconds": String(format: "%.1f", activeSeconds),
+            "active_seconds": String(format: "%.1f", elapsedActiveSeconds),
+            "elapsed_active_seconds": String(format: "%.1f", elapsedActiveSeconds),
+            "user_attributable_seconds": String(format: "%.1f", totalUserAttributableSeconds),
+            "agent_execution_seconds": String(format: "%.1f", agentExecutionSeconds),
             "assigned_active_seconds": String(format: "%.1f", assignedSeconds),
             "unassigned_active_seconds": String(format: "%.1f", unassignedSeconds),
             "coverage": String(format: "%.2f", coverage),
@@ -70,24 +75,33 @@ struct DailyActivityReportBuilder {
         let markdown = """
         # Daily Activity Report
 
-        ## Summary
+        ## Качество покрытия
 
         - Date: \(dateString(startOfDay))
         - Observed time: \(formatDuration(observedSeconds))
-        - Active time: \(formatDuration(activeSeconds))
-        - Attributable active time: \(formatDuration(activeSeconds))
-        - Assigned active time: \(formatDuration(assignedSeconds))
-        - Unassigned active time: \(formatDuration(unassignedSeconds))
+        - Raw active span time: \(formatDuration(elapsedActiveSeconds))
+        - User-attributable time: \(formatDuration(totalUserAttributableSeconds))
+        - Agent execution / waiting time: \(formatDuration(agentExecutionSeconds))
         - Coverage: \(Int((coverage * 100).rounded()))%
         - Activity threads: \(threads.count)
         - Meetings: \(meetingEpisodes.count); calls: \(callEpisodes.count); action items: \(actionItems.count)
         - Confidence: high \(confidenceBuckets.high), medium \(confidenceBuckets.medium), low \(confidenceBuckets.low)
 
-        ## Проекты и задачи
+        ## Проекты и намерения
 
         \(workHierarchy.projectMarkdown)
 
-        ## Хронология по задачам
+        ## Пользовательское время
+
+        - Assigned user time: \(formatDuration(assignedSeconds))
+        - Unassigned user time: \(formatDuration(unassignedSeconds))
+        \(userTimeBreakdownLines(slices: slices))
+
+        ## Делегированная агентская работа
+
+        \(agentWorkLines(slices: slices, episodes: episodes))
+
+        ## Хронология намерений
 
         \(workHierarchy.timelineMarkdown)
 
@@ -114,7 +128,7 @@ struct DailyActivityReportBuilder {
         - Object presence evidence: \(objectPresenceEvents.count)
         - Episodes: \(episodes.count)
         - Assignments: \(assignments.count)
-        - Double-count guard: context slices are episode-bounded and non-overlapping.
+        - Double-count guard: context slices are episode-bounded and non-overlapping; user time is separated from agent execution.
         - Tracker sends nothing outside the machine and creates no actions.
         - Predictor remains gated by readiness.
         """
@@ -126,12 +140,12 @@ struct DailyActivityReportBuilder {
         threads.compactMap { thread in
             let threadID = thread.payload["activity_thread_id"] ?? ""
             let threadSlices = slices.filter { $0.payload["activity_thread_id"] == threadID }
-            let seconds = sum(threadSlices, key: "active_seconds")
+            let seconds = threadSlices.map(userAttributableSeconds).reduce(0, +)
             guard seconds > 0 else {
                 return nil
             }
             let kinds = Dictionary(grouping: threadSlices, by: { $0.payload["activity_kind"] ?? "unknown" })
-                .map { "\($0.key): \(formatDuration(sum($0.value, key: "active_seconds")))" }
+                .map { "\($0.key): \(formatDuration($0.value.map(userAttributableSeconds).reduce(0, +)))" }
                 .sorted()
                 .joined(separator: "; ")
             let apps = episodes
@@ -150,7 +164,8 @@ struct DailyActivityReportBuilder {
     private func timelineLines(slices: [ObserverEvent]) -> String {
         slices.sorted { $0.timestamp < $1.timestamp }.map { slice in
             let state = slice.payload["assignment_state"] == "assigned" ? "assigned" : "unassigned"
-            return "- \(timeRange(slice)): \(state), \(slice.payload["activity_kind"] ?? "unknown"), \(formatDuration(Double(slice.payload["active_seconds"] ?? "") ?? 0))"
+            let agency = AgencyAttributionBuilder().applyFallback(to: slice)
+            return "- \(timeRange(slice)): \(state), \(slice.payload["activity_kind"] ?? "unknown"), user \(formatDuration(agency.userAttributableSeconds)), agent \(formatDuration(agency.agentExecutionSeconds)), \(agency.primaryActor.rawValue)/\(agency.engagementMode.rawValue)"
         }.joined(separator: "\n")
     }
 
@@ -174,9 +189,37 @@ struct DailyActivityReportBuilder {
         slices
             .filter { $0.payload["assignment_state"] != "assigned" || $0.payload["activity_thread_id"]?.isEmpty != false }
             .map { slice in
-                "- \(timeRange(slice)): \(formatDuration(Double(slice.payload["active_seconds"] ?? "") ?? 0)) — insufficient content or conflicting thread candidates."
+                "- \(timeRange(slice)): \(formatDuration(userAttributableSeconds(slice))) — insufficient content or conflicting thread candidates."
             }
             .joined(separator: "\n")
+    }
+
+    private func userTimeBreakdownLines(slices: [ObserverEvent]) -> String {
+        let grouped = Dictionary(grouping: slices) { slice in
+            AgencyAttributionBuilder().applyFallback(to: slice).engagementMode.rawValue
+        }
+        let lines = grouped
+            .map { mode, modeSlices in
+                let seconds = modeSlices.map(userAttributableSeconds).reduce(0, +)
+                return (mode, seconds)
+            }
+            .filter { $0.1 > 0 }
+            .sorted { $0.1 > $1.1 }
+            .map { "- \($0.0): \(formatDuration($0.1))" }
+        return lines.isEmpty ? "- No user-attributable slices yet." : lines.joined(separator: "\n")
+    }
+
+    private func agentWorkLines(slices: [ObserverEvent], episodes: [ObserverEvent]) -> String {
+        let episodeByID = Dictionary(episodes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
+        let lines = slices.compactMap { slice -> (String, Double, String)? in
+            let agency = AgencyAttributionBuilder().applyFallback(to: slice)
+            guard agency.agentExecutionSeconds > 0 else { return nil }
+            let episode = slice.payload["episode_event_id"].flatMap { episodeByID[$0] }
+            let summary = safeReportText(slice.payload["summary"] ?? episode?.payload["summary"] ?? episode?.payload["goal"] ?? slice.payload["activity_kind"] ?? "agent work")
+            return ("- \(timeRange(slice)): \(agency.primaryActor.rawValue) · \(agency.engagementMode.rawValue) · \(formatDuration(agency.agentExecutionSeconds)) — \(summary)", agency.agentExecutionSeconds, agency.primaryActor.rawValue)
+        }
+        let sorted = lines.sorted { $0.1 > $1.1 }.map(\.0)
+        return sorted.isEmpty ? "- No delegated agent work detected yet." : sorted.prefix(16).joined(separator: "\n")
     }
 
     private func observedTime(from events: [ObserverEvent]) -> Double {
@@ -222,6 +265,14 @@ struct DailyActivityReportBuilder {
 
     private func sum(_ events: [ObserverEvent], key: String) -> Double {
         events.compactMap { Double($0.payload[key] ?? "") }.reduce(0, +)
+    }
+
+    private func userAttributableSeconds(_ event: ObserverEvent) -> Double {
+        AgencyAttributionBuilder().applyFallback(to: event).userAttributableSeconds
+    }
+
+    private func agentExecutionSeconds(_ event: ObserverEvent) -> Double {
+        AgencyAttributionBuilder().applyFallback(to: event).agentExecutionSeconds
     }
 
     private func formatDuration(_ seconds: Double) -> String {

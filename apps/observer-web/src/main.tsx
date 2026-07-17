@@ -700,16 +700,20 @@ function PublicDashboardShell() {
   }
 
   if (!hasSnapshot) {
+    const fallbackDate = formatSnapshotDay(publicReportDate);
     return (
       <main className="public-shell public-dashboard-app">
         <header className="public-day-header">
-          <div><h1>{dateWords}</h1><span>данные за выбранную дату отсутствуют</span></div>
+          <div><h1>{dateWords}</h1><span>живой срез открывается сразу; финальная сводка больше не блокирует dashboard</span></div>
           <div className="dashboard-controls"><div className="compact-range"><button className="selected" onClick={() => applyPreset("today")}>Today</button><button onClick={() => applyPreset("7d")}>7 days</button><button onClick={() => applyPreset("custom")}>Custom</button></div></div>
         </header>
-        <section className="public-empty-day">
-          <h2>Рабочий день ещё идёт</h2>
-          <p>Отчёт появится после 21:15, когда закроется последний эпизод и сформируется дневная сводка.</p>
-          <button onClick={showYesterday}>показать вчера</button>
+        <section className="public-empty-day live-partial">
+          <h2>Сегодняшний срез пока пуст</h2>
+          <p>Если Core уже запущен на рабочем Mac, локальный dashboard должен показывать текущие эпизоды сразу: открытые намерения, активные артефакты и последние evidence. В публичной витрине нет финального снапшота за этот день, поэтому вместо ожидания вечера показываю ближайший доступный срез.</p>
+          <div className="empty-actions">
+            <button onClick={showYesterday}>открыть срез {fallbackDate}</button>
+            <a href="http://127.0.0.1:43127/" target="_blank" rel="noreferrer">открыть локальный Core</a>
+          </div>
         </section>
       </main>
     );
@@ -930,7 +934,7 @@ function DayOverview({ snapshot }: { snapshot: DayDashboardSnapshot }) {
   return (
     <section className="overview" aria-label="Day overview">
       {snapshot.timelineSegments.length === 0 && (
-        <p className="muted">{snapshot.date === localDateString() ? "The working day is still in progress. Its report will appear after the window closes and the nightly job runs." : "No observed work for this local calendar day. Previous-day data is not substituted."}</p>
+        <p className="muted">{snapshot.date === localDateString() ? "No closed context slices yet. Live observations should appear here as soon as Core writes the first episode fragment; the day report no longer waits for shutdown." : "No observed work for this local calendar day. Previous-day data is not substituted."}</p>
       )}
       <div className="overview-track">
         {snapshot.timelineSegments.map((segment) => (

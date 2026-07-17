@@ -55,7 +55,7 @@ struct DashboardReadModelBuilder {
             .readinessReport(events: events, now: date)
         let outsideGateAttributedSeconds = dayEvents
             .filter { $0.type == .contextSlice && $0.payload["outside_default_schedule"] == "true" }
-            .reduce(0) { $0 + duration($1, key: "active_seconds") }
+            .reduce(0) { $0 + userAttributableSeconds($1) }
         var readinessMetrics = readiness.payload
         readinessMetrics["outside_gate_attribution_seconds"] = String(format: "%.0f", outsideGateAttributedSeconds)
         var readinessBlockers = (readiness.payload["blockers"] ?? "")
@@ -99,6 +99,7 @@ struct DashboardReadModelBuilder {
     ) -> [DashboardTimelineSegment] {
         let episodeByID = Dictionary(episodes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { _, newer in newer })
         return slices.sorted { $0.timestamp < $1.timestamp }.map { slice in
+            let agency = AgencyAttributionBuilder().applyFallback(to: slice)
             let episodeId = slice.payload["episode_event_id"]
             let episode = episodeId.flatMap { episodeByID[$0] }
             let threadId = optionalPayload(slice, "activity_thread_id")
@@ -112,7 +113,13 @@ struct DashboardReadModelBuilder {
                 id: slice.id.uuidString,
                 start: start,
                 end: max(end, start),
-                activeSeconds: duration(slice, key: "active_seconds"),
+                activeSeconds: agency.userAttributableSeconds,
+                elapsedSeconds: duration(slice, key: "elapsed_seconds"),
+                userAttributableSeconds: agency.userAttributableSeconds,
+                agentExecutionSeconds: agency.agentExecutionSeconds,
+                primaryActor: agency.primaryActor.rawValue,
+                engagementMode: agency.engagementMode.rawValue,
+                agencyConfidence: agency.confidence,
                 threadId: threadId,
                 threadName: assigned ? (threadId.flatMap { threadNames[$0] } ?? "Linked context") : "Unassigned",
                 episodeId: episodeId,
@@ -356,10 +363,14 @@ struct DashboardReadModelBuilder {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
-}
 
-private func duration(_ event: ObserverEvent, key: String) -> Double {
-    Double(event.payload[key] ?? "") ?? 0
+    private func duration(_ event: ObserverEvent, key: String) -> Double {
+        Double(event.payload[key] ?? "") ?? 0
+    }
+
+    private func userAttributableSeconds(_ event: ObserverEvent) -> Double {
+        AgencyAttributionBuilder().applyFallback(to: event).userAttributableSeconds
+    }
 }
 
 private func dateValue(_ value: String?) -> Date? {

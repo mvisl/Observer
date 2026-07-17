@@ -291,7 +291,13 @@ struct ContextFabricBuilder {
             .reduce(0, +)
         let active = max(0, elapsed - min(elapsed, idleSeconds))
         let kind = activityKind(for: episode.payload["episode_kind"] ?? episode.payload["dominant_context"] ?? "unknown")
-        return [
+        let agency = AgencyAttributionBuilder().build(
+            episode: episode,
+            episodeEvents: episodeEvents,
+            elapsedSeconds: elapsed,
+            activeSeconds: active
+        )
+        var payload: [String: String] = [
             "context_slice_id": StableContextID.uuidString(for: "slice:\(episode.id.uuidString)"),
             "episode_event_id": episode.id.uuidString,
             "attention_span_id": latestSpanID(in: episodeEvents) ?? "",
@@ -308,6 +314,31 @@ struct ContextFabricBuilder {
             "source_event_ids": sourceIDs(for: episode, fallback: episodeEvents),
             "pipeline_version": ObserverPipeline.version
         ]
+        payload["primary_actor"] = agency.primaryActor.rawValue
+        payload["contributing_actors"] = agency.contributingActors.map(\.rawValue).joined(separator: ",")
+        payload["engagement_mode"] = agency.engagementMode.rawValue
+        payload["user_active_seconds"] = String(format: "%.1f", agency.userActiveSeconds)
+        payload["user_formulating_seconds"] = String(format: "%.1f", agency.userFormulatingSeconds)
+        payload["user_reviewing_seconds"] = String(format: "%.1f", agency.userReviewingSeconds)
+        payload["user_supervising_seconds"] = String(format: "%.1f", agency.userSupervisingSeconds)
+        payload["user_waiting_seconds"] = String(format: "%.1f", agency.userWaitingSeconds)
+        payload["user_attributable_seconds"] = String(format: "%.1f", agency.userAttributableSeconds)
+        payload["delegated_foreground_seconds"] = String(format: "%.1f", agency.delegatedForegroundSeconds)
+        payload["delegated_background_seconds"] = String(format: "%.1f", agency.delegatedBackgroundSeconds)
+        payload["agent_execution_seconds"] = String(format: "%.1f", agency.agentExecutionSeconds)
+        if let attentionShare = agency.attentionShare {
+            payload["attention_share"] = String(format: "%.3f", attentionShare)
+        }
+        if let inputShare = agency.userInputShare {
+            payload["user_input_share"] = String(format: "%.3f", inputShare)
+        }
+        if let autonomousScore = agency.autonomousChangeScore {
+            payload["autonomous_change_score"] = String(format: "%.3f", autonomousScore)
+        }
+        payload["agency_confidence"] = String(format: "%.2f", agency.confidence)
+        payload["agency_evidence_ids"] = agency.evidenceIds.map(\.uuidString).joined(separator: ",")
+        payload["agency_reason_codes"] = agency.reasonCodes.joined(separator: ",")
+        return payload
     }
 
     private func inferArtifacts(from episode: ObserverEvent, events: [ObserverEvent]) -> [[String: String]] {
