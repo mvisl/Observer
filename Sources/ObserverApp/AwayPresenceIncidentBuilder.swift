@@ -9,6 +9,7 @@ struct AwayPresenceIncidentBuilder {
     func build(
         currentAttention: AttentionSnapshot,
         missingFaceSamplesBeforeCurrent: Int,
+        confirmedAwayBeforeCurrent: Bool = false,
         input: InputActivitySnapshot?,
         currentFocus: AppFocusSnapshot?,
         activityInsight: String?
@@ -16,10 +17,10 @@ struct AwayPresenceIncidentBuilder {
         guard currentAttention.facePresent else {
             return nil
         }
-        guard missingFaceSamplesBeforeCurrent >= 12 else {
+        guard confirmedAwayBeforeCurrent || missingFaceSamplesBeforeCurrent >= 6 else {
             return nil
         }
-        guard let input, input.secondsSinceAnyInput >= 300 else {
+        guard confirmedAwayBeforeCurrent || (input?.secondsSinceAnyInput ?? 0) >= 45 else {
             return nil
         }
 
@@ -31,7 +32,7 @@ struct AwayPresenceIncidentBuilder {
             "microphone_capture": "disabled",
             "screen_image_capture": "local_on_incident",
             "visible_notice_required": "true",
-            "seconds_since_any_input": String(format: "%.1f", input.secondsSinceAnyInput),
+            "seconds_since_any_input": String(format: "%.1f", input?.secondsSinceAnyInput ?? 0),
             "missing_face_samples_before_current": "\(missingFaceSamplesBeforeCurrent)"
         ]
 

@@ -136,7 +136,7 @@ final class ObserverApp: NSObject, NSApplicationDelegate {
             onInsightRequest: { [weak self] interval in
                 self?.controller?.localInsight(forLast: interval)
             },
-            onInsightOpened: { [weak self] in
+            onSecurityArtifactsOpened: { [weak self] in
                 self?.controller?.markSecurityIncidentsSeen()
             },
             onSecurityArtifactRequest: { [weak self] in

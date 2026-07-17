@@ -8,7 +8,7 @@ final class WidgetPanelController {
 
     init(
         onInsightRequest: @escaping (TimeInterval) -> String?,
-        onInsightOpened: @escaping () -> Void,
+        onSecurityArtifactsOpened: @escaping () -> Void,
         onSecurityArtifactRequest: @escaping () -> URL?,
         onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
         onCalibrationAction: @escaping (String) -> Void,
@@ -18,7 +18,7 @@ final class WidgetPanelController {
         widgetView = ObserverWidgetView(
             frame: NSRect(origin: .zero, size: size),
             onInsightRequest: onInsightRequest,
-            onInsightOpened: onInsightOpened,
+            onSecurityArtifactsOpened: onSecurityArtifactsOpened,
             onSecurityArtifactRequest: onSecurityArtifactRequest,
             onCalibrationSample: onCalibrationSample,
             onCalibrationAction: onCalibrationAction,
@@ -174,6 +174,9 @@ final class WidgetPanelController {
             )
         }
         let clampedOrigin = clampedOrigin(proposedOrigin, size: clampedSize)
+        if window.frame.size == clampedSize, window.frame.origin == clampedOrigin {
+            return
+        }
         window.setFrame(NSRect(origin: clampedOrigin, size: clampedSize), display: true)
         if persist {
             saveWidgetOrigin(clampedOrigin)
@@ -336,7 +339,7 @@ final class ObserverWidgetView: NSView {
     private let metaLabel = NSTextField(labelWithString: "Camera: display 1, right")
     private let hintLabel = NSTextField(labelWithString: "")
     private let onInsightRequest: (TimeInterval) -> String?
-    private let onInsightOpened: () -> Void
+    private let onSecurityArtifactsOpened: () -> Void
     private let onSecurityArtifactRequest: () -> URL?
     private let onCalibrationSample: (Int, Int, Int?, Int?) -> Void
     private let onCalibrationAction: (String) -> Void
@@ -371,14 +374,14 @@ final class ObserverWidgetView: NSView {
     init(
         frame frameRect: NSRect,
         onInsightRequest: @escaping (TimeInterval) -> String?,
-        onInsightOpened: @escaping () -> Void,
+        onSecurityArtifactsOpened: @escaping () -> Void,
         onSecurityArtifactRequest: @escaping () -> URL?,
         onCalibrationSample: @escaping (Int, Int, Int?, Int?) -> Void,
         onCalibrationAction: @escaping (String) -> Void,
         onExitRequest: @escaping () -> Void
     ) {
         self.onInsightRequest = onInsightRequest
-        self.onInsightOpened = onInsightOpened
+        self.onSecurityArtifactsOpened = onSecurityArtifactsOpened
         self.onSecurityArtifactRequest = onSecurityArtifactRequest
         self.onCalibrationSample = onCalibrationSample
         self.onCalibrationAction = onCalibrationAction
@@ -823,7 +826,6 @@ final class ObserverWidgetView: NSView {
         hideCalibrationControls()
         updateInsightContent()
         layoutSubtreeIfNeeded()
-        onInsightOpened()
         let expandedHeight = insightExpandedHeight()
         WidgetPanelController.applyWidgetSize(
             CGSize(width: window.frame.width, height: expandedHeight),
@@ -1194,6 +1196,7 @@ final class ObserverWidgetView: NSView {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+        onSecurityArtifactsOpened()
     }
 
     private func segmentForMinutes(_ minutes: Int) -> Int {

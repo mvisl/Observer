@@ -104,6 +104,7 @@ final class ObserverController {
     private var lastCameraPersistedAt: Date?
     private var lastCameraEvidenceSignature: String?
     private var lastCameraEvidenceAt: Date?
+    private var localInsightCache: (interval: TimeInterval, createdAt: Date, text: String)?
     private var lastCognitiveEvaluationAt: Date?
     private var lastCameraHealthAt: Date?
     private var cameraHealthSamples: [(timestamp: Date, facePresent: Bool, confidence: Double)] = []
@@ -1456,6 +1457,11 @@ final class ObserverController {
 
     func localInsight(forLast interval: TimeInterval) -> String {
         let now = Date()
+        if let cached = localInsightCache,
+           cached.interval == interval,
+           now.timeIntervalSince(cached.createdAt) < 8 {
+            return cached.text
+        }
         let cutoff = interval > 0
             ? now.addingTimeInterval(-interval)
             : Calendar.current.startOfDay(for: now)
@@ -1472,7 +1478,7 @@ final class ObserverController {
         let state = cleanInsightFragment(events.reversed().first { $0.type == .cognitiveState }?.payload["state"])
         let intervalLabel = insightIntervalLabel(interval)
 
-        return [
+        let text = [
             securityLine,
             "\(intervalLabel): \(semanticFocusSummary(events))",
             cameraCandidateSummary(events),
@@ -1485,6 +1491,8 @@ final class ObserverController {
         .compactMap { $0 }
         .prefix(5)
         .joined(separator: "\n")
+        localInsightCache = (interval, now, text)
+        return text
     }
 
     func markSecurityIncidentsSeen() {
@@ -2740,6 +2748,9 @@ final class ObserverController {
         let previousAttentionAt = latestAttentionAt
         let missingFaceSamplesBeforeCurrent = consecutiveMissingFaceSamples
         let now = Date()
+        let hadConfirmedPresenceBeforeCurrent = lastConfirmedPresenceAt != nil
+        let confirmedAwayBeforeCurrent = awayStartedAt != nil
+            || (hadConfirmedPresenceBeforeCurrent && !isPresenceActive(now: now))
         latestAttention = snapshot
         latestAttentionAt = now
         updatePresence(facePresent: snapshot.facePresent, input: nil, now: now)
@@ -2779,6 +2790,7 @@ final class ObserverController {
         recordAwayPresenceIncidentIfNeeded(
             currentAttention: snapshot,
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
+            confirmedAwayBeforeCurrent: confirmedAwayBeforeCurrent,
             now: now
         )
         releaseSecurityIncidentsIfOwnerReturned(now: now)
@@ -3498,6 +3510,7 @@ final class ObserverController {
     private func recordAwayPresenceIncidentIfNeeded(
         currentAttention: AttentionSnapshot,
         missingFaceSamplesBeforeCurrent: Int,
+        confirmedAwayBeforeCurrent: Bool,
         now: Date = Date()
     ) {
         guard mode == .observing else {
@@ -3506,6 +3519,7 @@ final class ObserverController {
         guard let incident = AwayPresenceIncidentBuilder().build(
             currentAttention: currentAttention,
             missingFaceSamplesBeforeCurrent: missingFaceSamplesBeforeCurrent,
+            confirmedAwayBeforeCurrent: confirmedAwayBeforeCurrent,
             input: latestInputActivity,
             currentFocus: currentFocus,
             activityInsight: nil
@@ -3566,26 +3580,6 @@ final class ObserverController {
             return
         }
 
-        let recentOwnerInput = (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5
-        if recentOwnerInput {
-            pendingAwayPresenceIncident = nil
-            ownerFaceRecognizer.learnOwnerFace(from: pending.jpegData)
-            append(
-                .init(
-                    type: .awayPresenceIncident,
-                    displayRole: pending.displayRole,
-                    appID: pending.appID,
-                    confidence: min(pending.confidence, 0.45),
-                    payload: pending.payload.merging([
-                        "review_state": "dismissed_owner_returned",
-                        "media_written": "false"
-                    ]) { current, _ in current },
-                    workspaceTopologyVersion: environment.topology.version
-                )
-            )
-            return
-        }
-
         if ownerFaceRecognizer.isOwnerFace(pending.jpegData) == true {
             pendingAwayPresenceIncident = nil
             append(
@@ -3605,7 +3599,9 @@ final class ObserverController {
             return
         }
 
-        guard now.timeIntervalSince(pending.firstSeenAt) >= 45 else {
+        let ownerHasReturned = smoothedAttentionForDisplay?.facePresent == true
+            && (latestInputActivity?.secondsSinceAnyInput ?? .greatestFiniteMagnitude) <= 5
+        guard now.timeIntervalSince(pending.firstSeenAt) >= 8 || ownerHasReturned else {
             return
         }
 

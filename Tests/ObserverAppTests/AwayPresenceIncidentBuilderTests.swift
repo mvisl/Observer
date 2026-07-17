@@ -17,6 +17,32 @@ struct AwayPresenceIncidentBuilderTests {
         #expect(incident.payload["microphone_capture"] == "disabled")
     }
 
+    @Test func detectsShortProtectiveAbsenceWhenFaceReappearsAfterIdle() throws {
+        let incident = try #require(AwayPresenceIncidentBuilder().build(
+            currentAttention: facePresent(),
+            missingFaceSamplesBeforeCurrent: 6,
+            input: input(secondsSinceAnyInput: 45),
+            currentFocus: focus(),
+            activityInsight: nil
+        ))
+
+        #expect(incident.payload["cue"] == "presence_detected_after_away")
+        #expect(incident.payload["seconds_since_any_input"] == "45.0")
+    }
+
+    @Test func confirmedAwayDoesNotRequireLongMissingFaceWindow() throws {
+        let incident = try #require(AwayPresenceIncidentBuilder().build(
+            currentAttention: facePresent(),
+            missingFaceSamplesBeforeCurrent: 1,
+            confirmedAwayBeforeCurrent: true,
+            input: input(secondsSinceAnyInput: 10),
+            currentFocus: focus(),
+            activityInsight: nil
+        ))
+
+        #expect(incident.payload["cue"] == "presence_detected_after_away")
+    }
+
     @Test func ignoresNormalPresentUser() {
         let incident = AwayPresenceIncidentBuilder().build(
             currentAttention: facePresent(),
